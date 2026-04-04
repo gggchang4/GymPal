@@ -89,3 +89,64 @@ export interface ExerciseItem {
   level: string;
   notes: string[];
 }
+
+export interface MacroTarget {
+  target: number;
+  recommend: number;
+  remaining: number;
+}
+
+export interface DietFoodNutrition {
+  protein: number;
+  carbohydrate: number;
+  fat: number;
+  fiber?: number;
+}
+
+export interface DietFoodReplacement {
+  name: string;
+  weight: number;
+  calorie: number;
+  cooking: string;
+  nutrition: DietFoodNutrition;
+}
+
+export interface DietFood {
+  name: string;
+  weight: number;
+  calorie: number;
+  cooking: string;
+  nutrition: DietFoodNutrition;
+  replaceable: DietFoodReplacement[];
+}
+
+export type DietMealType = "breakfast" | "lunch" | "dinner";
+
+export interface DietMeal {
+  mealType: DietMealType;
+  totalCalorie: number;
+  foods: DietFood[];
+}
+
+export interface DietRecommendationSnapshot {
+  id: string;
+  date: string;
+  userGoal: string;
+  totalCalorie: number;
+  targetCalorie: number;
+  nutritionRatio: {
+    carbohydrate: number;
+    protein: number;
+    fat: number;
+  };
+  nutritionDetail: {
+    protein: MacroTarget;
+    carbohydrate: MacroTarget;
+    fat: MacroTarget;
+    fiber: MacroTarget;
+  };
+  meals: DietMeal[];
+  agentTips: string[];
+  remark?: string;
+  fitTips?: string;
+}

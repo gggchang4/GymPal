@@ -2,6 +2,7 @@ import {
   AgentCard,
   CreateThreadResponse,
   DashboardSnapshot,
+  DietRecommendationSnapshot,
   ExerciseItem,
   PostMessageResponse,
   RunStepEventPayload,
@@ -129,6 +130,230 @@ export async function getCurrentPlan(): Promise<WorkoutPlanDay[]> {
       recoveryTip: "把这天当作下一周执行率的启动器。"
     }
   ]);
+}
+
+export async function getTodayDietRecommendation(): Promise<DietRecommendationSnapshot> {
+  return safeJson(`${backendBaseUrl}/diet-recommendation/today`, undefined, {
+    id: "diet-fallback",
+    date: new Date().toISOString(),
+    userGoal: "fat_loss",
+    totalCalorie: 2040,
+    targetCalorie: 2150,
+    nutritionRatio: {
+      carbohydrate: 45,
+      protein: 35,
+      fat: 20
+    },
+    nutritionDetail: {
+      protein: { target: 150, recommend: 141, remaining: 9 },
+      carbohydrate: { target: 210, recommend: 181, remaining: 29 },
+      fat: { target: 85, recommend: 81, remaining: 4 },
+      fiber: { target: 35, recommend: 37, remaining: -2 }
+    },
+    meals: [
+      {
+        mealType: "breakfast",
+        totalCalorie: 570,
+        foods: [
+          {
+            name: "Greek yogurt bowl",
+            weight: 320,
+            calorie: 260,
+            cooking: "cold prep",
+            nutrition: { protein: 24, carbohydrate: 32, fat: 6, fiber: 5 },
+            replaceable: [
+              {
+                name: "soy yogurt bowl",
+                weight: 300,
+                calorie: 240,
+                cooking: "cold prep",
+                nutrition: { protein: 20, carbohydrate: 30, fat: 7, fiber: 6 }
+              }
+            ]
+          },
+          {
+            name: "almonds",
+            weight: 18,
+            calorie: 110,
+            cooking: "raw",
+            nutrition: { protein: 4, carbohydrate: 4, fat: 10, fiber: 2 },
+            replaceable: [
+              {
+                name: "walnuts",
+                weight: 16,
+                calorie: 105,
+                cooking: "raw",
+                nutrition: { protein: 3, carbohydrate: 2, fat: 10, fiber: 1 }
+              }
+            ]
+          },
+          {
+            name: "oats",
+            weight: 55,
+            calorie: 200,
+            cooking: "boiled",
+            nutrition: { protein: 8, carbohydrate: 28, fat: 5, fiber: 4 },
+            replaceable: [
+              {
+                name: "whole-grain toast",
+                weight: 90,
+                calorie: 190,
+                cooking: "toasted",
+                nutrition: { protein: 7, carbohydrate: 31, fat: 3, fiber: 4 }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        mealType: "lunch",
+        totalCalorie: 760,
+        foods: [
+          {
+            name: "chicken breast",
+            weight: 160,
+            calorie: 260,
+            cooking: "pan seared",
+            nutrition: { protein: 42, carbohydrate: 0, fat: 8, fiber: 0 },
+            replaceable: [
+              {
+                name: "shrimp",
+                weight: 170,
+                calorie: 220,
+                cooking: "steamed",
+                nutrition: { protein: 40, carbohydrate: 2, fat: 3, fiber: 0 }
+              }
+            ]
+          },
+          {
+            name: "brown rice",
+            weight: 180,
+            calorie: 220,
+            cooking: "steamed",
+            nutrition: { protein: 5, carbohydrate: 46, fat: 2, fiber: 3 },
+            replaceable: [
+              {
+                name: "sweet potato",
+                weight: 210,
+                calorie: 210,
+                cooking: "roasted",
+                nutrition: { protein: 4, carbohydrate: 43, fat: 1, fiber: 6 }
+              }
+            ]
+          },
+          {
+            name: "avocado",
+            weight: 80,
+            calorie: 120,
+            cooking: "sliced",
+            nutrition: { protein: 2, carbohydrate: 6, fat: 11, fiber: 5 },
+            replaceable: [
+              {
+                name: "olive oil",
+                weight: 14,
+                calorie: 120,
+                cooking: "drizzle",
+                nutrition: { protein: 0, carbohydrate: 0, fat: 14, fiber: 0 }
+              }
+            ]
+          },
+          {
+            name: "broccoli",
+            weight: 180,
+            calorie: 160,
+            cooking: "steamed",
+            nutrition: { protein: 10, carbohydrate: 18, fat: 2, fiber: 7 },
+            replaceable: [
+              {
+                name: "asparagus",
+                weight: 180,
+                calorie: 90,
+                cooking: "grilled",
+                nutrition: { protein: 8, carbohydrate: 10, fat: 1, fiber: 5 }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        mealType: "dinner",
+        totalCalorie: 710,
+        foods: [
+          {
+            name: "salmon",
+            weight: 150,
+            calorie: 300,
+            cooking: "oven baked",
+            nutrition: { protein: 34, carbohydrate: 0, fat: 18, fiber: 0 },
+            replaceable: [
+              {
+                name: "lean beef",
+                weight: 140,
+                calorie: 280,
+                cooking: "stir fried",
+                nutrition: { protein: 31, carbohydrate: 0, fat: 16, fiber: 0 }
+              }
+            ]
+          },
+          {
+            name: "olive oil",
+            weight: 12,
+            calorie: 100,
+            cooking: "dressing",
+            nutrition: { protein: 0, carbohydrate: 0, fat: 12, fiber: 0 },
+            replaceable: [
+              {
+                name: "avocado",
+                weight: 70,
+                calorie: 105,
+                cooking: "sliced",
+                nutrition: { protein: 2, carbohydrate: 5, fat: 10, fiber: 4 }
+              }
+            ]
+          },
+          {
+            name: "quinoa",
+            weight: 160,
+            calorie: 190,
+            cooking: "boiled",
+            nutrition: { protein: 7, carbohydrate: 33, fat: 3, fiber: 4 },
+            replaceable: [
+              {
+                name: "corn",
+                weight: 180,
+                calorie: 180,
+                cooking: "steamed",
+                nutrition: { protein: 6, carbohydrate: 34, fat: 2, fiber: 4 }
+              }
+            ]
+          },
+          {
+            name: "mixed greens",
+            weight: 170,
+            calorie: 120,
+            cooking: "olive oil toss",
+            nutrition: { protein: 5, carbohydrate: 14, fat: 4, fiber: 7 },
+            replaceable: [
+              {
+                name: "spinach salad",
+                weight: 170,
+                calorie: 105,
+                cooking: "light dressing",
+                nutrition: { protein: 5, carbohydrate: 11, fat: 4, fiber: 6 }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    agentTips: [
+      "Keep lunch as the highest-volume meal to improve afternoon satiety.",
+      "Prioritize the dinner protein serving within 60 minutes after training.",
+      "If hunger rises at night, add low-calorie vegetables before increasing carbs."
+    ],
+    remark: "把脂肪来源拆成牛油果、坚果和橄榄油之后，盘中的结构会更直观，也更容易在执行时做替换。",
+    fitTips: "减脂期建议把午餐做成体积最大的一餐，蛋白质分散到三餐，脂肪来源尽量用坚果、牛油果和橄榄油来完成。"
+  });
 }
 
 export async function getExercises(): Promise<ExerciseItem[]> {
