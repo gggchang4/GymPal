@@ -1,10 +1,10 @@
 "use client";
 
+import Image from "next/image";
+import { useEffect, useRef, useState } from "react";
 import { AgentCardList } from "@/components/cards";
 import { createThread, postMessage, streamRun } from "@/lib/api";
 import { AgentCard, AgentMessage, RunStepType, StreamEvent } from "@/lib/types";
-import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
 
 interface TimelineEvent {
   id: string;
@@ -64,7 +64,9 @@ function getCardPayload(payload: Record<string, unknown>): AgentCard | null {
     type: type as AgentCard["type"],
     title,
     description,
-    bullets: Array.isArray(bullets) ? bullets.filter((item): item is string => typeof item === "string") : []
+    bullets: Array.isArray(bullets)
+      ? bullets.filter((item): item is string => typeof item === "string")
+      : []
   };
 }
 
@@ -77,11 +79,13 @@ export default function ChatPage() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("等待输入");
   const initializedRef = useRef(false);
+  const threadPromiseRef = useRef<Promise<string> | null>(null);
 
   useEffect(() => {
     if (initializedRef.current) {
       return;
     }
+
     initializedRef.current = true;
 
     createThread()
@@ -99,9 +103,18 @@ export default function ChatPage() {
       return threadId;
     }
 
-    const result = await createThread();
-    setThreadId(result.threadId);
-    return result.threadId;
+    if (!threadPromiseRef.current) {
+      threadPromiseRef.current = createThread()
+        .then((result) => {
+          setThreadId(result.threadId);
+          return result.threadId;
+        })
+        .finally(() => {
+          threadPromiseRef.current = null;
+        });
+    }
+
+    return threadPromiseRef.current;
   }
 
   async function onSubmit() {
@@ -279,7 +292,7 @@ export default function ChatPage() {
             rows={4}
             value={text}
             onChange={(event) => setText(event.target.value)}
-            placeholder="给 GymPal 发消息"
+            placeholder="给 GymPal 发送消息"
           />
           <div className="chat-composer-row">
             <div className="chip-row">

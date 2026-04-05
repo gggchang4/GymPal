@@ -3,13 +3,18 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { ExerciseEquipmentIcon } from "@/components/exercise-equipment-icon";
 import {
-  equipmentOptions,
-  exerciseCatalog,
+  buildEquipmentOptions,
   getRecommendedExercises,
   type ExerciseCatalogItem
 } from "@/lib/exercise-catalog";
 
-export function ExerciseLibrarySearch({ todayFocus }: { todayFocus: string }) {
+export function ExerciseLibrarySearch({
+  catalog,
+  todayFocus
+}: {
+  catalog: ExerciseCatalogItem[];
+  todayFocus: string;
+}) {
   const [query, setQuery] = useState("");
   const [primaryGroup, setPrimaryGroup] = useState("全部");
   const [secondaryGroup, setSecondaryGroup] = useState("全部");
@@ -17,21 +22,25 @@ export function ExerciseLibrarySearch({ todayFocus }: { todayFocus: string }) {
   const [hasSearched, setHasSearched] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState<ExerciseCatalogItem | null>(null);
 
-  const recommended = useMemo(() => getRecommendedExercises(todayFocus), [todayFocus]);
+  const recommended = useMemo(
+    () => getRecommendedExercises(catalog, todayFocus),
+    [catalog, todayFocus]
+  );
+  const equipmentOptions = useMemo(() => buildEquipmentOptions(catalog), [catalog]);
 
   const primaryGroups = useMemo(
-    () => ["全部", ...Array.from(new Set(exerciseCatalog.map((item) => item.primaryGroup)))],
-    []
+    () => ["全部", ...Array.from(new Set(catalog.map((item) => item.primaryGroup)))],
+    [catalog]
   );
 
   const secondaryGroups = useMemo(() => {
     const source =
       primaryGroup === "全部"
-        ? exerciseCatalog
-        : exerciseCatalog.filter((item) => item.primaryGroup === primaryGroup);
+        ? catalog
+        : catalog.filter((item) => item.primaryGroup === primaryGroup);
 
     return ["全部", ...Array.from(new Set(source.map((item) => item.secondaryGroup)))];
-  }, [primaryGroup]);
+  }, [catalog, primaryGroup]);
 
   useEffect(() => {
     if (!secondaryGroups.includes(secondaryGroup)) {
@@ -61,7 +70,7 @@ export function ExerciseLibrarySearch({ todayFocus }: { todayFocus: string }) {
   const filteredExercises = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
-    return exerciseCatalog.filter((item) => {
+    return catalog.filter((item) => {
       const matchesPrimary = primaryGroup === "全部" || item.primaryGroup === primaryGroup;
       const matchesSecondary = secondaryGroup === "全部" || item.secondaryGroup === secondaryGroup;
       const matchesEquipment = equipmentKey === "all" || item.equipmentKey === equipmentKey;
@@ -69,7 +78,7 @@ export function ExerciseLibrarySearch({ todayFocus }: { todayFocus: string }) {
 
       return matchesPrimary && matchesSecondary && matchesEquipment && matchesQuery;
     });
-  }, [equipmentKey, primaryGroup, query, secondaryGroup]);
+  }, [catalog, equipmentKey, primaryGroup, query, secondaryGroup]);
 
   const hasActiveCriteria =
     query.trim().length > 0 ||

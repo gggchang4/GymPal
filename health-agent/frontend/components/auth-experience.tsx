@@ -217,6 +217,7 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
             <label className="field auth-field-shell">
               <span className="form-label">昵称</span>
               <input
+                autoComplete="name"
                 value={registerForm.name}
                 placeholder="Alex Chen"
                 onChange={(event) => handleRegisterFieldChange("name", event.target.value)}
@@ -227,6 +228,9 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
           <label className="field auth-field-shell">
             <span className="form-label">邮箱</span>
             <input
+              type="email"
+              autoComplete="email"
+              autoCapitalize="none"
               value={mode === "login" ? loginForm.email : registerForm.email}
               placeholder="you@gympal.ai"
               onChange={(event) =>
@@ -241,6 +245,7 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
             <span className="form-label">密码</span>
             <input
               type="password"
+              autoComplete={mode === "login" ? "current-password" : "new-password"}
               value={mode === "login" ? loginForm.password : registerForm.password}
               placeholder="输入密码"
               onChange={(event) =>
@@ -256,6 +261,7 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
               <span className="form-label">确认密码</span>
               <input
                 type="password"
+                autoComplete="new-password"
                 value={registerForm.confirmPassword}
                 placeholder="再次输入密码"
                 onChange={(event) =>

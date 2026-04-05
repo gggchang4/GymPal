@@ -1,4 +1,3 @@
-import rawExerciseCatalog from "@/data/exercise-catalog.generated.json";
 import type { ExerciseItem } from "@/lib/types";
 
 export type ExerciseCatalogItem = ExerciseItem & {
@@ -8,19 +7,19 @@ export type ExerciseCatalogItem = ExerciseItem & {
   searchText: string;
 };
 
-export const exerciseCatalog = rawExerciseCatalog as ExerciseCatalogItem[];
-
-export const equipmentOptions = Array.from(
-  new Map(
-    exerciseCatalog.map((item) => [
-      item.equipmentKey ?? "other",
-      {
-        key: item.equipmentKey ?? "other",
-        label: item.equipment
-      }
-    ])
-  ).values()
-).sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
+export function buildEquipmentOptions(catalog: ExerciseCatalogItem[]) {
+  return Array.from(
+    new Map(
+      catalog.map((item) => [
+        item.equipmentKey ?? "other",
+        {
+          key: item.equipmentKey ?? "other",
+          label: item.equipment
+        }
+      ])
+    ).values()
+  ).sort((left, right) => left.label.localeCompare(right.label, "zh-CN"));
+}
 
 function resolvePreferredGroup(todayFocus: string) {
   const focus = todayFocus.toLowerCase();
@@ -90,12 +89,16 @@ function scoreExercise(item: ExerciseCatalogItem) {
   return score;
 }
 
-export function getRecommendedExercises(todayFocus: string, count = 4) {
+export function getRecommendedExercises(
+  catalog: ExerciseCatalogItem[],
+  todayFocus: string,
+  count = 4
+) {
   const preferredGroup = resolvePreferredGroup(todayFocus);
   const candidates =
     preferredGroup === null
-      ? exerciseCatalog
-      : exerciseCatalog.filter((item) => item.primaryGroup === preferredGroup);
+      ? catalog
+      : catalog.filter((item) => item.primaryGroup === preferredGroup);
 
   return [...candidates]
     .sort((left, right) => scoreExercise(right) - scoreExercise(left) || left.name.localeCompare(right.name))

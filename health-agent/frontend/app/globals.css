@@ -27,6 +27,11 @@ body {
   min-height: 100%;
 }
 
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
 body {
   background:
     radial-gradient(circle at top center, rgba(213, 56, 50, 0.1), transparent 18%),
