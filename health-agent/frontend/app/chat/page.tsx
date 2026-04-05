@@ -240,27 +240,41 @@ export default function ChatPage() {
               key={message.id}
               className={`message-row ${message.role === "user" ? "user" : "assistant"}`}
             >
-              <div className={`message-avatar ${message.role === "user" ? "user" : "assistant"}`}>
-                {message.role === "user" ? (
-                  <span>U</span>
-                ) : (
-                  <Image
-                    src="/brand/gympal-logo.jpg"
-                    alt="GymPal"
-                    width={36}
-                    height={36}
-                    className="message-avatar-image"
-                  />
-                )}
-              </div>
+              {message.role === "assistant" ? (
+                <>
+                  <div className="message-avatar assistant">
+                    <Image
+                      src="/brand/gympal-logo.jpg"
+                      alt="GymPal"
+                      width={36}
+                      height={36}
+                      className="message-avatar-image"
+                    />
+                  </div>
 
-              <div className={`message-bubble ${message.role === "user" ? "user" : "assistant"}`}>
-                <small>{message.role === "user" ? "You" : "GymPal"}</small>
-                <div>{message.content}</div>
-                {message.reasoningSummary ? (
-                  <p className="muted message-meta">{message.reasoningSummary}</p>
-                ) : null}
-              </div>
+                  <div className="message-bubble assistant">
+                    <small>GymPal</small>
+                    <div>{message.content}</div>
+                    {message.reasoningSummary ? (
+                      <p className="muted message-meta">{message.reasoningSummary}</p>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="message-bubble user">
+                    <small>You</small>
+                    <div>{message.content}</div>
+                    {message.reasoningSummary ? (
+                      <p className="muted message-meta">{message.reasoningSummary}</p>
+                    ) : null}
+                  </div>
+
+                  <div className="message-avatar user">
+                    <span>U</span>
+                  </div>
+                </>
+              )}
             </div>
           ))}
         </div>
