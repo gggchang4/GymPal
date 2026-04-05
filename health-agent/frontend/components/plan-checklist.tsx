@@ -95,6 +95,8 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
   const [newDraft, setNewDraft] = useState<PlanDraft>(emptyDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState<PlanDraft>(emptyDraft);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
 
   const progress = useMemo(
     () => Math.round((completed.length / Math.max(items.length, 1)) * 100),
@@ -102,6 +104,7 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
   );
 
   const nextUp = items.find((day) => !completed.includes(day.id)) ?? null;
+  const remainingCount = Math.max(items.length - completed.length, 0);
 
   useEffect(() => {
     try {
@@ -122,10 +125,13 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
       if (storedItems.length > 0) {
         setItems(storedItems);
         setCompleted(storedCompleted);
+        setExpandedId(storedItems[0]?.id ?? null);
       }
     } catch {
-      setItems(plan.map(createEditablePlanItem));
+      const nextItems = plan.map(createEditablePlanItem);
+      setItems(nextItems);
       setCompleted([]);
+      setExpandedId(nextItems[0]?.id ?? null);
     } finally {
       setStorageReady(true);
     }
@@ -160,7 +166,7 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
     }
 
     setAllCelebrating(true);
-    const timer = window.setTimeout(() => setAllCelebrating(false), 1600);
+    const timer = window.setTimeout(() => setAllCelebrating(false), 2200);
     return () => window.clearTimeout(timer);
   }, [completed.length, items.length]);
 
@@ -176,19 +182,22 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
     setCelebrating(itemId);
     window.setTimeout(() => {
       setCelebrating((current) => (current === itemId ? null : current));
-    }, 900);
+    }, 1200);
   }
 
   function handleAddItem(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextItem = buildPlanFromDraft(newDraft);
     setItems((current) => [...current, nextItem]);
+    setExpandedId(nextItem.id);
+    setComposerOpen(false);
     setNewDraft(emptyDraft);
   }
 
   function startEditing(item: EditableWorkoutPlanDay) {
     setEditingId(item.id);
     setEditingDraft(draftFromItem(item));
+    setExpandedId(item.id);
   }
 
   function cancelEditing() {
@@ -210,82 +219,93 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
     if (editingId === itemId) {
       cancelEditing();
     }
+
+    if (expandedId === itemId) {
+      const nextItem = items.find((item) => item.id !== itemId);
+      setExpandedId(nextItem?.id ?? null);
+    }
   }
 
   return (
     <div className="dash-grid">
-      <section className="todo-list">
-        <div className="todo-list-top">
+      <section className="todo-list refined">
+        <div className="todo-list-top refined">
           <div className="section-copy">
             <span className="section-label">Todo</span>
             <h3>计划清单</h3>
-            <p className="muted">悬停查看详情。列表会随着条目增加和详情展开自然向下延伸。</p>
           </div>
 
-          <div className="chip-row">
-            <span className="mini-chip">{items.length} 条计划</span>
-            <span className="mini-chip">{completed.length} 条已完成</span>
+          <div className="todo-toolbar">
+            <div className="chip-row">
+              <span className="mini-chip">{items.length} 项</span>
+              <span className="mini-chip">{completed.length} 已完成</span>
+            </div>
+            <button className="ghost-button" type="button" onClick={() => setComposerOpen((current) => !current)}>
+              {composerOpen ? "收起新建" : "新建计划"}
+            </button>
           </div>
 
-          <form className="todo-composer" onSubmit={handleAddItem}>
-            <div className="form-grid two">
-              <label className="field">
-                <span className="form-label">日期标签</span>
-                <input
-                  value={newDraft.dayLabel}
-                  onChange={(event) => setNewDraft((current) => ({ ...current, dayLabel: event.target.value }))}
-                  placeholder="例如：周二"
-                />
-              </label>
-              <label className="field">
-                <span className="form-label">时长</span>
-                <input
-                  value={newDraft.duration}
-                  onChange={(event) => setNewDraft((current) => ({ ...current, duration: event.target.value }))}
-                  placeholder="例如：40 分钟"
-                />
-              </label>
-              <label className="field span-2">
-                <span className="form-label">计划标题</span>
-                <input
-                  value={newDraft.focus}
-                  onChange={(event) => setNewDraft((current) => ({ ...current, focus: event.target.value }))}
-                  placeholder="例如：低冲击下肢与步数补齐"
-                />
-              </label>
-              <label className="field span-2">
-                <span className="form-label">动作明细</span>
-                <textarea
-                  value={newDraft.exercisesText}
-                  onChange={(event) =>
-                    setNewDraft((current) => ({ ...current, exercisesText: event.target.value }))
-                  }
-                  placeholder={"每行一个动作，例如：\n快走 35 分钟\n臀桥 3x15"}
-                />
-              </label>
-              <label className="field span-2">
-                <span className="form-label">恢复提醒</span>
-                <input
-                  value={newDraft.recoveryTip}
-                  onChange={(event) =>
-                    setNewDraft((current) => ({ ...current, recoveryTip: event.target.value }))
-                  }
-                  placeholder="例如：今晚尽量保证 7 小时以上睡眠"
-                />
-              </label>
-            </div>
-            <div className="action-row">
-              <button className="button" type="submit">
-                新增计划
-              </button>
-            </div>
-          </form>
+          {composerOpen ? (
+            <form className="todo-composer compact" onSubmit={handleAddItem}>
+              <div className="form-grid two">
+                <label className="field">
+                  <span className="form-label">日期标签</span>
+                  <input
+                    value={newDraft.dayLabel}
+                    onChange={(event) => setNewDraft((current) => ({ ...current, dayLabel: event.target.value }))}
+                    placeholder="例如：周二"
+                  />
+                </label>
+                <label className="field">
+                  <span className="form-label">时长</span>
+                  <input
+                    value={newDraft.duration}
+                    onChange={(event) => setNewDraft((current) => ({ ...current, duration: event.target.value }))}
+                    placeholder="例如：50 分钟"
+                  />
+                </label>
+                <label className="field span-2">
+                  <span className="form-label">计划标题</span>
+                  <input
+                    value={newDraft.focus}
+                    onChange={(event) => setNewDraft((current) => ({ ...current, focus: event.target.value }))}
+                    placeholder="例如：低冲击下肢与步数补齐"
+                  />
+                </label>
+                <label className="field span-2">
+                  <span className="form-label">动作明细</span>
+                  <textarea
+                    value={newDraft.exercisesText}
+                    onChange={(event) =>
+                      setNewDraft((current) => ({ ...current, exercisesText: event.target.value }))
+                    }
+                    placeholder={"每行一个动作\n快走 35 分钟\n自重深蹲 3x15"}
+                  />
+                </label>
+                <label className="field span-2">
+                  <span className="form-label">恢复提醒</span>
+                  <input
+                    value={newDraft.recoveryTip}
+                    onChange={(event) =>
+                      setNewDraft((current) => ({ ...current, recoveryTip: event.target.value }))
+                    }
+                    placeholder="例如：训练后补水并保证 7 小时以上睡眠"
+                  />
+                </label>
+              </div>
+              <div className="action-row">
+                <button className="button" type="submit">
+                  添加计划
+                </button>
+              </div>
+            </form>
+          ) : null}
         </div>
 
         {items.length === 0 ? (
           <div className="todo-empty">
             <strong>当前没有计划条目</strong>
-            <p className="muted">可以先从上面的表单新增一条，列表会从这里继续向下生长。</p>
+            <p className="muted">可以先新建一项计划，清单会自动在这里展开。</p>
           </div>
         ) : null}
 
@@ -293,10 +313,11 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
           const isDone = completed.includes(day.id);
           const isCelebrating = celebrating === day.id;
           const isEditing = editingId === day.id;
+          const isExpanded = expandedId === day.id || isEditing;
 
           return (
             <article
-              className={`todo-item ${isDone ? "done" : ""} ${isEditing ? "is-editing" : ""}`}
+              className={`todo-item refined ${isDone ? "done" : ""} ${isEditing ? "is-editing" : ""} ${isExpanded ? "is-open" : ""}`}
               key={day.id}
             >
               <button
@@ -307,14 +328,16 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
               >
                 <span className="todo-check" />
                 {isCelebrating ? (
-                  <span className="todo-confetti" aria-hidden="true">
-                    {Array.from({ length: 8 }).map((_, index) => (
+                  <span className="todo-confetti falling" aria-hidden="true">
+                    {Array.from({ length: 12 }).map((_, index) => (
                       <span
                         key={index}
-                        className="todo-confetti-piece"
+                        className="todo-confetti-piece falling"
                         style={
                           {
-                            ["--piece-rotate" as string]: `${index * 45}deg`
+                            ["--piece-delay" as string]: `${index * 40}ms`,
+                            ["--piece-left" as string]: `${8 + index * 7}%`,
+                            ["--piece-rotate" as string]: `${index * 18}deg`
                           } as CSSProperties
                         }
                       />
@@ -323,14 +346,18 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
                 ) : null}
               </button>
 
-              <div className="todo-main">
+              <button
+                type="button"
+                className="todo-main todo-toggle"
+                onClick={() => setExpandedId((current) => (current === day.id ? null : day.id))}
+                aria-expanded={isExpanded}
+              >
                 <div className="todo-main-head">
                   <span className="todo-meta">{day.dayLabel}</span>
                   <h3>{day.focus}</h3>
                 </div>
-              </div>
-
-              <span className="plan-duration">{day.duration}</span>
+                <p>{day.duration}</p>
+              </button>
 
               <div className="todo-detail">
                 <div className="todo-detail-inner">
@@ -400,8 +427,18 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
                     </form>
                   ) : (
                     <>
-                      <div className="todo-detail-copy">
-                        <p>{day.exercises.length > 0 ? day.exercises.join(" / ") : "暂无动作明细"}</p>
+                      <div className="todo-detail-grid">
+                        <div className="todo-exercise-list">
+                          {day.exercises.length > 0 ? (
+                            day.exercises.map((exercise) => (
+                              <span className="todo-exercise-chip" key={exercise}>
+                                {exercise}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="todo-exercise-chip">暂无动作明细</span>
+                          )}
+                        </div>
                         <span className="todo-note">{day.recoveryTip}</span>
                       </div>
                       <div className="todo-item-tools">
@@ -425,16 +462,19 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
         })}
       </section>
 
-      <aside className="plan-quick-panel">
-        <div className={`plan-progress-panel ${allCelebrating ? "complete" : ""}`}>
+      <aside className="plan-quick-panel refined">
+        <div className={`plan-progress-panel refined ${allCelebrating ? "complete" : ""}`}>
           {allCelebrating ? (
-            <span className="plan-complete-burst" aria-hidden="true">
-              {Array.from({ length: 12 }).map((_, index) => (
+            <span className="plan-complete-rain" aria-hidden="true">
+              {Array.from({ length: 28 }).map((_, index) => (
                 <span
                   key={index}
+                  className="plan-complete-piece"
                   style={
                     {
-                      ["--burst-rotate" as string]: `${index * 30}deg`
+                      ["--rain-left" as string]: `${(index % 14) * 7 + 2}%`,
+                      ["--rain-delay" as string]: `${(index % 7) * 90}ms`,
+                      ["--rain-rotate" as string]: `${index * 17}deg`
                     } as CSSProperties
                   }
                 />
@@ -443,49 +483,44 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
           ) : null}
 
           <div className="plan-progress-kicker">
-            <span className="section-label">进度 Progress</span>
+            <span className="section-label">Progress</span>
             <span className="mini-chip">
-              {completed.length} / {items.length}
+              {completed.length}/{items.length}
             </span>
           </div>
 
           <div className="plan-progress-head">
             <strong>{progress}%</strong>
             <p className="muted">
-              {progress === 100
-                ? "本周计划已经全部完成。"
-                : `还剩 ${Math.max(items.length - completed.length, 0)} 项待完成。`}
+              {progress === 100 ? "本周计划全部完成。" : `还剩 ${remainingCount} 项待完成。`}
             </p>
+          </div>
+
+          <div className="plan-progress-ring" aria-hidden="true">
+            <span className="plan-progress-ring-track" />
+            <span className="plan-progress-ring-fill" style={{ ["--progress" as string]: `${progress}` } as CSSProperties} />
+            <div className="plan-progress-ring-center">
+              <strong>{completed.length}</strong>
+              <small>done</small>
+            </div>
           </div>
 
           <div className="plan-progress-rail" aria-hidden="true">
             {items.map((day) => (
-              <span
-                key={day.id}
-                className={`plan-progress-step ${completed.includes(day.id) ? "done" : ""}`}
-              />
+              <span key={day.id} className={`plan-progress-step ${completed.includes(day.id) ? "done" : ""}`} />
             ))}
           </div>
 
-          <div className="plan-progress-track" aria-hidden="true">
-            <span className="plan-progress-fill" style={{ width: `${progress}%` }} />
-          </div>
-
-          <div className="plan-side-list">
-            <div className="plan-side-row">
-              <span className="metric-label">下一项 Next</span>
-              <strong>{nextUp?.focus ?? "当前清单已完成"}</strong>
-              <small>{nextUp?.duration ?? "可以新增下一条计划，或者继续优化现有安排。"}</small>
+          <div className="plan-side-list compact">
+            <div className="plan-side-row compact">
+              <span className="metric-label">Next</span>
+              <strong>{nextUp?.focus ?? "本周清单已清空"}</strong>
+              <small>{nextUp?.duration ?? "可以新增下一项计划，继续保持节奏。"}</small>
             </div>
-            <div className="plan-side-row">
-              <span className="metric-label">节奏 Rhythm</span>
-              <strong>{completed.length >= 2 ? "执行节奏已经逐步稳定" : "先把连续性建立起来"}</strong>
-              <small>先完成容易执行的条目，再慢慢补齐训练量，会比硬顶更稳。</small>
-            </div>
-            <div className="plan-side-row">
-              <span className="metric-label">规则 Rule</span>
-              <strong>恢复状态始终优先</strong>
-              <small>如果睡眠偏低或疲劳偏高，优先下调负荷，再谈推进训练节奏。</small>
+            <div className="plan-side-row compact">
+              <span className="metric-label">Rhythm</span>
+              <strong>{completed.length >= 2 ? "执行节奏稳定" : "先建立连续性"}</strong>
+              <small>把能稳定执行的条目先完成，优先保证恢复和频率。</small>
             </div>
           </div>
         </div>

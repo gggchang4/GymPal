@@ -84,9 +84,15 @@ export interface WorkoutPlanDay {
 export interface ExerciseItem {
   id: string;
   name: string;
+  primaryGroup?: string;
+  secondaryGroup?: string;
   targetMuscles: string[];
   equipment: string;
+  equipmentKey?: string;
   level: string;
+  summary?: string;
+  prescription?: string;
+  cues?: string[];
   notes: string[];
 }
 
