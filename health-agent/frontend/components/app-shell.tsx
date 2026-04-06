@@ -26,6 +26,8 @@ const authNavItems = [
   { href: "/register", label: "注册" }
 ];
 
+const routeTransitionStorageKey = "gympal-route-transition";
+
 function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
@@ -44,8 +46,10 @@ function getInitials(name: string) {
 export function AppShell({ children }: PropsWithChildren) {
   const pathname = usePathname();
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const authArrivalTimerRef = useRef<number | null>(null);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isAuthArriving, setIsAuthArriving] = useState(false);
 
   useEffect(() => {
     const syncSession = () => setSession(readAuthSession());
@@ -56,6 +60,56 @@ export function AppShell({ children }: PropsWithChildren) {
   useEffect(() => {
     setMenuOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    const isAuthPage = pathname === "/login" || pathname === "/register";
+
+    if (isAuthPage) {
+      setIsAuthArriving(false);
+      return;
+    }
+
+    const payload = window.sessionStorage.getItem(routeTransitionStorageKey);
+
+    if (!payload) {
+      setIsAuthArriving(false);
+      return;
+    }
+
+    window.sessionStorage.removeItem(routeTransitionStorageKey);
+
+    try {
+      const transition = JSON.parse(payload) as { source?: string; at?: number };
+      const isRecent = typeof transition.at === "number" && Date.now() - transition.at < 5000;
+
+      if (transition.source !== "auth" || !isRecent) {
+        setIsAuthArriving(false);
+        return;
+      }
+    } catch {
+      setIsAuthArriving(false);
+      return;
+    }
+
+    setIsAuthArriving(true);
+
+    if (authArrivalTimerRef.current) {
+      window.clearTimeout(authArrivalTimerRef.current);
+    }
+
+    authArrivalTimerRef.current = window.setTimeout(() => {
+      setIsAuthArriving(false);
+      authArrivalTimerRef.current = null;
+    }, 980);
+  }, [pathname]);
+
+  useEffect(() => {
+    return () => {
+      if (authArrivalTimerRef.current) {
+        window.clearTimeout(authArrivalTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) {
@@ -100,7 +154,7 @@ export function AppShell({ children }: PropsWithChildren) {
     <div className="app-shell">
       <BrandLoader />
       <header className="shell-header">
-        <div className="shell-unified-bar">
+        <div className={`shell-unified-bar ${isAuthArriving ? "is-auth-arriving" : ""}`}>
           <Link href="/chat" className="brand-wordmark">
             <Image
               src="/brand/gympal-logo.jpg"
@@ -187,7 +241,7 @@ export function AppShell({ children }: PropsWithChildren) {
       </header>
 
       <main className="shell-main">
-        <div className="shell-content">{children}</div>
+        <div className={`shell-content ${isAuthArriving ? "is-auth-arriving" : ""}`}>{children}</div>
       </main>
     </div>
   );

@@ -13,8 +13,16 @@ interface ActivityRingItem {
 const ringRadius = [78, 60, 42];
 const hoverWidth = [28, 30, 34];
 
-export function ActivityRings({ rings }: { rings: ActivityRingItem[] }) {
-  const [activeSlug, setActiveSlug] = useState(rings[0]?.slug ?? "");
+export function ActivityRings({
+  rings,
+  activeSlug,
+  lockActiveSlug = false
+}: {
+  rings: ActivityRingItem[];
+  activeSlug?: string;
+  lockActiveSlug?: boolean;
+}) {
+  const [hoveredSlug, setHoveredSlug] = useState(rings[0]?.slug ?? "");
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
@@ -22,10 +30,39 @@ export function ActivityRings({ rings }: { rings: ActivityRingItem[] }) {
     return () => cancelAnimationFrame(frame);
   }, []);
 
+  useEffect(() => {
+    if (activeSlug) {
+      setHoveredSlug(activeSlug);
+      return;
+    }
+
+    if (!rings.some((ring) => ring.slug === hoveredSlug)) {
+      setHoveredSlug(rings[0]?.slug ?? "");
+    }
+  }, [activeSlug, hoveredSlug, rings]);
+
+  const resolvedActiveSlug = activeSlug ?? hoveredSlug;
+
   const activeRing = useMemo(
-    () => rings.find((ring) => ring.slug === activeSlug) ?? rings[0],
-    [activeSlug, rings]
+    () => rings.find((ring) => ring.slug === resolvedActiveSlug) ?? rings[0],
+    [resolvedActiveSlug, rings]
   );
+
+  const handleRingEnter = (slug: string) => {
+    if (lockActiveSlug || activeSlug) {
+      return;
+    }
+
+    setHoveredSlug(slug);
+  };
+
+  const handleRingLeave = () => {
+    if (lockActiveSlug || activeSlug) {
+      return;
+    }
+
+    setHoveredSlug(rings[0]?.slug ?? "");
+  };
 
   return (
     <div className="fitness-ring-panel activity-rings-widget">
@@ -36,7 +73,7 @@ export function ActivityRings({ rings }: { rings: ActivityRingItem[] }) {
           <p className="muted">{activeRing.note}</p>
         </div>
 
-        <div className="ring-cluster" onMouseLeave={() => setActiveSlug(rings[0]?.slug ?? "")}>
+        <div className="ring-cluster" onMouseLeave={handleRingLeave}>
           <svg viewBox="0 0 220 220" className="fitness-ring" aria-hidden="true">
             {rings.map((ring, index) => {
               const radius = ringRadius[index];
@@ -68,7 +105,7 @@ export function ActivityRings({ rings }: { rings: ActivityRingItem[] }) {
                     cy="110"
                     r={radius}
                     strokeWidth={hoverWidth[index]}
-                    onMouseEnter={() => setActiveSlug(ring.slug)}
+                    onMouseEnter={() => handleRingEnter(ring.slug)}
                   />
                 </g>
               );
@@ -85,7 +122,7 @@ export function ActivityRings({ rings }: { rings: ActivityRingItem[] }) {
         </div>
       </div>
 
-      <div className="ring-legend" onMouseLeave={() => setActiveSlug(rings[0]?.slug ?? "")}>
+      <div className="ring-legend" onMouseLeave={handleRingLeave}>
         {rings.map((ring) => {
           const isActive = activeRing.slug === ring.slug;
 
@@ -94,7 +131,7 @@ export function ActivityRings({ rings }: { rings: ActivityRingItem[] }) {
               key={ring.slug}
               type="button"
               className={`ring-legend-row ${ring.slug} ${isActive ? "active" : ""}`}
-              onMouseEnter={() => setActiveSlug(ring.slug)}
+              onMouseEnter={() => handleRingEnter(ring.slug)}
             >
               <span className="ring-dot" style={{ backgroundColor: ring.accent }} />
               <div>
