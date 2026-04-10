@@ -10,9 +10,9 @@ import type {
   ToolEvent,
   WorkoutPlanDay
 } from "@/lib/types";
+import { frontendEnv } from "@/lib/env";
 
-const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:3001";
-const agentBaseUrl = process.env.NEXT_PUBLIC_AGENT_URL ?? "http://localhost:8000";
+const { backendBaseUrl, agentBaseUrl } = frontendEnv;
 const demoRuns = new Map<string, StreamEvent[]>();
 
 interface RawAgentCard {

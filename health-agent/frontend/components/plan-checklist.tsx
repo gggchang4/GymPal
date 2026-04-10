@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties, FormEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { WorkoutPlanDay } from "@/lib/types";
 
 interface EditableWorkoutPlanDay extends WorkoutPlanDay {
@@ -88,6 +88,7 @@ function isStoredPlanItem(value: unknown): value is EditableWorkoutPlanDay {
 }
 
 export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
+  const celebrationTimersRef = useRef<number[]>([]);
   const [items, setItems] = useState<EditableWorkoutPlanDay[]>(() => plan.map(createEditablePlanItem));
   const [completed, setCompleted] = useState<string[]>([]);
   const [celebrating, setCelebrating] = useState<string | null>(null);
@@ -106,6 +107,13 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
 
   const nextUp = items.find((day) => !completed.includes(day.id)) ?? null;
   const remainingCount = Math.max(items.length - completed.length, 0);
+
+  useEffect(() => {
+    return () => {
+      celebrationTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+      celebrationTimersRef.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -181,9 +189,13 @@ export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
 
     setCompleted((current) => [...current, itemId]);
     setCelebrating(itemId);
-    window.setTimeout(() => {
+
+    const timerId = window.setTimeout(() => {
+      celebrationTimersRef.current = celebrationTimersRef.current.filter((value) => value !== timerId);
       setCelebrating((current) => (current === itemId ? null : current));
     }, 1200);
+
+    celebrationTimersRef.current.push(timerId);
   }
 
   function handleAddItem(event: FormEvent<HTMLFormElement>) {

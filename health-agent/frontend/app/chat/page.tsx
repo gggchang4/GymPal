@@ -1,10 +1,10 @@
 "use client";
 
-import type { AgentCard, AgentMessage, RunStepType, StreamEvent } from "@/lib/types";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { AgentCardList } from "@/components/cards";
 import { createThread, postMessage, streamRun } from "@/lib/api";
+import type { AgentCard, AgentMessage, RunStepType, StreamEvent } from "@/lib/types";
 
 interface TimelineEvent {
   id: string;
@@ -18,7 +18,7 @@ const initialMessages: AgentMessage[] = [
     id: "welcome",
     role: "assistant",
     content: "我是 GymPal。告诉我你今天的状态、目标，或者直接让我帮你安排训练。",
-    reasoningSummary: "对话模式已就绪"
+    reasoningSummary: "对话会优先结合恢复状态、训练目标和执行成本给出建议。"
   }
 ];
 
@@ -68,10 +68,7 @@ function getEventLabel(type: RunStepType) {
 }
 
 function getCardPayload(payload: Record<string, unknown>): AgentCard | null {
-  const type = payload.type;
-  const title = payload.title;
-  const description = payload.description;
-  const bullets = payload.bullets;
+  const { type, title, description, bullets } = payload;
 
   if (typeof type !== "string" || typeof title !== "string" || typeof description !== "string") {
     return null;
@@ -98,8 +95,13 @@ export default function ChatPage() {
 
   const initializedRef = useRef(false);
   const mountedRef = useRef(true);
+  const threadIdRef = useRef("");
   const threadPromiseRef = useRef<Promise<string> | null>(null);
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    threadIdRef.current = threadId;
+  }, [threadId]);
 
   useEffect(() => {
     return () => {
@@ -113,26 +115,11 @@ export default function ChatPage() {
     }
 
     initializedRef.current = true;
-    if (!threadPromiseRef.current) {
-      threadPromiseRef.current = createThread()
-        .then((result) => {
-          if (!mountedRef.current) {
-            return result.threadId;
-          }
 
-          setThreadId(result.threadId);
-          setStatus("会话已连接");
-          return result.threadId;
-        })
-        .catch(() => {
-          if (mountedRef.current) {
-            setStatus("演示模式");
-          }
-          return `thread-demo-${Date.now()}`;
-        })
-        .finally(() => {
-          threadPromiseRef.current = null;
-        });
+    if (!threadPromiseRef.current) {
+      threadPromiseRef.current = requestThreadId().finally(() => {
+        threadPromiseRef.current = null;
+      });
     }
   }, []);
 
@@ -144,31 +131,38 @@ export default function ChatPage() {
     return () => window.cancelAnimationFrame(frame);
   }, [messages, timeline, activeCards, busy]);
 
+  async function requestThreadId() {
+    try {
+      const result = await createThread();
+      threadIdRef.current = result.threadId;
+
+      if (mountedRef.current) {
+        setThreadId(result.threadId);
+        setStatus("会话已连接");
+      }
+
+      return result.threadId;
+    } catch {
+      const fallbackThreadId = `thread-demo-${Date.now()}`;
+      threadIdRef.current = fallbackThreadId;
+
+      if (mountedRef.current) {
+        setStatus("演示模式");
+      }
+
+      return fallbackThreadId;
+    }
+  }
+
   async function ensureThread(): Promise<string> {
-    if (threadId) {
-      return threadId;
+    if (threadIdRef.current) {
+      return threadIdRef.current;
     }
 
     if (!threadPromiseRef.current) {
-      threadPromiseRef.current = createThread()
-        .then((result) => {
-          if (!mountedRef.current) {
-            return result.threadId;
-          }
-
-          setThreadId(result.threadId);
-          setStatus("会话已连接");
-          return result.threadId;
-        })
-        .catch(() => {
-          if (mountedRef.current) {
-            setStatus("演示模式");
-          }
-          return `thread-demo-${Date.now()}`;
-        })
-        .finally(() => {
-          threadPromiseRef.current = null;
-        });
+      threadPromiseRef.current = requestThreadId().finally(() => {
+        threadPromiseRef.current = null;
+      });
     }
 
     return threadPromiseRef.current;
@@ -197,6 +191,10 @@ export default function ChatPage() {
       const activeThreadId = await ensureThread();
       const response = await postMessage(activeThreadId, content);
 
+      if (!mountedRef.current) {
+        return;
+      }
+
       setStatus("正在整理回复");
       const streamCards: AgentCard[] = [];
       let finalContent = response.content;
@@ -204,6 +202,10 @@ export default function ChatPage() {
       let eventIndex = 0;
 
       await streamRun(response.runId, (event) => {
+        if (!mountedRef.current) {
+          return;
+        }
+
         eventIndex += 1;
 
         setTimeline((current) => [
@@ -236,11 +238,13 @@ export default function ChatPage() {
 
         if (event.event === "card_render") {
           const card = getCardPayload(event.data.payload);
+
           if (card) {
             streamCards.push(card);
             setActiveCards([...streamCards]);
             setStatus("正在生成结果卡片");
           }
+
           return;
         }
 
@@ -252,6 +256,12 @@ export default function ChatPage() {
         }
       });
 
+      if (!mountedRef.current) {
+        return;
+      }
+
+      const nextCards = streamCards.length > 0 ? streamCards : response.cards;
+
       setMessages((current) => [
         ...current,
         {
@@ -259,12 +269,16 @@ export default function ChatPage() {
           role: "assistant",
           content: finalContent,
           reasoningSummary: finalReasoning,
-          cards: streamCards.length > 0 ? streamCards : response.cards
+          cards: nextCards
         }
       ]);
-      setActiveCards(streamCards.length > 0 ? streamCards : response.cards);
+      setActiveCards(nextCards);
       setStatus("已完成");
     } catch (error) {
+      if (!mountedRef.current) {
+        return;
+      }
+
       const message = error instanceof Error ? error.message : "未知错误";
       setMessages((current) => [
         ...current,
@@ -376,7 +390,7 @@ export default function ChatPage() {
                 void onSubmit();
               }
             }}
-            placeholder="给 GymPal 发消息，按 Ctrl/Cmd + Enter 快速发送"
+            placeholder="给 GymPal 发送消息，按 Ctrl/Cmd + Enter 快速发送"
           />
           <div className="chat-composer-row">
             <div className="chip-row">

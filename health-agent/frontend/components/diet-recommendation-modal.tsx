@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import { DietFoodArt } from "@/components/diet-food-art";
+import { appRoutes } from "@/lib/routes";
 import type { DietMealType, DietRecommendationSnapshot } from "@/lib/types";
 
 type DietMacroKey = keyof DietRecommendationSnapshot["nutritionRatio"];
@@ -471,7 +472,7 @@ export function DietRecommendationModal({
 
         <div className="diet-modal-footer">
           <span className="muted">当前替换仅保留在前端会话中，后续接入持久化后可直接同步到记录模块。</span>
-          <Link className="button" href="/logs">
+          <Link className="button" href={appRoutes.logs}>
             记录今日饮食
           </Link>
         </div>

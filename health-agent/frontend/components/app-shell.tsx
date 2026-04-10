@@ -12,21 +12,13 @@ import {
   subscribeAuthChange,
   type AuthSession
 } from "@/lib/auth";
+import {
+  appRoutes,
+  authNavItems,
+  isAuthRoute,
+  primaryNavItems
+} from "@/lib/routes";
 import { consumeRouteTransition, type RouteTransitionPayload } from "@/lib/route-transition";
-
-const primaryNavItems = [
-  { href: "/chat", label: "对话" },
-  { href: "/dashboard", label: "仪表盘" },
-  { href: "/plans/current", label: "计划" },
-  { href: "/profile", label: "档案" },
-  { href: "/logs", label: "记录" },
-  { href: "/exercises", label: "动作库" }
-];
-
-const authNavItems = [
-  { href: "/login", label: "登录" },
-  { href: "/register", label: "注册" }
-];
 
 function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -65,9 +57,7 @@ export function AppShell({ children }: PropsWithChildren) {
   }, [pathname]);
 
   useEffect(() => {
-    const isAuthPage = pathname === "/login" || pathname === "/register";
-
-    if (isAuthPage) {
+    if (isAuthRoute(pathname)) {
       setIsAuthArriving(false);
       setAuthArrivalTransition(null);
       return;
@@ -143,7 +133,7 @@ export function AppShell({ children }: PropsWithChildren) {
     };
   }, [menuOpen]);
 
-  const isAuthPage = pathname === "/login" || pathname === "/register";
+  const isAuthPage = isAuthRoute(pathname);
   const navItems = isAuthPage ? authNavItems : primaryNavItems;
   const initials = useMemo(() => (session ? getInitials(session.user.name) : ""), [session]);
 
@@ -151,7 +141,7 @@ export function AppShell({ children }: PropsWithChildren) {
     await authAdapter.logout();
     setSession(null);
     setMenuOpen(false);
-    router.push("/login");
+    router.push(appRoutes.login);
   };
 
   return (
@@ -160,7 +150,7 @@ export function AppShell({ children }: PropsWithChildren) {
       {isAuthArriving ? <AuthArrivalLayer transition={authArrivalTransition} /> : null}
       <header className="shell-header">
         <div className={`shell-unified-bar ${isAuthArriving ? "is-auth-arriving" : ""}`}>
-          <Link href="/chat" className="brand-wordmark">
+          <Link href={appRoutes.chat} className="brand-wordmark">
             <Image
               src="/brand/gympal-logo.jpg"
               alt="GymPal"
@@ -216,7 +206,7 @@ export function AppShell({ children }: PropsWithChildren) {
                       <span>{session.user.email}</span>
                     </div>
                     <Link
-                      href="/profile"
+                      href={appRoutes.profile}
                       className="shell-account-menu-item"
                       role="menuitem"
                       onClick={() => setMenuOpen(false)}
@@ -235,7 +225,11 @@ export function AppShell({ children }: PropsWithChildren) {
                 ) : null}
               </>
             ) : (
-              <Link href="/login" className="shell-account-trigger is-empty" aria-label="前往登录">
+              <Link
+                href={appRoutes.login}
+                className="shell-account-trigger is-empty"
+                aria-label="前往登录"
+              >
                 <span className="shell-avatar" aria-hidden="true">
                   <span className="shell-avatar-empty" />
                 </span>
