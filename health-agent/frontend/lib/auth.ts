@@ -1,3 +1,5 @@
+import { frontendEnv } from "@/lib/env";
+
 export type AuthMode = "login" | "register";
 
 export interface AuthUser {
@@ -47,7 +49,7 @@ interface AuthAdapter {
   getSession(): AuthSession | null;
 }
 
-const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:3001";
+const { backendBaseUrl } = frontendEnv;
 const authImplementation =
   process.env.NEXT_PUBLIC_AUTH_IMPLEMENTATION === "api" ? "api" : "mock";
 

@@ -11,6 +11,7 @@ import {
   type LoginPayload,
   type RegisterPayload
 } from "@/lib/auth";
+import { appRoutes } from "@/lib/routes";
 import { storeRouteTransition } from "@/lib/route-transition";
 
 interface RegisterFormState extends RegisterPayload {
@@ -28,7 +29,7 @@ interface ProgressRing {
 type SuccessPhase = "idle" | "settling" | "centering" | "routing";
 
 const dashboardRingAccents = ["#d53832", "#20202a", "#8f9199"] as const;
-const authRouteTarget = "/chat";
+const authRouteTarget = appRoutes.chat;
 const authRouteOrbitRadius = 88;
 const authRouteOrbitCircumference = 2 * Math.PI * authRouteOrbitRadius;
 const authRouteSettleDelayMs = 120;
@@ -396,11 +397,11 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
     >
       <section className="auth-shell">
         <div className="auth-switcher" aria-label="认证路由">
-          <Link href="/login" className={`auth-switch-link ${mode === "login" ? "active" : ""}`}>
+          <Link href={appRoutes.login} className={`auth-switch-link ${mode === "login" ? "active" : ""}`}>
             登录
           </Link>
           <Link
-            href="/register"
+            href={appRoutes.register}
             className={`auth-switch-link ${mode === "register" ? "active" : ""}`}
           >
             注册
