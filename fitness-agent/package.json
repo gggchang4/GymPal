@@ -17,6 +17,8 @@
     "build:backend": "npm --workspace backend run build",
     "db:init": "npm --workspace backend run db:init",
     "db:seed": "npm --workspace backend run db:seed",
+    "db:encoding:check": "npm --workspace backend run db:encoding:check",
+    "db:encoding:repair": "npm --workspace backend run db:encoding:repair",
     "db:reset": "npm --workspace backend run db:reset",
     "db:migrate:dev": "npm --workspace backend run db:migrate:dev",
     "db:migrate:deploy": "npm --workspace backend run db:migrate:deploy",
