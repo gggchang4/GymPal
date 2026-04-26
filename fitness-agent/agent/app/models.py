@@ -14,6 +14,11 @@ CardType = Literal[
     "place_result_card",
     "reasoning_summary_card",
     "tool_activity_card",
+    "action_proposal_card",
+    "action_result_card",
+    "weekly_review_card",
+    "daily_guidance_card",
+    "coaching_package_card",
 ]
 
 
@@ -22,6 +27,7 @@ class Card(BaseModel):
     title: str
     description: str
     bullets: list[str] = Field(default_factory=list)
+    data: dict[str, Any] = Field(default_factory=dict)
 
 
 class ToolResponse(BaseModel):
@@ -100,6 +106,30 @@ class PostMessageResponse(BaseModel):
     tool_events: list[ToolEvent] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)
     risk_level: Literal["low", "medium", "high"] = "low"
+
+
+class ActionProposal(BaseModel):
+    action_type: str
+    entity_type: str
+    entity_id: str | None = None
+    title: str
+    summary: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    preview: dict[str, Any] = Field(default_factory=dict)
+    risk_level: Literal["low", "medium", "high"] = "low"
+    requires_confirmation: bool = True
+    validation_warnings: list[str] = Field(default_factory=list)
+
+
+class ProposalDecisionResponse(BaseModel):
+    id: str
+    role: Literal["assistant"] = "assistant"
+    content: str
+    reasoning_summary: str
+    cards: list[Card] = Field(default_factory=list)
+    proposal_id: str
+    status: str
+    proposal_group_id: str | None = None
 
 
 class FeedbackRequest(BaseModel):

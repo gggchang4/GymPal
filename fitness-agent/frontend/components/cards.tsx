@@ -1,4 +1,6 @@
+import type { ReactNode } from "react";
 import type { AgentCard } from "@/lib/types";
+import { getProposalActionState, type ProposalStatus } from "@/lib/proposal-state";
 
 const toneByType: Record<AgentCard["type"], { label: string; tone: string }> = {
   health_advice_card: { label: "健康建议", tone: "sage" },
@@ -7,21 +9,43 @@ const toneByType: Record<AgentCard["type"], { label: string; tone: string }> = {
   recovery_card: { label: "恢复建议", tone: "amber" },
   place_result_card: { label: "地点结果", tone: "marine" },
   reasoning_summary_card: { label: "推理摘要", tone: "mist" },
-  tool_activity_card: { label: "工具活动", tone: "mist" }
+  tool_activity_card: { label: "工具活动", tone: "mist" },
+  action_proposal_card: { label: "待确认操作", tone: "marine" },
+  action_result_card: { label: "执行结果", tone: "sage" },
+  weekly_review_card: { label: "周复盘", tone: "sand" },
+  daily_guidance_card: { label: "今日建议", tone: "amber" },
+  coaching_package_card: { label: "教练包", tone: "marine" }
 };
+
+function extractProposalId(card: AgentCard) {
+  const proposalId = card.data?.proposalId;
+  return typeof proposalId === "string" ? proposalId : "";
+}
+
+function extractProposalStatus(card: AgentCard): ProposalStatus {
+  const status = card.data?.status;
+  return typeof status === "string" ? (status as ProposalStatus) : "pending";
+}
+
+function extractProposalGroupId(card: AgentCard) {
+  const proposalGroupId = card.data?.proposalGroupId;
+  return typeof proposalGroupId === "string" ? proposalGroupId : "";
+}
 
 export function InfoCard({
   title,
   description,
   bullets,
   kicker,
-  tone = "mist"
+  tone = "mist",
+  children
 }: {
   title: string;
   description: string;
   bullets?: string[];
   kicker?: string;
   tone?: string;
+  children?: ReactNode;
 }) {
   return (
     <article className={`info-card tone-${tone}`}>
@@ -35,23 +59,89 @@ export function InfoCard({
           ))}
         </ul>
       ) : null}
+      {children}
     </article>
   );
 }
 
-export function AgentCardList({ cards }: { cards: AgentCard[] }) {
+export function AgentCardList({
+  cards,
+  onApproveProposal,
+  onRejectProposal,
+  onApproveProposalGroup,
+  onRejectProposalGroup,
+  pendingProposalId
+}: {
+  cards: AgentCard[];
+  onApproveProposal?: (proposalId: string) => void;
+  onRejectProposal?: (proposalId: string) => void;
+  onApproveProposalGroup?: (proposalGroupId: string) => void;
+  onRejectProposalGroup?: (proposalGroupId: string) => void;
+  pendingProposalId?: string | null;
+}) {
   return (
     <div className="cards-stack">
-      {cards.map((card, index) => (
-        <InfoCard
-          key={`${card.type}-${index}`}
-          title={card.title}
-          description={card.description}
-          bullets={card.bullets}
-          kicker={toneByType[card.type].label}
-          tone={toneByType[card.type].tone}
-        />
-      ))}
+      {cards.map((card, index) => {
+        const proposalId = extractProposalId(card);
+        const proposalGroupId = extractProposalGroupId(card);
+        const proposalStatus = extractProposalStatus(card);
+        const isProposal = card.type === "action_proposal_card" && proposalId;
+        const isProposalGroup = card.type === "coaching_package_card" && proposalGroupId;
+        const actionState = getProposalActionState(proposalStatus, pendingProposalId, proposalId);
+        const groupActionState = getProposalActionState(proposalStatus, pendingProposalId, proposalGroupId);
+
+        return (
+          <InfoCard
+            key={`${card.type}-${index}-${proposalId || proposalGroupId || "card"}`}
+            title={card.title}
+            description={card.description}
+            bullets={card.bullets}
+            kicker={toneByType[card.type].label}
+            tone={toneByType[card.type].tone}
+          >
+            {isProposal ? (
+              <div className="action-row">
+                <button
+                  type="button"
+                  className="ghost-button"
+                  disabled={!actionState.canReject}
+                  onClick={() => onRejectProposal?.(proposalId)}
+                >
+                  {actionState.rejectLabel}
+                </button>
+                <button
+                  type="button"
+                  className="button"
+                  disabled={!actionState.canAct}
+                  onClick={() => onApproveProposal?.(proposalId)}
+                >
+                  {actionState.approveLabel}
+                </button>
+              </div>
+            ) : null}
+            {isProposalGroup ? (
+              <div className="action-row">
+                <button
+                  type="button"
+                  className="ghost-button"
+                  disabled={!groupActionState.canReject}
+                  onClick={() => onRejectProposalGroup?.(proposalGroupId)}
+                >
+                  {groupActionState.rejectLabel}
+                </button>
+                <button
+                  type="button"
+                  className="button"
+                  disabled={!groupActionState.canAct}
+                  onClick={() => onApproveProposalGroup?.(proposalGroupId)}
+                >
+                  {groupActionState.approveLabel}
+                </button>
+              </div>
+            ) : null}
+          </InfoCard>
+        );
+      })}
     </div>
   );
 }

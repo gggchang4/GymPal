@@ -26,12 +26,12 @@ export const primaryNavItems: readonly NavItem[] = [
   { href: appRoutes.profile, label: "档案" },
   { href: appRoutes.logs, label: "记录" },
   { href: appRoutes.exercises, label: "动作库" }
-];
+] as const;
 
 export const authNavItems: readonly NavItem[] = [
   { href: appRoutes.login, label: "登录" },
   { href: appRoutes.register, label: "注册" }
-];
+] as const;
 
 const authRouteSet = new Set<AppRoute>([appRoutes.login, appRoutes.register]);
 

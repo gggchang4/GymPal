@@ -1,9 +1,6 @@
 import { IsNumber, IsOptional, IsString } from "class-validator";
 
 export class BodyMetricDto {
-  @IsString()
-  userId!: string;
-
   @IsNumber()
   weightKg!: number;
 
@@ -17,9 +14,6 @@ export class BodyMetricDto {
 }
 
 export class DailyCheckinDto {
-  @IsString()
-  userId!: string;
-
   @IsNumber()
   sleepHours!: number;
 
@@ -43,9 +37,6 @@ export class DailyCheckinDto {
 }
 
 export class WorkoutLogDto {
-  @IsString()
-  userId!: string;
-
   @IsString()
   workoutType!: string;
 

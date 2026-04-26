@@ -13,7 +13,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 @dataclass(slots=True)
 class Settings:
     app_name: str = "Health Agent Service"
-    backend_base_url: str = os.getenv("BACKEND_BASE_URL", "http://localhost:3001")
+    backend_base_url: str = os.getenv("BACKEND_BASE_URL", "http://127.0.0.1:3001")
     llm_model_id: str = os.getenv("LLM_MODEL_ID", "gpt-4.1-mini")
     llm_api_key: str = os.getenv("LLM_API_KEY", "")
     llm_base_url: str = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")

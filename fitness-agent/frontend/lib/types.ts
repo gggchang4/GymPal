@@ -5,7 +5,12 @@ export type CardType =
   | "recovery_card"
   | "place_result_card"
   | "reasoning_summary_card"
-  | "tool_activity_card";
+  | "tool_activity_card"
+  | "action_proposal_card"
+  | "action_result_card"
+  | "weekly_review_card"
+  | "daily_guidance_card"
+  | "coaching_package_card";
 
 export type RunStepType =
   | "thinking_summary"
@@ -19,6 +24,7 @@ export interface AgentCard {
   title: string;
   description: string;
   bullets?: string[];
+  data?: Record<string, unknown>;
 }
 
 export interface ToolEvent {
@@ -35,6 +41,97 @@ export interface AgentMessage {
   content: string;
   reasoningSummary?: string;
   cards?: AgentCard[];
+}
+
+export interface ProposalDecisionResponse {
+  id: string;
+  role: "assistant";
+  content: string;
+  reasoningSummary: string;
+  cards: AgentCard[];
+  proposalId: string;
+  proposalGroupId?: string | null;
+  status: string;
+}
+
+export interface CoachingReviewSnapshot {
+  id: string;
+  threadId: string;
+  runId?: string | null;
+  type: string;
+  status: string;
+  title: string;
+  summary: string;
+  adherenceScore?: number | null;
+  riskFlags: string[];
+  focusAreas: string[];
+  recommendationTags: string[];
+  inputSnapshot: Record<string, unknown>;
+  resultSnapshot: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentProposalGroup {
+  id: string;
+  threadId: string;
+  runId: string;
+  reviewSnapshotId?: string | null;
+  status: string;
+  title: string;
+  summary: string;
+  preview: Record<string, unknown>;
+  riskLevel: "low" | "medium" | "high";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdviceSnapshot {
+  id: string;
+  type: string;
+  priority: string;
+  summary: string;
+  reasoningTags: string[];
+  actionItems: string[];
+  riskFlags: string[];
+  createdAt: string;
+}
+
+export interface CurrentPlanSnapshot {
+  plan: {
+    id: string;
+    title: string;
+    goal: string;
+    status: string;
+    version: number;
+    weekOf: string;
+    createdAt: string;
+    updatedAt: string;
+  } | null;
+  days: WorkoutPlanDay[];
+}
+
+export interface CoachSummarySnapshot {
+  currentPlan: CurrentPlanSnapshot;
+  completion: {
+    completedDays: number;
+    totalDays: number;
+    completionRate: number;
+  };
+  recentBodyMetrics: BodyMetricLog[];
+  recentDailyCheckins: DailyCheckin[];
+  recentWorkoutLogs: WorkoutLog[];
+  latestDietRecommendation: DietRecommendationSnapshot | null;
+  recentAdviceSnapshots: AdviceSnapshot[];
+  pendingCoachingPackage: {
+    id: string;
+    threadId: string;
+    title: string;
+    summary: string;
+    status: string;
+    createdAt: string;
+  } | null;
+  needsWeeklyReview: boolean;
 }
 
 export interface CreateThreadResponse {

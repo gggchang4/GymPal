@@ -1,16 +1,24 @@
 from __future__ import annotations
 
+import base64
 import json
 import logging
 
-from fastapi import FastAPI, HTTPException
+import httpx
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from .agents import HealthAgentRuntime
 from .config import settings
 from .llm import OpenAICompatibleLLMClient
-from .models import CreateThreadRequest, CreateThreadResponse, FeedbackRequest, PostMessageRequest
+from .models import (
+    CreateThreadRequest,
+    CreateThreadResponse,
+    FeedbackRequest,
+    PostMessageRequest,
+    ProposalDecisionResponse,
+)
 from .session_store import SessionStore
 from .tool_gateway import ToolGateway
 from .trace_logger import TraceLogger
@@ -36,48 +44,111 @@ llm_client = OpenAICompatibleLLMClient()
 runtime = HealthAgentRuntime(session_store, tool_gateway, trace_logger, llm_client)
 
 
+def require_authorization_header(authorization: str | None) -> str:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+    return authorization
+
+
+def extract_user_id_from_authorization(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+
+    parts = authorization.split(" ", 1)
+    if len(parts) != 2 or parts[0] != "Bearer":
+        return None
+
+    token_parts = parts[1].split(".")
+    if len(token_parts) != 3:
+        return None
+
+    payload = token_parts[1]
+    padding = "=" * (-len(payload) % 4)
+
+    try:
+        decoded = base64.urlsafe_b64decode(payload + padding).decode("utf-8")
+        parsed = json.loads(decoded)
+    except Exception:
+        return None
+
+    subject = parsed.get("sub")
+    return str(subject) if isinstance(subject, str) and subject else None
+
+
 @app.get("/healthz")
 async def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
 
 
 @app.post("/agent/threads", response_model=CreateThreadResponse)
-async def create_thread(payload: CreateThreadRequest) -> CreateThreadResponse:
-    thread = session_store.create_thread(payload.title)
+async def create_thread(payload: CreateThreadRequest, authorization: str | None = Header(default=None)) -> CreateThreadResponse:
+    thread = await session_store.create_thread(payload.title, require_authorization_header(authorization))
     return CreateThreadResponse(thread_id=thread.id)
 
 
 @app.get("/agent/threads/{thread_id}/messages")
-async def list_messages(thread_id: str):
-    return session_store.list_messages(thread_id)
+async def list_messages(thread_id: str, authorization: str | None = Header(default=None)):
+    return await session_store.list_messages(thread_id, require_authorization_header(authorization))
+
+
+@app.get("/agent/threads/{thread_id}/proposals")
+async def list_proposals(thread_id: str, authorization: str | None = Header(default=None)):
+    return await session_store.list_proposals(thread_id, require_authorization_header(authorization))
 
 
 @app.post("/agent/threads/{thread_id}/messages")
-async def post_message(thread_id: str, payload: PostMessageRequest):
-    return await runtime.process_message(thread_id, payload)
+async def post_message(
+    thread_id: str,
+    payload: PostMessageRequest,
+    authorization: str | None = Header(default=None),
+):
+    return await runtime.process_message(thread_id, payload, require_authorization_header(authorization))
+
+
+@app.post("/agent/proposals/{proposal_id}/approve", response_model=ProposalDecisionResponse)
+async def approve_proposal(proposal_id: str, authorization: str | None = Header(default=None)):
+    return await runtime.approve_proposal(proposal_id, require_authorization_header(authorization))
+
+
+@app.post("/agent/proposals/{proposal_id}/reject", response_model=ProposalDecisionResponse)
+async def reject_proposal(proposal_id: str, authorization: str | None = Header(default=None)):
+    return await runtime.reject_proposal(proposal_id, require_authorization_header(authorization))
+
+
+@app.post("/agent/proposal-groups/{proposal_group_id}/approve", response_model=ProposalDecisionResponse)
+async def approve_proposal_group(proposal_group_id: str, authorization: str | None = Header(default=None)):
+    return await runtime.approve_proposal_group(proposal_group_id, require_authorization_header(authorization))
+
+
+@app.post("/agent/proposal-groups/{proposal_group_id}/reject", response_model=ProposalDecisionResponse)
+async def reject_proposal_group(proposal_group_id: str, authorization: str | None = Header(default=None)):
+    return await runtime.reject_proposal_group(proposal_group_id, require_authorization_header(authorization))
 
 
 @app.get("/agent/runs/{run_id}/stream")
-async def stream_run(run_id: str):
+async def stream_run(run_id: str, authorization: str | None = Header(default=None)):
     try:
-        run = session_store.get_run(run_id)
-    except KeyError as exc:
+        run = await session_store.get_run(run_id, require_authorization_header(authorization))
+    except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=404, detail="Run not found") from exc
 
     async def event_generator():
-        for step in run.steps:
-            yield f"event: {step.step_type}\n"
-            yield f"data: {json.dumps(step.model_dump(mode='json'), ensure_ascii=False)}\n\n"
+        for step in run["steps"]:
+            yield f"event: {step['step_type']}\n"
+            yield f"data: {json.dumps(step, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @app.post("/agent/runs/{run_id}/feedback")
-async def submit_feedback(run_id: str, payload: FeedbackRequest):
+async def submit_feedback(run_id: str, payload: FeedbackRequest, authorization: str | None = Header(default=None)):
+    require_authorization_header(authorization)
     session_store.add_feedback(run_id, payload.model_dump())
     return {"ok": True}
 
 
 @app.get("/agent/traces")
-async def list_traces():
-    return trace_logger.list_records()
+async def list_traces(authorization: str | None = Header(default=None)):
+    normalized_authorization = require_authorization_header(authorization)
+    return trace_logger.list_records(extract_user_id_from_authorization(normalized_authorization))

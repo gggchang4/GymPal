@@ -1,6 +1,7 @@
 import Image from "next/image";
+import { PageErrorState } from "@/components/page-error-state";
 import { getBodyMetrics, getCurrentPlan, getMe, getWorkoutLogs } from "@/lib/api";
-import { getServerUserId } from "@/lib/server-auth";
+import { requireServerAuthToken } from "@/lib/server-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -81,13 +82,22 @@ function WeightSparkline({ points }: { points: number[] }) {
 }
 
 export default async function ProfilePage() {
-  const userId = getServerUserId();
-  const [me, metrics, workouts, plan] = await Promise.all([
-    getMe(userId),
-    getBodyMetrics(userId),
-    getWorkoutLogs(userId),
-    getCurrentPlan(userId)
-  ]);
+  const authToken = requireServerAuthToken();
+  let me;
+  let metrics;
+  let workouts;
+  let plan;
+
+  try {
+    [me, metrics, workouts, plan] = await Promise.all([
+      getMe(authToken),
+      getBodyMetrics(authToken),
+      getWorkoutLogs(authToken),
+      getCurrentPlan(authToken)
+    ]);
+  } catch (error) {
+    return <PageErrorState title="个人档案" message={error instanceof Error ? error.message : undefined} />;
+  }
 
   const profile = me.profile;
   const latestMetric = metrics[0];
@@ -123,7 +133,7 @@ export default async function ProfilePage() {
     {
       label: "身体记录总数",
       value: String(metrics.length),
-      note: latestMetric ? `最近更新 ${formatDate(latestMetric.recordedAt)}` : "还没有身体数据"
+      note: latestMetric ? `最近更新：${formatDate(latestMetric.recordedAt)}` : "还没有身体数据"
     },
     {
       label: "近 7 日训练频次",

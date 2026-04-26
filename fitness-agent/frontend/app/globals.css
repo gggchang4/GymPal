@@ -1006,6 +1006,67 @@ select:focus {
   border-top: 1px solid rgba(0, 0, 0, 0.16);
 }
 
+.dashboard-coaching-panel {
+  display: grid;
+  gap: 18px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(0, 0, 0, 0.16);
+}
+
+.dashboard-coaching-status {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.dashboard-coaching-tile,
+.dashboard-pending-package,
+.dashboard-coaching-note {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px 18px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.36);
+}
+
+.dashboard-coaching-tile span,
+.dashboard-pending-copy small,
+.dashboard-coaching-note small {
+  color: rgba(20, 20, 20, 0.58);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.dashboard-coaching-tile strong,
+.dashboard-pending-copy strong,
+.dashboard-coaching-note strong {
+  font-size: 1.16rem;
+  line-height: 1.38;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-pending-package {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.dashboard-pending-copy,
+.dashboard-coaching-note {
+  min-width: 0;
+}
+
+.dashboard-pending-copy p,
+.dashboard-coaching-error {
+  overflow-wrap: anywhere;
+}
+
+.dashboard-coaching-error {
+  margin: 0;
+  color: #9f2d28;
+}
+
 .dashboard-summary-list {
   display: grid;
   gap: 12px;
@@ -3479,6 +3540,10 @@ select:focus {
     position: static;
   }
 
+  .dashboard-pending-package {
+    grid-template-columns: 1fr;
+  }
+
   .plan-quick-panel.refined {
     position: static;
   }
@@ -3580,7 +3645,8 @@ select:focus {
   .profile-member-highlight,
   .profile-mini-metrics,
   .profile-recent-grid,
-  .dashboard-summary-row {
+  .dashboard-summary-row,
+  .dashboard-coaching-status {
     grid-template-columns: 1fr;
   }
 

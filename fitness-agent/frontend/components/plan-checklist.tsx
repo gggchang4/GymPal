@@ -4,11 +4,10 @@ import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
   createCurrentPlanDay,
-  getCurrentPlan,
   deleteCurrentPlanDay,
+  getCurrentPlan,
   updateCurrentPlanDay
 } from "@/lib/api";
-import { readAuthUserId } from "@/lib/auth";
 import type { WorkoutPlanDay } from "@/lib/types";
 
 interface PlanDraft {
@@ -65,9 +64,8 @@ function getNextExpandedId(items: WorkoutPlanDay[], removedId: string) {
   return remaining[0]?.id ?? null;
 }
 
-export function PlanChecklist({ plan, userId }: { plan: WorkoutPlanDay[]; userId?: string }) {
+export function PlanChecklist({ plan }: { plan: WorkoutPlanDay[] }) {
   const [items, setItems] = useState<WorkoutPlanDay[]>(() => sortPlanItems(plan));
-  const [activeUserId, setActiveUserId] = useState<string | undefined>(userId);
   const [composerOpen, setComposerOpen] = useState(plan.length === 0);
   const [newDraft, setNewDraft] = useState<PlanDraft>(emptyDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -86,27 +84,16 @@ export function PlanChecklist({ plan, userId }: { plan: WorkoutPlanDay[]; userId
   }, [plan]);
 
   useEffect(() => {
-    const hydratedUserId = readAuthUserId() ?? userId;
-
-    if (!hydratedUserId) {
-      return;
-    }
-
-    if (hydratedUserId === activeUserId) {
-      return;
-    }
-
     let cancelled = false;
     setIsSyncingPlan(true);
 
-    void getCurrentPlan(hydratedUserId)
+    void getCurrentPlan()
       .then((nextPlan) => {
         if (cancelled) {
           return;
         }
 
         const nextItems = sortPlanItems(nextPlan);
-        setActiveUserId(hydratedUserId);
         setItems(nextItems);
         setComposerOpen(nextItems.length === 0);
         setExpandedId((current) => (nextItems.some((item) => item.id === current) ? current : nextItems[0]?.id ?? null));
@@ -127,7 +114,7 @@ export function PlanChecklist({ plan, userId }: { plan: WorkoutPlanDay[]; userId
     return () => {
       cancelled = true;
     };
-  }, [activeUserId, userId]);
+  }, []);
 
   const completedCount = useMemo(() => items.filter((item) => item.isCompleted).length, [items]);
   const progress = useMemo(
@@ -167,7 +154,7 @@ export function PlanChecklist({ plan, userId }: { plan: WorkoutPlanDay[]; userId
         duration: newDraft.duration,
         exercises: parseExercises(newDraft.exercisesText),
         recoveryTip: newDraft.recoveryTip
-      }, activeUserId);
+      });
 
       setItems((current) => sortPlanItems([...current, created]));
       setExpandedId(created.id);
@@ -193,7 +180,7 @@ export function PlanChecklist({ plan, userId }: { plan: WorkoutPlanDay[]; userId
         duration: editingDraft.duration,
         exercises: parseExercises(editingDraft.exercisesText),
         recoveryTip: editingDraft.recoveryTip
-      }, activeUserId);
+      });
 
       setItems((current) => sortPlanItems(current.map((item) => (item.id === itemId ? updated : item))));
       cancelEditing();
@@ -211,7 +198,7 @@ export function PlanChecklist({ plan, userId }: { plan: WorkoutPlanDay[]; userId
     setPendingItemId(itemId);
 
     try {
-      await deleteCurrentPlanDay(itemId, activeUserId);
+      await deleteCurrentPlanDay(itemId);
       const nextExpandedId = getNextExpandedId(items, itemId);
 
       setItems((current) => current.filter((item) => item.id !== itemId));
@@ -242,7 +229,7 @@ export function PlanChecklist({ plan, userId }: { plan: WorkoutPlanDay[]; userId
     try {
       const updated = await updateCurrentPlanDay(item.id, {
         isCompleted: !item.isCompleted
-      }, activeUserId);
+      });
 
       setItems((current) => current.map((planItem) => (planItem.id === item.id ? updated : planItem)));
       setFeedbackMessage(updated.isCompleted ? "已标记完成。" : "已取消完成标记。");
@@ -294,7 +281,7 @@ export function PlanChecklist({ plan, userId }: { plan: WorkoutPlanDay[]; userId
                   <input
                     value={newDraft.duration}
                     onChange={(event) => setNewDraft((current) => ({ ...current, duration: event.target.value }))}
-                    placeholder="例如：50 分钟"
+                    placeholder="例如：40 分钟"
                   />
                 </label>
 

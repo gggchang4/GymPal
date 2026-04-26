@@ -1,4 +1,6 @@
-import { Body, Controller, Get, Headers, Post } from "@nestjs/common";
+import { Body, Controller, Get, Post } from "@nestjs/common";
+import { CurrentUser } from "../auth/auth.decorators";
+import type { AuthTokenClaims } from "../auth/auth-token.service";
 import { BodyMetricDto, DailyCheckinDto, WorkoutLogDto } from "../dtos/logs.dto";
 import { AppStoreService } from "../store/app-store.service";
 
@@ -7,32 +9,32 @@ export class LogsController {
   constructor(private readonly store: AppStoreService) {}
 
   @Post("body-metrics")
-  async createBodyMetric(@Body() body: BodyMetricDto) {
-    return this.store.addBodyMetric(body);
+  async createBodyMetric(@Body() body: BodyMetricDto, @CurrentUser() user: AuthTokenClaims) {
+    return this.store.addBodyMetric({ ...body, userId: user.sub });
   }
 
   @Get("body-metrics")
-  async getBodyMetrics(@Headers("x-user-id") userId?: string) {
-    return this.store.getBodyMetrics(userId);
+  async getBodyMetrics(@CurrentUser() user: AuthTokenClaims) {
+    return this.store.getBodyMetrics(user.sub);
   }
 
   @Post("daily-checkins")
-  async createDailyCheckin(@Body() body: DailyCheckinDto) {
-    return this.store.addDailyCheckin(body);
+  async createDailyCheckin(@Body() body: DailyCheckinDto, @CurrentUser() user: AuthTokenClaims) {
+    return this.store.addDailyCheckin({ ...body, userId: user.sub });
   }
 
   @Get("daily-checkins")
-  async getDailyCheckins(@Headers("x-user-id") userId?: string) {
-    return this.store.getDailyCheckins(userId);
+  async getDailyCheckins(@CurrentUser() user: AuthTokenClaims) {
+    return this.store.getDailyCheckins(user.sub);
   }
 
   @Post("workouts")
-  async createWorkoutLog(@Body() body: WorkoutLogDto) {
-    return this.store.addWorkoutLog(body);
+  async createWorkoutLog(@Body() body: WorkoutLogDto, @CurrentUser() user: AuthTokenClaims) {
+    return this.store.addWorkoutLog({ ...body, userId: user.sub });
   }
 
   @Get("workouts")
-  async getWorkoutLogs(@Headers("x-user-id") userId?: string) {
-    return this.store.getWorkoutLogs(userId);
+  async getWorkoutLogs(@CurrentUser() user: AuthTokenClaims) {
+    return this.store.getWorkoutLogs(user.sub);
   }
 }

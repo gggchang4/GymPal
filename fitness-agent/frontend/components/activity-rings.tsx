@@ -68,7 +68,7 @@ export function ActivityRings({
     <div className="fitness-ring-panel activity-rings-widget">
       <div className="fitness-ring-layout">
         <div className="section-copy ring-intro">
-          <span className="section-label">Activity</span>
+          <span className="section-label">活动</span>
           <h3>{activeRing.label}</h3>
           <p className="muted">{activeRing.note}</p>
         </div>

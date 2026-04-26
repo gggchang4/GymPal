@@ -1,3 +1,5 @@
+import { clearAgentThreadId } from "@/lib/agent-thread";
+
 export type AuthMode = "login" | "register";
 
 export interface AuthUser {
@@ -55,10 +57,10 @@ interface AuthAdapter {
   getSession(): AuthSession | null;
 }
 
-const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:3001";
+const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://127.0.0.1:3001";
 const authSessionStorageKey = "gympal-auth-session";
 const authChangeEvent = "gympal-auth-changed";
-const authUserCookieKey = "gympal-user-id";
+const authTokenCookieKey = "gympal-access-token";
 
 export const AUTH_ENDPOINTS = {
   login: "/auth/login",
@@ -96,16 +98,18 @@ function buildUserName(email: string, preferredName?: string) {
   }
 
   const localPart = email.split("@")[0] ?? "GymPal Member";
-  return localPart
+  const derived = localPart
     .split(/[._-]+/)
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+
+  return derived || "GymPal Member";
 }
 
-function createSession(user: AuthUser, token?: string): AuthSession {
+function createSession(user: AuthUser, token: string): AuthSession {
   return {
-    token: token ?? `auth-${user.id}`,
+    token,
     user,
     source: "api"
   };
@@ -129,20 +133,20 @@ function readCookieValue(name: string) {
   return rawValue ? decodeURIComponent(rawValue) : null;
 }
 
-function writeAuthCookie(userId: string) {
+function writeAccessTokenCookie(token: string) {
   if (!canUseDom()) {
     return;
   }
 
-  document.cookie = `${authUserCookieKey}=${encodeURIComponent(userId)}; Path=/; SameSite=Lax; Max-Age=2592000`;
+  document.cookie = `${authTokenCookieKey}=${encodeURIComponent(token)}; Path=/; SameSite=Lax; Max-Age=2592000`;
 }
 
-function clearAuthCookie() {
+function clearAccessTokenCookie() {
   if (!canUseDom()) {
     return;
   }
 
-  document.cookie = `${authUserCookieKey}=; Path=/; SameSite=Lax; Max-Age=0`;
+  document.cookie = `${authTokenCookieKey}=; Path=/; SameSite=Lax; Max-Age=0`;
 }
 
 function storeSession(session: AuthSession) {
@@ -151,7 +155,7 @@ function storeSession(session: AuthSession) {
   }
 
   window.localStorage.setItem(authSessionStorageKey, JSON.stringify(session));
-  writeAuthCookie(session.user.id);
+  writeAccessTokenCookie(session.token);
   emitAuthChange();
 }
 
@@ -166,22 +170,27 @@ export function readAuthSession(): AuthSession | null {
   );
 }
 
+export function readAuthAccessToken() {
+  const cookieToken = readCookieValue(authTokenCookieKey);
+  if (cookieToken) {
+    return cookieToken;
+  }
+
+  return readAuthSession()?.token ?? null;
+}
+
 export function clearAuthSession() {
   if (!canUseDom()) {
     return;
   }
 
   window.localStorage.removeItem(authSessionStorageKey);
-  clearAuthCookie();
+  clearAgentThreadId();
+  clearAccessTokenCookie();
   emitAuthChange();
 }
 
 export function readAuthUserId() {
-  const cookieUserId = readCookieValue(authUserCookieKey);
-  if (cookieUserId) {
-    return cookieUserId;
-  }
-
   return readAuthSession()?.user.id ?? null;
 }
 
@@ -235,23 +244,30 @@ async function requestAuth(
     };
   }
 
+  if (!result.token) {
+    return {
+      ok: false,
+      message: "Authentication succeeded, but the access token was missing."
+    };
+  }
+
   const profilePayload = payload as Partial<RegisterPayload>;
   const user: AuthUser = {
-    id: result?.userId ?? "unknown-user",
-    name: buildUserName(result?.email ?? payload.email, result?.name ?? profilePayload.name),
-    email: result?.email ?? payload.email,
-    goal: result?.goal ?? profilePayload.goal ?? "fat_loss",
-    trainingDays: result?.trainingDays ?? profilePayload.trainingDays ?? "3",
+    id: result.userId ?? "unknown-user",
+    name: buildUserName(result.email ?? payload.email, result.name ?? profilePayload.name),
+    email: result.email ?? payload.email,
+    goal: result.goal ?? profilePayload.goal ?? "fat_loss",
+    trainingDays: result.trainingDays ?? profilePayload.trainingDays ?? "3",
     createdAt: new Date().toISOString(),
-    avatarUrl: result?.avatarUrl ?? profilePayload.avatarUrl ?? ""
+    avatarUrl: result.avatarUrl ?? profilePayload.avatarUrl ?? ""
   };
 
-  const session = createSession(user, result?.token);
+  const session = createSession(user, result.token);
   storeSession(session);
 
   return {
     ok: true,
-    message: result?.message ?? "Authentication succeeded.",
+    message: result.message ?? "Authentication succeeded.",
     session
   };
 }

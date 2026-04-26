@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./health-agent/assets/GymPal_readme_hero.jpg" alt="GymPal hero" width="100%" />
+  <img src="./fitness-agent/assets/GymPal_readme_hero.jpg" alt="GymPal hero" width="100%" />
 </p>
 
 <h1 align="center">GymPal</h1>

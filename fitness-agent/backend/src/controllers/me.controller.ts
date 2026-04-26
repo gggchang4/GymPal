@@ -1,4 +1,6 @@
-import { Body, Controller, Get, Headers, Patch } from "@nestjs/common";
+import { Body, Controller, Get, Patch } from "@nestjs/common";
+import { CurrentUser } from "../auth/auth.decorators";
+import type { AuthTokenClaims } from "../auth/auth-token.service";
 import { UpdateProfileDto } from "../dtos/profile.dto";
 import { AppStoreService } from "../store/app-store.service";
 
@@ -22,8 +24,8 @@ export class MeController {
   constructor(private readonly store: AppStoreService) {}
 
   @Get("me")
-  async me(@Headers("x-user-id") userId?: string) {
-    const user = await this.store.getUser(userId);
+  async me(@CurrentUser() userClaims: AuthTokenClaims) {
+    const user = await this.store.getUser(userClaims.sub);
     return {
       id: user.id,
       name: buildUserName(user.email, user.name),
@@ -33,8 +35,7 @@ export class MeController {
   }
 
   @Patch("me/profile")
-  async updateProfile(@Body() body: UpdateProfileDto, @Headers("x-user-id") userId?: string) {
-    const user = await this.store.getUser(userId);
-    return this.store.updateProfile(user.id, body);
+  async updateProfile(@Body() body: UpdateProfileDto, @CurrentUser() userClaims: AuthTokenClaims) {
+    return this.store.updateProfile(userClaims.sub, body);
   }
 }

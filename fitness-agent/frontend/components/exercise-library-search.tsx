@@ -155,9 +155,7 @@ export function ExerciseLibrarySearch({
               <span className="section-label">搜索</span>
               <h3>搜索动作库</h3>
             </div>
-            <span className="mini-chip">
-              {hasSearched ? `${filteredExercises.length} 个结果` : "尚未搜索"}
-            </span>
+            <span className="mini-chip">{hasSearched ? `${filteredExercises.length} 个结果` : "尚未搜索"}</span>
           </div>
 
           <form className="exercise-search-form" onSubmit={handleSearch}>

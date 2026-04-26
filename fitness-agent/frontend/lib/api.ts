@@ -1,12 +1,19 @@
 import type {
+  AdviceSnapshot,
   AgentCard,
+  AgentMessage,
+  AgentProposalGroup,
   BodyMetricLog,
+  CoachSummarySnapshot,
+  CoachingReviewSnapshot,
+  CurrentPlanSnapshot,
   CreateThreadResponse,
   DashboardSnapshot,
   DailyCheckin,
   DietRecommendationSnapshot,
   ExerciseItem,
   HealthProfile,
+  ProposalDecisionResponse,
   PostMessageResponse,
   RunStepEventPayload,
   StreamEvent,
@@ -16,16 +23,17 @@ import type {
   WorkoutPlanDay
 } from "@/lib/types";
 import type { ExerciseCatalogItem } from "@/lib/exercise-catalog";
-import { readAuthUserId } from "@/lib/auth";
+import { readAuthAccessToken } from "@/lib/auth";
 
-const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:3001";
-const agentBaseUrl = process.env.NEXT_PUBLIC_AGENT_URL ?? "http://localhost:8000";
+const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://127.0.0.1:3001";
+const agentBaseUrl = process.env.NEXT_PUBLIC_AGENT_URL ?? "http://127.0.0.1:8000";
 
 interface RawAgentCard {
   type: AgentCard["type"];
   title: string;
   description: string;
   bullets?: string[];
+  data?: Record<string, unknown>;
 }
 
 interface RawToolEvent {
@@ -48,6 +56,58 @@ interface RawPostMessageResponse {
   risk_level: "low" | "medium" | "high";
 }
 
+interface RawAgentMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  reasoning_summary?: string | null;
+  cards?: RawAgentCard[];
+  created_at?: string;
+}
+
+interface RawProposalDecisionResponse {
+  id: string;
+  role: "assistant";
+  content: string;
+  reasoning_summary: string;
+  cards: RawAgentCard[];
+  proposal_id: string;
+  proposal_group_id?: string | null;
+  status: string;
+}
+
+interface RawCoachingReviewSnapshot {
+  id: string;
+  thread_id: string;
+  run_id?: string | null;
+  type: string;
+  status: string;
+  title: string;
+  summary: string;
+  adherence_score?: number | null;
+  risk_flags?: string[];
+  focus_areas?: string[];
+  recommendation_tags?: string[];
+  input_snapshot?: Record<string, unknown>;
+  result_snapshot?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+interface RawAgentProposalGroup {
+  id: string;
+  thread_id: string;
+  run_id: string;
+  review_snapshot_id?: string | null;
+  status: string;
+  title: string;
+  summary: string;
+  preview?: Record<string, unknown>;
+  risk_level: "low" | "medium" | "high";
+  created_at: string;
+  updated_at: string;
+}
+
 interface RawUserSnapshot {
   id: string;
   name: string;
@@ -68,22 +128,61 @@ interface RawDatabaseExercise {
 }
 
 interface RequestOptions {
-  userId?: string;
+  authToken?: string;
 }
 
-function resolveUserId(userId?: string) {
-  if (userId) {
-    return userId;
+interface RawAdviceSnapshot {
+  id: string;
+  type: string;
+  priority: string;
+  summary: string;
+  reasoningTags?: string[];
+  actionItems?: string[];
+  riskFlags?: string[];
+  createdAt: string;
+}
+
+interface RawCurrentPlanSnapshot {
+  plan: CurrentPlanSnapshot["plan"];
+  days: WorkoutPlanDay[];
+}
+
+interface RawCoachSummarySnapshot {
+  currentPlan: RawCurrentPlanSnapshot;
+  completion: {
+    completedDays: number;
+    totalDays: number;
+    completionRate: number;
+  };
+  recentBodyMetrics: BodyMetricLog[];
+  recentDailyCheckins: DailyCheckin[];
+  recentWorkoutLogs: WorkoutLog[];
+  latestDietRecommendation: DietRecommendationSnapshot | null;
+  recentAdviceSnapshots: RawAdviceSnapshot[];
+  pendingCoachingPackage: {
+    id: string;
+    threadId: string;
+    title: string;
+    summary: string;
+    status: string;
+    createdAt: string;
+  } | null;
+  needsWeeklyReview: boolean;
+}
+
+function resolveAuthToken(authToken?: string) {
+  if (authToken) {
+    return authToken;
   }
 
-  return readAuthUserId() ?? undefined;
+  return readAuthAccessToken() ?? undefined;
 }
 
-function buildHeaders(headers?: HeadersInit, userId?: string) {
+function buildHeaders(headers?: HeadersInit, authToken?: string) {
   const mergedHeaders = new Headers(headers);
 
-  if (userId) {
-    mergedHeaders.set("x-user-id", userId);
+  if (authToken) {
+    mergedHeaders.set("Authorization", authToken.startsWith("Bearer ") ? authToken : `Bearer ${authToken}`);
   }
 
   return mergedHeaders;
@@ -91,13 +190,13 @@ function buildHeaders(headers?: HeadersInit, userId?: string) {
 
 async function requestJson<T>(input: RequestInfo, init?: RequestInit, options?: RequestOptions): Promise<T> {
   let response: Response;
-  const userId = resolveUserId(options?.userId);
+  const authToken = resolveAuthToken(options?.authToken);
 
   try {
     response = await fetch(input, {
       ...init,
       cache: "no-store",
-      headers: buildHeaders(init?.headers, userId)
+      headers: buildHeaders(init?.headers, authToken)
     });
   } catch (error) {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : "";
@@ -140,7 +239,8 @@ function mapCard(card: RawAgentCard): AgentCard {
     type: card.type,
     title: card.title,
     description: card.description,
-    bullets: card.bullets ?? []
+    bullets: card.bullets ?? [],
+    data: card.data ?? {}
   };
 }
 
@@ -165,6 +265,99 @@ function mapPostMessageResponse(response: RawPostMessageResponse): PostMessageRe
     toolEvents: (response.tool_events ?? []).map(mapToolEvent),
     nextActions: response.next_actions ?? [],
     riskLevel: response.risk_level
+  };
+}
+
+function mapAgentMessage(message: RawAgentMessage): AgentMessage {
+  return {
+    id: message.id,
+    role: message.role,
+    content: message.content,
+    reasoningSummary: message.reasoning_summary ?? undefined,
+    cards: (message.cards ?? []).map(mapCard)
+  };
+}
+
+function mapProposalDecisionResponse(response: RawProposalDecisionResponse): ProposalDecisionResponse {
+  return {
+    id: response.id,
+    role: response.role,
+    content: response.content,
+    reasoningSummary: response.reasoning_summary,
+    cards: (response.cards ?? []).map(mapCard),
+    proposalId: response.proposal_id,
+    proposalGroupId: response.proposal_group_id ?? null,
+    status: response.status
+  };
+}
+
+function mapCoachingReview(review: RawCoachingReviewSnapshot): CoachingReviewSnapshot {
+  return {
+    id: review.id,
+    threadId: review.thread_id,
+    runId: review.run_id ?? null,
+    type: review.type,
+    status: review.status,
+    title: review.title,
+    summary: review.summary,
+    adherenceScore: review.adherence_score ?? null,
+    riskFlags: review.risk_flags ?? [],
+    focusAreas: review.focus_areas ?? [],
+    recommendationTags: review.recommendation_tags ?? [],
+    inputSnapshot: review.input_snapshot ?? {},
+    resultSnapshot: review.result_snapshot ?? {},
+    createdAt: review.created_at,
+    updatedAt: review.updated_at
+  };
+}
+
+function mapProposalGroup(group: RawAgentProposalGroup): AgentProposalGroup {
+  return {
+    id: group.id,
+    threadId: group.thread_id,
+    runId: group.run_id,
+    reviewSnapshotId: group.review_snapshot_id ?? null,
+    status: group.status,
+    title: group.title,
+    summary: group.summary,
+    preview: group.preview ?? {},
+    riskLevel: group.risk_level,
+    createdAt: group.created_at,
+    updatedAt: group.updated_at
+  };
+}
+
+function mapAdviceSnapshot(snapshot: RawAdviceSnapshot): AdviceSnapshot {
+  return {
+    id: snapshot.id,
+    type: snapshot.type,
+    priority: snapshot.priority,
+    summary: snapshot.summary,
+    reasoningTags: snapshot.reasoningTags ?? [],
+    actionItems: snapshot.actionItems ?? [],
+    riskFlags: snapshot.riskFlags ?? [],
+    createdAt: snapshot.createdAt
+  };
+}
+
+function mapCurrentPlanSnapshot(snapshot: RawCurrentPlanSnapshot): CurrentPlanSnapshot {
+  return {
+    plan: snapshot.plan ?? null,
+    days: snapshot.days ?? []
+  };
+}
+
+function mapCoachSummary(snapshot: RawCoachSummarySnapshot): CoachSummarySnapshot {
+  return {
+    currentPlan: mapCurrentPlanSnapshot(snapshot.currentPlan),
+    completion: snapshot.completion,
+    recentBodyMetrics: snapshot.recentBodyMetrics ?? [],
+    recentDailyCheckins: snapshot.recentDailyCheckins ?? [],
+    recentWorkoutLogs: snapshot.recentWorkoutLogs ?? [],
+    latestDietRecommendation: snapshot.latestDietRecommendation ?? null,
+    recentAdviceSnapshots: (snapshot.recentAdviceSnapshots ?? []).map(mapAdviceSnapshot),
+    pendingCoachingPackage: snapshot.pendingCoachingPackage,
+    needsWeeklyReview: Boolean(snapshot.needsWeeklyReview)
   };
 }
 
@@ -247,29 +440,36 @@ function mapDatabaseExercise(item: RawDatabaseExercise): ExerciseCatalogItem {
   };
 }
 
-export async function getMe(userId?: string): Promise<UserSnapshot> {
-  const user = await requestJson<RawUserSnapshot>(`${backendBaseUrl}/me`, undefined, { userId });
+export async function getMe(authToken?: string): Promise<UserSnapshot> {
+  const user = await requestJson<RawUserSnapshot>(`${backendBaseUrl}/me`, undefined, { authToken });
   return mapUserSnapshot(user);
 }
 
-export async function getBodyMetrics(userId?: string): Promise<BodyMetricLog[]> {
-  return requestJson<BodyMetricLog[]>(`${backendBaseUrl}/logs/body-metrics`, undefined, { userId });
+export async function getBodyMetrics(authToken?: string): Promise<BodyMetricLog[]> {
+  return requestJson<BodyMetricLog[]>(`${backendBaseUrl}/logs/body-metrics`, undefined, { authToken });
 }
 
-export async function getDailyCheckins(userId?: string): Promise<DailyCheckin[]> {
-  return requestJson<DailyCheckin[]>(`${backendBaseUrl}/logs/daily-checkins`, undefined, { userId });
+export async function getDailyCheckins(authToken?: string): Promise<DailyCheckin[]> {
+  return requestJson<DailyCheckin[]>(`${backendBaseUrl}/logs/daily-checkins`, undefined, { authToken });
 }
 
-export async function getWorkoutLogs(userId?: string): Promise<WorkoutLog[]> {
-  return requestJson<WorkoutLog[]>(`${backendBaseUrl}/logs/workouts`, undefined, { userId });
+export async function getWorkoutLogs(authToken?: string): Promise<WorkoutLog[]> {
+  return requestJson<WorkoutLog[]>(`${backendBaseUrl}/logs/workouts`, undefined, { authToken });
 }
 
-export async function getDashboard(userId?: string): Promise<DashboardSnapshot> {
-  return requestJson<DashboardSnapshot>(`${backendBaseUrl}/dashboard`, undefined, { userId });
+export async function getDashboard(authToken?: string): Promise<DashboardSnapshot> {
+  return requestJson<DashboardSnapshot>(`${backendBaseUrl}/dashboard`, undefined, { authToken });
 }
 
-export async function getCurrentPlan(userId?: string): Promise<WorkoutPlanDay[]> {
-  return requestJson<WorkoutPlanDay[]>(`${backendBaseUrl}/plans/current`, undefined, { userId });
+export async function getCurrentPlan(authToken?: string): Promise<WorkoutPlanDay[]> {
+  return requestJson<WorkoutPlanDay[]>(`${backendBaseUrl}/plans/current`, undefined, { authToken });
+}
+
+export async function getCoachSummary(authToken?: string): Promise<CoachSummarySnapshot> {
+  const snapshot = await requestJson<RawCoachSummarySnapshot>(`${backendBaseUrl}/agent/context/coach-summary`, undefined, {
+    authToken
+  });
+  return mapCoachSummary(snapshot);
 }
 
 type PlanDayPayload = {
@@ -284,35 +484,35 @@ type UpdatePlanDayPayload = Partial<PlanDayPayload> & {
   isCompleted?: boolean;
 };
 
-export async function createCurrentPlanDay(payload: PlanDayPayload, userId?: string): Promise<WorkoutPlanDay> {
+export async function createCurrentPlanDay(payload: PlanDayPayload, authToken?: string): Promise<WorkoutPlanDay> {
   return requestJson<WorkoutPlanDay>(`${backendBaseUrl}/plans/current/day`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
-  }, { userId });
+  }, { authToken });
 }
 
 export async function updateCurrentPlanDay(
   dayId: string,
   payload: UpdatePlanDayPayload,
-  userId?: string
+  authToken?: string
 ): Promise<WorkoutPlanDay> {
   return requestJson<WorkoutPlanDay>(`${backendBaseUrl}/plans/current/day/${dayId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
-  }, { userId });
+  }, { authToken });
 }
 
-export async function deleteCurrentPlanDay(dayId: string, userId?: string): Promise<{ ok: boolean; id: string }> {
+export async function deleteCurrentPlanDay(dayId: string, authToken?: string): Promise<{ ok: boolean; id: string }> {
   return requestJson<{ ok: boolean; id: string }>(`${backendBaseUrl}/plans/current/day/${dayId}`, {
     method: "DELETE"
-  }, { userId });
+  }, { authToken });
 }
 
-export async function getTodayDietRecommendation(userId?: string): Promise<DietRecommendationSnapshot> {
+export async function getTodayDietRecommendation(authToken?: string): Promise<DietRecommendationSnapshot> {
   return requestJson<DietRecommendationSnapshot>(`${backendBaseUrl}/diet-recommendation/today`, undefined, {
-    userId
+    authToken
   });
 }
 
@@ -335,6 +535,11 @@ export async function createThread(): Promise<CreateThreadResponse> {
   return { threadId: result.thread_id };
 }
 
+export async function getThreadMessages(threadId: string): Promise<AgentMessage[]> {
+  const result = await requestJson<RawAgentMessage[]>(`${agentBaseUrl}/agent/threads/${threadId}/messages`);
+  return result.map(mapAgentMessage);
+}
+
 export async function postMessage(threadId: string, text: string): Promise<PostMessageResponse> {
   const result = await requestJson<RawPostMessageResponse>(`${agentBaseUrl}/agent/threads/${threadId}/messages`, {
     method: "POST",
@@ -345,13 +550,67 @@ export async function postMessage(threadId: string, text: string): Promise<PostM
   return mapPostMessageResponse(result);
 }
 
+export async function approveProposal(proposalId: string): Promise<ProposalDecisionResponse> {
+  const result = await requestJson<RawProposalDecisionResponse>(`${agentBaseUrl}/agent/proposals/${proposalId}/approve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({})
+  });
+  return mapProposalDecisionResponse(result);
+}
+
+export async function rejectProposal(proposalId: string): Promise<ProposalDecisionResponse> {
+  const result = await requestJson<RawProposalDecisionResponse>(`${agentBaseUrl}/agent/proposals/${proposalId}/reject`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({})
+  });
+  return mapProposalDecisionResponse(result);
+}
+
+export async function approveProposalGroup(proposalGroupId: string): Promise<ProposalDecisionResponse> {
+  const result = await requestJson<RawProposalDecisionResponse>(
+    `${agentBaseUrl}/agent/proposal-groups/${proposalGroupId}/approve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    }
+  );
+  return mapProposalDecisionResponse(result);
+}
+
+export async function rejectProposalGroup(proposalGroupId: string): Promise<ProposalDecisionResponse> {
+  const result = await requestJson<RawProposalDecisionResponse>(
+    `${agentBaseUrl}/agent/proposal-groups/${proposalGroupId}/reject`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    }
+  );
+  return mapProposalDecisionResponse(result);
+}
+
+export async function getThreadProposalGroups(threadId: string): Promise<AgentProposalGroup[]> {
+  const result = await requestJson<RawAgentProposalGroup[]>(`${backendBaseUrl}/agent/state/threads/${threadId}/proposal-groups`);
+  return result.map(mapProposalGroup);
+}
+
+export async function getThreadCoachingReviews(threadId: string): Promise<CoachingReviewSnapshot[]> {
+  const result = await requestJson<RawCoachingReviewSnapshot[]>(`${backendBaseUrl}/agent/state/threads/${threadId}/reviews`);
+  return result.map(mapCoachingReview);
+}
+
 export async function streamRun(
   runId: string,
   onEvent: (event: StreamEvent) => void
 ): Promise<void> {
+  const authToken = resolveAuthToken();
   const response = await fetch(`${agentBaseUrl}/agent/runs/${runId}/stream`, {
     method: "GET",
-    cache: "no-store"
+    cache: "no-store",
+    headers: buildHeaders(undefined, authToken)
   });
 
   if (!response.ok || !response.body) {

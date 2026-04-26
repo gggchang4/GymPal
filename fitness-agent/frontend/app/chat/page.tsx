@@ -1,30 +1,81 @@
 "use client";
 
-import type { AgentMessage } from "@/lib/types";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createThread, postMessage } from "@/lib/api";
+import { AgentCardList } from "@/components/cards";
+import {
+  approveProposal,
+  approveProposalGroup,
+  createThread,
+  getThreadMessages,
+  postMessage,
+  rejectProposal,
+  rejectProposalGroup
+} from "@/lib/api";
+import { readAgentThreadId, writeAgentThreadId } from "@/lib/agent-thread";
+import { readAuthAccessToken, subscribeAuthChange } from "@/lib/auth";
+import { appRoutes } from "@/lib/routes";
+import type { AgentMessage } from "@/lib/types";
 
 const initialMessages: AgentMessage[] = [
   {
     id: "welcome",
     role: "assistant",
-    content: "可以直接问训练、恢复、饮食，或者让我帮你调整当前计划。这里的回复会实时依赖后端和 Agent 服务。"
+    content:
+      "你可以直接询问训练、恢复和饮食建议，也可以让我先整理一条待确认的执行提案。这里的回复会实时依赖后端和 Agent 服务，不再回退到静态演示数据。"
   }
 ];
 
 const quickPrompts = [
+  "帮我复盘这一周，并生成下周的训练、饮食和执行建议。",
+  "根据我最近的恢复状态，给我一份今天的训练建议。",
   "如果我昨晚没睡好，而且腿很酸，今晚还适合训练吗？",
   "帮我把当前计划调整成低能量周版本。",
-  "膝盖有点不舒服的话，Goblet Squat 可以换成什么动作？"
+  "记录我今天睡了 6.5 小时，走了 7000 步。"
 ];
 
+function buildErrorMessage(error: unknown, action: "message" | "proposal" | "package") {
+  const detail = error instanceof Error ? error.message : "未知错误";
+
+  if (detail.includes("Missing bearer token") || detail.includes("Authentication required")) {
+    return "当前登录状态已失效，请重新登录后再试。";
+  }
+
+  if (detail.includes("already been executed")) {
+    return action === "package"
+      ? "这份教练包已经执行过了，刷新页面后查看最新状态。"
+      : "这条提案已经执行过了，刷新页面后查看最新状态。";
+  }
+
+  if (detail.includes("expired")) {
+    return "这条提案已经过期，请重新生成。";
+  }
+
+  if (detail.includes("changed") || detail.includes("no longer exists")) {
+    return "这条提案已经过期，请重新生成。";
+  }
+
+  if (action === "proposal") {
+    return `提案处理失败：${detail}`;
+  }
+
+  if (action === "package") {
+    return `教练包处理失败：${detail}`;
+  }
+
+  return `请求失败：${detail}`;
+}
+
 export default function ChatPage() {
+  const router = useRouter();
   const [threadId, setThreadId] = useState("");
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<AgentMessage[]>(initialMessages);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("正在连接助手");
+  const [pendingProposalId, setPendingProposalId] = useState<string | null>(null);
+  const [hasAuthToken, setHasAuthToken] = useState<boolean | null>(null);
 
   const mountedRef = useRef(true);
   const threadPromiseRef = useRef<Promise<string> | null>(null);
@@ -32,10 +83,34 @@ export default function ChatPage() {
 
   useEffect(() => {
     mountedRef.current = true;
-
     return () => {
       mountedRef.current = false;
     };
+  }, []);
+
+  useEffect(() => {
+    const syncAuthState = () => {
+      const authenticated = Boolean(readAuthAccessToken());
+      setHasAuthToken(authenticated);
+
+      if (!authenticated) {
+        setStatus("登录状态已失效，正在跳转到登录页");
+        router.replace(appRoutes.login);
+      }
+    };
+
+    syncAuthState();
+    return subscribeAuthChange(syncAuthState);
+  }, [router]);
+
+  const hydrateThread = useCallback(async (existingThreadId: string) => {
+    const history = await getThreadMessages(existingThreadId);
+    if (!mountedRef.current) {
+      return;
+    }
+
+    setMessages(history.length > 0 ? history : initialMessages);
+    setStatus("助手已连接");
   }, []);
 
   const ensureThread = useCallback(async (): Promise<string> => {
@@ -44,21 +119,29 @@ export default function ChatPage() {
     }
 
     if (!threadPromiseRef.current) {
-      threadPromiseRef.current = createThread()
-        .then((result) => {
+      threadPromiseRef.current = (async () => {
+        const cachedThreadId = readAgentThreadId();
+        if (cachedThreadId) {
+          await hydrateThread(cachedThreadId);
           if (mountedRef.current) {
-            setThreadId(result.threadId);
-            setStatus("助手已连接");
+            setThreadId(cachedThreadId);
           }
+          return cachedThreadId;
+        }
 
-          return result.threadId;
-        })
+        const result = await createThread();
+        if (mountedRef.current) {
+          setThreadId(result.threadId);
+          setStatus("助手已连接");
+          writeAgentThreadId(result.threadId);
+        }
+        return result.threadId;
+      })()
         .catch((error) => {
           if (mountedRef.current) {
             const message = error instanceof Error ? error.message : "无法创建对话线程";
             setStatus(message);
           }
-
           throw error;
         })
         .finally(() => {
@@ -67,22 +150,34 @@ export default function ChatPage() {
     }
 
     return threadPromiseRef.current;
-  }, [threadId]);
+  }, [hydrateThread, threadId]);
 
   useEffect(() => {
+    if (hasAuthToken !== true) {
+      return;
+    }
+
     void ensureThread();
-  }, [ensureThread]);
+  }, [ensureThread, hasAuthToken]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       scrollAnchorRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
     });
-
     return () => window.cancelAnimationFrame(frame);
-  }, [messages, busy]);
+  }, [messages, busy, pendingProposalId]);
+
+  async function refreshMessages(activeThreadId: string) {
+    const history = await getThreadMessages(activeThreadId);
+    if (!mountedRef.current) {
+      return;
+    }
+
+    setMessages(history.length > 0 ? history : initialMessages);
+  }
 
   async function onSubmit() {
-    if (!text.trim() || busy) {
+    if (hasAuthToken !== true || !text.trim() || busy) {
       return;
     }
 
@@ -96,37 +191,97 @@ export default function ChatPage() {
     setMessages((current) => [...current, userMessage]);
     setText("");
     setBusy(true);
-    setStatus("正在发送");
+    setStatus("正在发送消息");
 
     try {
       const activeThreadId = await ensureThread();
-      const response = await postMessage(activeThreadId, content);
-
-      setMessages((current) => [
-        ...current,
-        {
-          id: response.id,
-          role: "assistant",
-          content: response.content,
-          reasoningSummary: response.reasoningSummary
-        }
-      ]);
-      setStatus("已就绪");
+      await postMessage(activeThreadId, content);
+      await refreshMessages(activeThreadId);
+      setStatus("已同步最新消息");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "未知错误";
       setMessages((current) => [
         ...current,
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: `请求失败：${message}`,
-          reasoningSummary: "这里不再返回静态演示内容，报错反映的是当前后端或 Agent 的真实状态。"
+          content: buildErrorMessage(error, "message"),
+          reasoningSummary: "这次失败反映的是当前后端或 Agent 服务的真实状态，不会再回退到静态响应。"
         }
       ]);
-      setStatus("请求失败");
+      setStatus("消息发送失败");
     } finally {
       if (mountedRef.current) {
         setBusy(false);
+      }
+    }
+  }
+
+  async function handleProposalDecision(proposalId: string, decision: "approve" | "reject") {
+    if (hasAuthToken !== true || pendingProposalId || !threadId) {
+      return;
+    }
+
+    setPendingProposalId(proposalId);
+    setStatus(decision === "approve" ? "正在执行提案" : "正在拒绝提案");
+
+    try {
+      if (decision === "approve") {
+        await approveProposal(proposalId);
+      } else {
+        await rejectProposal(proposalId);
+      }
+
+      await refreshMessages(threadId);
+      setStatus("提案状态已更新");
+    } catch (error) {
+      setMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: buildErrorMessage(error, "proposal"),
+          reasoningSummary: "提案确认链路失败后，不会把这次操作视为成功执行。"
+        }
+      ]);
+      setStatus("提案处理失败");
+    } finally {
+      if (mountedRef.current) {
+        setPendingProposalId(null);
+      }
+    }
+  }
+
+  async function handleProposalGroupDecision(proposalGroupId: string, decision: "approve" | "reject") {
+    if (hasAuthToken !== true || pendingProposalId || !threadId) {
+      return;
+    }
+
+    setPendingProposalId(proposalGroupId);
+    setStatus(decision === "approve" ? "正在执行教练包" : "正在拒绝教练包");
+
+    try {
+      if (decision === "approve") {
+        await approveProposalGroup(proposalGroupId);
+      } else {
+        await rejectProposalGroup(proposalGroupId);
+      }
+
+      await refreshMessages(threadId);
+      setStatus("教练包状态已更新");
+    } catch (error) {
+      setMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: buildErrorMessage(error, "package"),
+          reasoningSummary: "这次失败发生在教练包确认链路，数据库不会把它视为一次成功应用。"
+        }
+      ]);
+      setStatus("教练包处理失败");
+    } finally {
+      if (mountedRef.current) {
+        setPendingProposalId(null);
       }
     }
   }
@@ -137,17 +292,14 @@ export default function ChatPage() {
         <div className="chat-meta-row">
           <span className="section-label">Agent</span>
           <div className="chip-row">
-            <span className={`status-pill ${busy ? "live" : "idle"}`}>{status}</span>
-            <span className="mini-chip">{threadId ? "已连接" : "尚未建立线程"}</span>
+            <span className={`status-pill ${busy || pendingProposalId ? "live" : "idle"}`}>{status}</span>
+            <span className="mini-chip">{threadId ? "已连接线程" : "尚未建立线程"}</span>
           </div>
         </div>
 
         <div className="messages chat-feed">
           {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`message-row ${message.role === "user" ? "user" : "assistant"}`}
-            >
+            <div key={message.id} className={`message-row ${message.role === "user" ? "user" : "assistant"}`}>
               {message.role === "assistant" ? (
                 <>
                   <div className="message-avatar assistant">
@@ -163,8 +315,20 @@ export default function ChatPage() {
                   <div className="message-bubble assistant">
                     <small>GymPal</small>
                     <div>{message.content}</div>
-                    {message.reasoningSummary ? (
-                      <p className="muted message-meta">{message.reasoningSummary}</p>
+                    {message.reasoningSummary ? <p className="muted message-meta">{message.reasoningSummary}</p> : null}
+                    {message.cards && message.cards.length > 0 ? (
+                      <AgentCardList
+                        cards={message.cards}
+                        pendingProposalId={pendingProposalId}
+                        onApproveProposal={(proposalId) => void handleProposalDecision(proposalId, "approve")}
+                        onRejectProposal={(proposalId) => void handleProposalDecision(proposalId, "reject")}
+                        onApproveProposalGroup={(proposalGroupId) =>
+                          void handleProposalGroupDecision(proposalGroupId, "approve")
+                        }
+                        onRejectProposalGroup={(proposalGroupId) =>
+                          void handleProposalGroupDecision(proposalGroupId, "reject")
+                        }
+                      />
                     ) : null}
                   </div>
                 </>
@@ -173,9 +337,6 @@ export default function ChatPage() {
                   <div className="message-bubble user">
                     <small>你</small>
                     <div>{message.content}</div>
-                    {message.reasoningSummary ? (
-                      <p className="muted message-meta">{message.reasoningSummary}</p>
-                    ) : null}
                   </div>
 
                   <div className="message-avatar user">
@@ -199,7 +360,7 @@ export default function ChatPage() {
                 void onSubmit();
               }
             }}
-            placeholder="可以询问训练安排、恢复建议、饮食调整或动作替代。按 Ctrl/Cmd + Enter 发送。"
+            placeholder="可以询问训练安排、恢复建议、饮食调整，也可以直接让我帮你生成待确认提案。按 Ctrl/Cmd + Enter 发送。"
           />
 
           <div className="chat-composer-row">
@@ -210,7 +371,7 @@ export default function ChatPage() {
                   type="button"
                   className="chip-button"
                   onClick={() => setText(prompt)}
-                  disabled={busy}
+                  disabled={busy || Boolean(pendingProposalId) || hasAuthToken !== true}
                 >
                   {prompt}
                 </button>
@@ -218,10 +379,20 @@ export default function ChatPage() {
             </div>
 
             <div className="action-row">
-              <button type="button" className="ghost-button" onClick={() => setText("")} disabled={busy}>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => setText("")}
+                disabled={busy || Boolean(pendingProposalId) || hasAuthToken !== true}
+              >
                 清空
               </button>
-              <button type="button" className="button" onClick={onSubmit} disabled={busy}>
+              <button
+                type="button"
+                className="button"
+                onClick={onSubmit}
+                disabled={busy || Boolean(pendingProposalId) || hasAuthToken !== true}
+              >
                 {busy ? "发送中..." : "发送"}
               </button>
             </div>

@@ -1,8 +1,20 @@
 import "server-only";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { appRoutes } from "@/lib/routes";
 
-const authUserCookieKey = "gympal-user-id";
+const authTokenCookieKey = "gympal-access-token";
 
-export function getServerUserId() {
-  return cookies().get(authUserCookieKey)?.value;
+export function getServerAuthToken() {
+  return cookies().get(authTokenCookieKey)?.value;
+}
+
+export function requireServerAuthToken() {
+  const token = getServerAuthToken();
+
+  if (!token) {
+    redirect(appRoutes.login);
+  }
+
+  return token;
 }

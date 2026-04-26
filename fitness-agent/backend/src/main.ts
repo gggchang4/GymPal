@@ -5,8 +5,14 @@ import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 
 function loadBackendEnv() {
-  const envPath = resolve(__dirname, "..", ".env");
-  if (!existsSync(envPath)) {
+  const candidatePaths = [
+    resolve(__dirname, "..", ".env"),
+    resolve(__dirname, "..", "..", "..", ".env"),
+    resolve(process.cwd(), "backend", ".env"),
+    resolve(process.cwd(), ".env")
+  ];
+  const envPath = candidatePaths.find((candidate) => existsSync(candidate));
+  if (!envPath) {
     return;
   }
 
@@ -45,7 +51,14 @@ async function bootstrap() {
       }
     })
   );
-  await app.listen(Number(process.env.BACKEND_PORT ?? 3001));
+
+  const port = Number(process.env.BACKEND_PORT ?? 3001);
+  const host = process.env.BACKEND_HOST?.trim() || "0.0.0.0";
+
+  await app.listen(port, host);
 }
 
-bootstrap();
+void bootstrap().catch((error) => {
+  console.error("Backend bootstrap failed.", error);
+  process.exit(1);
+});

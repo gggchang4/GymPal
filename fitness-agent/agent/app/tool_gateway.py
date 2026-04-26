@@ -20,6 +20,7 @@ class ToolGateway:
             "get_user_profile": self.get_user_profile,
             "query_recent_health_data": self.query_recent_health_data,
             "load_current_plan": self.load_current_plan,
+            "get_coach_summary": self.get_coach_summary,
             "get_exercise_catalog": self.get_exercise_catalog,
             "get_recovery_guidance": self.get_recovery_guidance,
             "geocode_location": self.geocode_location,
@@ -32,8 +33,8 @@ class ToolGateway:
         return await handler(**kwargs)
 
     @staticmethod
-    def _backend_headers(user_id: str | None) -> dict[str, str]:
-        return {"x-user-id": user_id} if user_id else {}
+    def _backend_headers(authorization: str | None) -> dict[str, str]:
+        return {"Authorization": authorization} if authorization else {}
 
     @staticmethod
     def _backend_failure(action: str, exc: Exception) -> ToolResponse:
@@ -90,13 +91,13 @@ class ToolGateway:
             retryable=True,
         )
 
-    async def get_user_profile(self, user_id: str | None = None) -> ToolResponse:
+    async def get_user_profile(self, authorization: str | None = None) -> ToolResponse:
         try:
-            logger.info("[TOOLS] Requesting user profile from backend user_id=%s", user_id or "default")
+            logger.info("[TOOLS] Requesting user profile from backend.")
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.get(
                     f"{settings.backend_base_url}/me",
-                    headers=self._backend_headers(user_id),
+                    headers=self._backend_headers(authorization),
                 )
                 response.raise_for_status()
                 logger.info("[TOOLS] Backend user profile loaded successfully from PostgreSQL-backed API.")
@@ -109,22 +110,22 @@ class ToolGateway:
         except Exception as exc:
             return self._backend_failure("load the user profile", exc)
 
-    async def query_recent_health_data(self, user_id: str | None = None) -> ToolResponse:
+    async def query_recent_health_data(self, authorization: str | None = None) -> ToolResponse:
         try:
-            logger.info("[TOOLS] Requesting recent health data from backend user_id=%s", user_id or "default")
+            logger.info("[TOOLS] Requesting recent health data from backend.")
             async with httpx.AsyncClient(timeout=10) as client:
                 metrics, checkins, workouts = await asyncio.gather(
                     client.get(
                         f"{settings.backend_base_url}/logs/body-metrics",
-                        headers=self._backend_headers(user_id),
+                        headers=self._backend_headers(authorization),
                     ),
                     client.get(
                         f"{settings.backend_base_url}/logs/daily-checkins",
-                        headers=self._backend_headers(user_id),
+                        headers=self._backend_headers(authorization),
                     ),
                     client.get(
                         f"{settings.backend_base_url}/logs/workouts",
-                        headers=self._backend_headers(user_id),
+                        headers=self._backend_headers(authorization),
                     ),
                 )
                 for response in [metrics, checkins, workouts]:
@@ -143,24 +144,43 @@ class ToolGateway:
         except Exception as exc:
             return self._backend_failure("load recent health data", exc)
 
-    async def load_current_plan(self, user_id: str | None = None) -> ToolResponse:
+    async def load_current_plan(self, authorization: str | None = None) -> ToolResponse:
         try:
-            logger.info("[TOOLS] Requesting current plan from backend user_id=%s", user_id or "default")
+            logger.info("[TOOLS] Requesting current plan snapshot from backend.")
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.get(
-                    f"{settings.backend_base_url}/plans/current",
-                    headers=self._backend_headers(user_id),
+                    f"{settings.backend_base_url}/agent/context/current-plan",
+                    headers=self._backend_headers(authorization),
                 )
                 response.raise_for_status()
                 logger.info("[TOOLS] Current plan loaded successfully from PostgreSQL-backed API.")
                 return ToolResponse(
                     ok=True,
-                    data={"days": response.json()},
+                    data=response.json(),
                     human_readable="Loaded the current training plan from backend.",
                     source="backend",
                 )
         except Exception as exc:
             return self._backend_failure("load the current plan", exc)
+
+    async def get_coach_summary(self, authorization: str | None = None) -> ToolResponse:
+        try:
+            logger.info("[TOOLS] Requesting coach summary from backend.")
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.get(
+                    f"{settings.backend_base_url}/agent/context/coach-summary",
+                    headers=self._backend_headers(authorization),
+                )
+                response.raise_for_status()
+                logger.info("[TOOLS] Coach summary loaded successfully from PostgreSQL-backed API.")
+                return ToolResponse(
+                    ok=True,
+                    data=response.json(),
+                    human_readable="Loaded the weekly coaching summary from backend.",
+                    source="backend",
+                )
+        except Exception as exc:
+            return self._backend_failure("load the coaching summary", exc)
 
     async def get_exercise_catalog(self) -> ToolResponse:
         try:
@@ -177,6 +197,54 @@ class ToolGateway:
                 )
         except Exception as exc:
             return self._backend_failure("load the exercise catalog", exc)
+
+    async def execute_agent_command(
+        self,
+        action_type: str,
+        proposal_id: str,
+        idempotency_key: str,
+        authorization: str | None = None,
+    ) -> ToolResponse:
+        endpoint_by_action = {
+            "generate_plan": "generate-plan",
+            "adjust_plan": "adjust-plan",
+            "create_plan_day": "create-plan-day",
+            "update_plan_day": "update-plan-day",
+            "delete_plan_day": "delete-plan-day",
+            "complete_plan_day": "complete-plan-day",
+            "create_body_metric": "create-body-metric",
+            "create_daily_checkin": "create-daily-checkin",
+            "create_workout_log": "create-workout-log",
+        }
+
+        endpoint = endpoint_by_action.get(action_type)
+        if endpoint is None:
+            return ToolResponse(
+                ok=False,
+                data={"action_type": action_type},
+                human_readable=f"Unsupported agent action type: {action_type}.",
+                source="backend",
+                error_code="unsupported_action_type",
+                retryable=False,
+            )
+
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                response = await client.post(
+                    f"{settings.backend_base_url}/agent/commands/{endpoint}",
+                    headers=self._backend_headers(authorization),
+                    json={"proposalId": proposal_id, "idempotencyKey": idempotency_key},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                return ToolResponse(
+                    ok=bool(payload.get("ok", True)),
+                    data=payload,
+                    human_readable=f"Executed backend command for {action_type}.",
+                    source="backend",
+                )
+        except Exception as exc:
+            return self._backend_failure(f"execute the {action_type} command", exc)
 
     async def get_recovery_guidance(self, fatigue_level: str = "moderate") -> ToolResponse:
         guidance_map = {

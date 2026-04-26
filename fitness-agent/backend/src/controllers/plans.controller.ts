@@ -1,4 +1,6 @@
-import { Body, Controller, Delete, Get, Headers, Param, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post } from "@nestjs/common";
+import { CurrentUser } from "../auth/auth.decorators";
+import type { AuthTokenClaims } from "../auth/auth-token.service";
 import {
   AdjustPlanDto,
   CompletePlanSessionDto,
@@ -13,41 +15,46 @@ export class PlansController {
   constructor(private readonly store: AppStoreService) {}
 
   @Post("generate")
-  async generatePlan(@Body() body: GeneratePlanDto) {
-    return this.store.generatePlan(body.userId, body.goal);
+  async generatePlan(@Body() body: GeneratePlanDto, @CurrentUser() user: AuthTokenClaims) {
+    return this.store.generatePlan(user.sub, body.goal);
   }
 
   @Get("current")
-  async getCurrentPlan(@Headers("x-user-id") userId?: string) {
-    return this.store.getCurrentPlanDays(userId);
+  async getCurrentPlan(@CurrentUser() user: AuthTokenClaims) {
+    return this.store.getCurrentPlanDays(user.sub);
+  }
+
+  @Get("current/snapshot")
+  async getCurrentPlanSnapshot(@CurrentUser() user: AuthTokenClaims) {
+    return this.store.getCurrentPlanSnapshot(user.sub);
   }
 
   @Post("current/day")
-  async createCurrentPlanDay(@Body() body: CreatePlanDayDto, @Headers("x-user-id") userId?: string) {
-    return this.store.createCurrentPlanDay(body, userId);
+  async createCurrentPlanDay(@Body() body: CreatePlanDayDto, @CurrentUser() user: AuthTokenClaims) {
+    return this.store.createCurrentPlanDay(body, user.sub);
   }
 
   @Patch("current/day/:id")
   async updateCurrentPlanDay(
     @Param("id") dayId: string,
     @Body() body: UpdatePlanDayDto,
-    @Headers("x-user-id") userId?: string
+    @CurrentUser() user: AuthTokenClaims
   ) {
-    return this.store.updateCurrentPlanDay(dayId, body, userId);
+    return this.store.updateCurrentPlanDay(dayId, body, user.sub);
   }
 
   @Delete("current/day/:id")
-  async deleteCurrentPlanDay(@Param("id") dayId: string, @Headers("x-user-id") userId?: string) {
-    return this.store.deleteCurrentPlanDay(dayId, userId);
+  async deleteCurrentPlanDay(@Param("id") dayId: string, @CurrentUser() user: AuthTokenClaims) {
+    return this.store.deleteCurrentPlanDay(dayId, user.sub);
   }
 
   @Post("current/adjust")
-  async adjustCurrentPlan(@Body() body: AdjustPlanDto) {
-    return this.store.adjustPlan(body.userId, body.note);
+  async adjustCurrentPlan(@Body() body: AdjustPlanDto, @CurrentUser() user: AuthTokenClaims) {
+    return this.store.adjustPlan(user.sub, body.note);
   }
 
   @Post("current/complete-session")
-  async completeCurrentPlan(@Body() body: CompletePlanSessionDto) {
-    return this.store.completeSession(body.userId, body.dayLabel);
+  async completeCurrentPlan(@Body() body: CompletePlanSessionDto, @CurrentUser() user: AuthTokenClaims) {
+    return this.store.completeSession(user.sub, body.dayLabel);
   }
 }
