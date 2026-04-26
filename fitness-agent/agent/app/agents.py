@@ -41,7 +41,17 @@ class HealthAgentRuntime:
     EXERCISE_KEYWORDS = ("动作", "替代", "深蹲", "卧推", "拉伸", "exercise")
     HIGH_RISK_KEYWORDS = ("胸痛", "晕厥", "处方", "药物", "极端减肥")
     WEEKLY_REVIEW_KEYWORDS = ("复盘", "本周总结", "下周安排", "下周计划", "weekly review", "next week")
-    DAILY_GUIDANCE_KEYWORDS = ("今日建议", "今天该不该练", "今天怎么练", "恢复建议", "daily guidance", "today")
+    DAILY_GUIDANCE_KEYWORDS = (
+        "今日建议",
+        "今日训练建议",
+        "今天的训练建议",
+        "今天该不该练",
+        "今天怎么练",
+        "恢复建议",
+        "恢复状态",
+        "daily guidance",
+        "today",
+    )
 
     def __init__(
         self,

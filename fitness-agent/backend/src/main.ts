@@ -5,8 +5,14 @@ import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 
 function loadBackendEnv() {
-  const envPath = resolve(__dirname, "..", ".env");
-  if (!existsSync(envPath)) {
+  const candidatePaths = [
+    resolve(__dirname, "..", ".env"),
+    resolve(__dirname, "..", "..", "..", ".env"),
+    resolve(process.cwd(), "backend", ".env"),
+    resolve(process.cwd(), ".env")
+  ];
+  const envPath = candidatePaths.find((candidate) => existsSync(candidate));
+  if (!envPath) {
     return;
   }
 

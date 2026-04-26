@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { PageErrorState } from "@/components/page-error-state";
 import { getBodyMetrics, getCurrentPlan, getMe, getWorkoutLogs } from "@/lib/api";
 import { requireServerAuthToken } from "@/lib/server-auth";
 
@@ -82,12 +83,21 @@ function WeightSparkline({ points }: { points: number[] }) {
 
 export default async function ProfilePage() {
   const authToken = requireServerAuthToken();
-  const [me, metrics, workouts, plan] = await Promise.all([
-    getMe(authToken),
-    getBodyMetrics(authToken),
-    getWorkoutLogs(authToken),
-    getCurrentPlan(authToken)
-  ]);
+  let me;
+  let metrics;
+  let workouts;
+  let plan;
+
+  try {
+    [me, metrics, workouts, plan] = await Promise.all([
+      getMe(authToken),
+      getBodyMetrics(authToken),
+      getWorkoutLogs(authToken),
+      getCurrentPlan(authToken)
+    ]);
+  } catch (error) {
+    return <PageErrorState title="个人档案" message={error instanceof Error ? error.message : undefined} />;
+  }
 
   const profile = me.profile;
   const latestMetric = metrics[0];

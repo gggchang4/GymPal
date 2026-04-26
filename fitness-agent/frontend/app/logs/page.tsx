@@ -1,4 +1,5 @@
 import { getBodyMetrics, getDailyCheckins, getWorkoutLogs } from "@/lib/api";
+import { PageErrorState } from "@/components/page-error-state";
 import { requireServerAuthToken } from "@/lib/server-auth";
 
 export const dynamic = "force-dynamic";
@@ -55,11 +56,19 @@ function formatWeightDelta(values: number[]) {
 
 export default async function LogsPage() {
   const authToken = requireServerAuthToken();
-  const [metrics, checkins, workouts] = await Promise.all([
-    getBodyMetrics(authToken),
-    getDailyCheckins(authToken),
-    getWorkoutLogs(authToken)
-  ]);
+  let metrics;
+  let checkins;
+  let workouts;
+
+  try {
+    [metrics, checkins, workouts] = await Promise.all([
+      getBodyMetrics(authToken),
+      getDailyCheckins(authToken),
+      getWorkoutLogs(authToken)
+    ]);
+  } catch (error) {
+    return <PageErrorState title="每日记录" message={error instanceof Error ? error.message : undefined} />;
+  }
 
   const latestMetric = metrics[0];
   const latestCheckin = checkins[0];

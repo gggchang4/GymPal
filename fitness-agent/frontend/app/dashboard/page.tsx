@@ -1,7 +1,6 @@
 import { ActivityRings } from "@/components/activity-rings";
 import { DashboardCoachingPanel } from "@/components/dashboard-coaching-panel";
 import { DietPlateCard } from "@/components/diet-plate-card";
-import { requireServerAuthToken } from "@/lib/server-auth";
 import {
   getBodyMetrics,
   getCoachSummary,
@@ -11,27 +10,37 @@ import {
   getTodayDietRecommendation,
   getWorkoutLogs
 } from "@/lib/api";
+import { requireServerAuthToken } from "@/lib/server-auth";
+import type {
+  BodyMetricLog,
+  CoachSummarySnapshot,
+  DashboardSnapshot,
+  DailyCheckin,
+  DietRecommendationSnapshot,
+  WorkoutLog,
+  WorkoutPlanDay
+} from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 const goalLabelByType: Record<string, string> = {
-  fat_loss: "减脂",
-  muscle_gain: "增肌",
-  maintenance: "维持"
+  fat_loss: "Fat loss",
+  muscle_gain: "Muscle gain",
+  maintenance: "Maintenance"
 };
 
 const valueLabelMap: Record<string, string> = {
-  low: "偏低",
-  medium: "中等",
-  moderate: "适中",
-  high: "较高",
-  normal: "正常",
-  none: "暂无"
+  low: "Low",
+  medium: "Medium",
+  moderate: "Moderate",
+  high: "High",
+  normal: "Normal",
+  none: "None"
 };
 
 function formatValueLabel(value?: string) {
   if (!value) {
-    return "未记录";
+    return "Not logged";
   }
 
   return valueLabelMap[value] ?? value.replace(/_/g, " ");
@@ -39,12 +48,12 @@ function formatValueLabel(value?: string) {
 
 function formatCompletionRate(value: string) {
   const percent = value.match(/\d+%/)?.[0];
-  return percent ? `本周完成度 ${percent}` : value;
+  return percent ? `This week ${percent}` : value;
 }
 
 function formatWeightDelta(values: number[]) {
   if (values.length === 0) {
-    return "等待更多体重记录";
+    return "Waiting for more weight logs";
   }
 
   if (values.length === 1) {
@@ -55,22 +64,99 @@ function formatWeightDelta(values: number[]) {
   return `${delta > 0 ? "+" : ""}${delta.toFixed(1)} kg`;
 }
 
-function buildFallbackDietRecommendation() {
+function buildFallbackDietRecommendation(): DietRecommendationSnapshot | null {
   return null;
+}
+
+function buildFallbackDashboardSnapshot(): DashboardSnapshot {
+  return {
+    weightTrend: "Weight trend will appear after more check-ins.",
+    weeklyCompletionRate: "Weekly completion data is temporarily unavailable.",
+    todayFocus: "Keep today simple and rebuild momentum with one small session.",
+    recoveryStatus: "Recovery data is temporarily unavailable."
+  };
+}
+
+function buildFallbackCoachSummary(): CoachSummarySnapshot {
+  return {
+    currentPlan: {
+      plan: null,
+      days: []
+    },
+    completion: {
+      completedDays: 0,
+      totalDays: 0,
+      completionRate: 0
+    },
+    recentBodyMetrics: [],
+    recentDailyCheckins: [],
+    recentWorkoutLogs: [],
+    latestDietRecommendation: null,
+    recentAdviceSnapshots: [],
+    pendingCoachingPackage: null,
+    needsWeeklyReview: false
+  };
+}
+
+function buildFallbackPlan(): WorkoutPlanDay[] {
+  return [];
+}
+
+function buildFallbackBodyMetrics(): BodyMetricLog[] {
+  return [];
+}
+
+function buildFallbackDailyCheckins(): DailyCheckin[] {
+  return [];
+}
+
+function buildFallbackWorkoutLogs(): WorkoutLog[] {
+  return [];
+}
+
+async function resolveSection<T>(loader: Promise<T>, fallback: T) {
+  try {
+    return {
+      data: await loader,
+      degraded: false
+    };
+  } catch {
+    return {
+      data: fallback,
+      degraded: true
+    };
+  }
 }
 
 export default async function DashboardPage() {
   const authToken = requireServerAuthToken();
+  const [snapshotResult, planResult, recommendationResult, metricsResult, checkinsResult, workoutsResult, coachSummaryResult] =
+    await Promise.all([
+      resolveSection(getDashboard(authToken), buildFallbackDashboardSnapshot()),
+      resolveSection(getCurrentPlan(authToken), buildFallbackPlan()),
+      resolveSection(getTodayDietRecommendation(authToken), buildFallbackDietRecommendation()),
+      resolveSection(getBodyMetrics(authToken), buildFallbackBodyMetrics()),
+      resolveSection(getDailyCheckins(authToken), buildFallbackDailyCheckins()),
+      resolveSection(getWorkoutLogs(authToken), buildFallbackWorkoutLogs()),
+      resolveSection(getCoachSummary(authToken), buildFallbackCoachSummary())
+    ]);
 
-  const [snapshot, plan, recommendation, metrics, checkins, workouts, coachSummary] = await Promise.all([
-    getDashboard(authToken),
-    getCurrentPlan(authToken),
-    getTodayDietRecommendation(authToken).catch(buildFallbackDietRecommendation),
-    getBodyMetrics(authToken),
-    getDailyCheckins(authToken),
-    getWorkoutLogs(authToken),
-    getCoachSummary(authToken)
-  ]);
+  const snapshot = snapshotResult.data;
+  const plan = planResult.data;
+  const recommendation = recommendationResult.data;
+  const metrics = metricsResult.data;
+  const checkins = checkinsResult.data;
+  const workouts = workoutsResult.data;
+  const coachSummary = coachSummaryResult.data;
+
+  const isDegraded =
+    snapshotResult.degraded ||
+    planResult.degraded ||
+    recommendationResult.degraded ||
+    metricsResult.degraded ||
+    checkinsResult.degraded ||
+    workoutsResult.degraded ||
+    coachSummaryResult.degraded;
 
   const todayPlan = plan[0];
   const latestMetric = metrics[0];
@@ -95,28 +181,28 @@ export default async function DashboardPage() {
     Math.round(((weeklyWorkouts.length || 1) / Math.max(plan.length || 1, 1)) * 100)
   );
   const calorieGap = recommendation ? recommendation.targetCalorie - recommendation.totalCalorie : 0;
-  const calorieStatus = calorieGap >= 0 ? "热量缺口" : "热量盈余";
+  const calorieStatus = calorieGap >= 0 ? "Calorie gap" : "Calorie surplus";
 
   const rings = [
     {
       slug: "move",
-      label: "活动",
+      label: "Move",
       value: Math.min(100, Math.round(((latestCheckin?.steps ?? 0) / 10000) * 100)),
       note: latestCheckin
-        ? `今日步数 ${latestCheckin.steps.toLocaleString("zh-CN")} / 10,000`
-        : "今天还没有完成状态打卡",
+        ? `Today ${latestCheckin.steps.toLocaleString("zh-CN")} / 10,000 steps`
+        : "No check-in recorded yet for today.",
       accent: "#d53832"
     },
     {
       slug: "load",
-      label: "负荷",
+      label: "Load",
       value: Math.min(100, Math.round((weeklyDuration / 180) * 100)),
-      note: `近 7 日训练 ${weeklyDuration} 分钟`,
+      note: `Last 7 days ${weeklyDuration} training minutes`,
       accent: "#20202a"
     },
     {
       slug: "focus",
-      label: "专注",
+      label: "Focus",
       value: focusValue,
       note: todayPlan?.focus ?? snapshot.todayFocus,
       accent: "#8f9199"
@@ -125,25 +211,25 @@ export default async function DashboardPage() {
 
   const summaryRows = [
     {
-      label: "恢复",
+      label: "Recovery",
       value: snapshot.recoveryStatus,
       meta: latestCheckin
-        ? `睡眠 ${latestCheckin.sleepHours} h · 疲劳 ${formatValueLabel(latestCheckin.fatigueLevel)}`
-        : "等待今天的恢复数据"
+        ? `Sleep ${latestCheckin.sleepHours} h | Fatigue ${formatValueLabel(latestCheckin.fatigueLevel)}`
+        : "Waiting for today's recovery data."
     },
     {
-      label: "饮食",
+      label: "Nutrition",
       value: recommendation
-        ? `${goalLabelByType[recommendation.userGoal] ?? recommendation.userGoal} · ${calorieStatus}`
-        : "今日餐盘尚未生成",
+        ? `${goalLabelByType[recommendation.userGoal] ?? recommendation.userGoal} | ${calorieStatus}`
+        : "Today's plate has not been generated yet",
       meta: recommendation
         ? `${recommendation.totalCalorie}/${recommendation.targetCalorie} kcal`
-        : "可以先补全饮食推荐数据"
+        : "You can still keep the dashboard open while nutrition data catches up."
     },
     {
-      label: "计划",
-      value: todayPlan?.focus ?? "今天还没有同步训练安排",
-      meta: todayPlan?.duration ?? "休息或恢复日"
+      label: "Plan",
+      value: todayPlan?.focus ?? "No synchronized training plan for today yet",
+      meta: todayPlan?.duration ?? "Rest or recovery day"
     }
   ];
 
@@ -151,14 +237,19 @@ export default async function DashboardPage() {
     <div className="page">
       <div className="page-header-compact dashboard-header">
         <div>
-          <span className="section-label">仪表盘</span>
-          <h2>今日总览</h2>
+          <span className="section-label">Dashboard</span>
+          <h2>Today&apos;s overview</h2>
+          {isDegraded ? (
+            <p className="muted">
+              Some live dashboard data is temporarily unavailable. The page is staying usable with fallback values.
+            </p>
+          ) : null}
         </div>
 
         <div className="chip-row">
           <span className="mini-chip">{formatCompletionRate(snapshot.weeklyCompletionRate)}</span>
           <span className="status-pill live">
-            {latestMetric ? `最新体重 ${latestMetric.weightKg} kg` : "等待更多记录"}
+            {latestMetric ? `Latest weight ${latestMetric.weightKg} kg` : "Waiting for more records"}
           </span>
         </div>
       </div>
@@ -175,10 +266,11 @@ export default async function DashboardPage() {
             <section className="diet-plate-panel">
               <div className="section-head">
                 <div className="section-copy">
-                  <span className="section-label">饮食</span>
-                  <h3>今日推荐餐盘</h3>
+                  <span className="section-label">Nutrition</span>
+                  <h3>Today&apos;s recommended plate</h3>
                   <p className="muted">
-                    当前数据库里还没有今天的饮食推荐快照，所以这里先保持空状态，不让整页因为缺一块数据而报错。
+                    Nutrition data is missing right now, so this section stays empty instead of taking down the whole
+                    dashboard.
                   </p>
                 </div>
               </div>
@@ -189,8 +281,8 @@ export default async function DashboardPage() {
         <aside className="viz-wrap dashboard-rail">
           <section className="dashboard-summary-panel">
             <div className="section-copy">
-              <span className="section-label">今天</span>
-              <h3>关键信号</h3>
+              <span className="section-label">Today</span>
+              <h3>Key signals</h3>
             </div>
 
             <div className="dashboard-summary-list">
@@ -208,8 +300,8 @@ export default async function DashboardPage() {
 
           <section className="dashboard-burn-panel">
             <div className="section-copy">
-              <span className="section-label">趋势</span>
-              <h3>7 日走势</h3>
+              <span className="section-label">Trend</span>
+              <h3>7-day pace</h3>
             </div>
 
             <div className="bar-chart compact" aria-hidden="true">
@@ -227,7 +319,7 @@ export default async function DashboardPage() {
               <small>
                 {todayPlan?.recoveryTip ??
                   latestCheckin?.hungerLevel?.replace(/_/g, " ") ??
-                  "继续补充打卡和训练数据，建议会更稳定。"}
+                  "Keep logging check-ins and training data to stabilize the next recommendation."}
               </small>
             </div>
           </section>

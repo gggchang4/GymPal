@@ -5,7 +5,7 @@ import { AgentStateService } from "../src/services/agent-state.service";
 import { getProposalActionState } from "../../frontend/lib/proposal-state";
 
 function makeProposal(overrides: Record<string, unknown> = {}) {
-  const now = new Date("2026-04-20T12:00:00.000Z");
+  const now = new Date("2099-04-20T12:00:00.000Z");
   return {
     id: "proposal-1",
     threadId: "thread-1",
@@ -21,7 +21,7 @@ function makeProposal(overrides: Record<string, unknown> = {}) {
     preview: { dayLabel: "Wednesday", nextFocus: "Recovery walk" },
     riskLevel: "medium",
     requiresConfirmation: true,
-    expiresAt: new Date("2026-04-20T14:00:00.000Z"),
+    expiresAt: new Date("2099-04-20T14:00:00.000Z"),
     executedAt: null,
     basePlanId: null,
     basePlanVersion: null,
@@ -35,7 +35,7 @@ function makeProposal(overrides: Record<string, unknown> = {}) {
 }
 
 function createService() {
-  const now = new Date("2026-04-20T12:00:00.000Z");
+  const now = new Date("2099-04-20T12:00:00.000Z");
   const prisma = {
     agentThread: {
       findFirst: async () => ({
@@ -89,7 +89,7 @@ function createService() {
         summary: data.summary ?? "Apply weekly coaching package.",
         preview: {},
         riskLevel: data.riskLevel ?? "high",
-        expiresAt: new Date("2026-04-20T16:00:00.000Z"),
+        expiresAt: new Date("2099-04-20T16:00:00.000Z"),
         executedAt: null,
         createdAt: now,
         updatedAt: now,
@@ -106,7 +106,7 @@ function createService() {
         summary: "Apply weekly coaching package.",
         preview: {},
         riskLevel: "high",
-        expiresAt: new Date("2026-04-20T16:00:00.000Z"),
+        expiresAt: new Date("2099-04-20T16:00:00.000Z"),
         executedAt: null,
         createdAt: now,
         updatedAt: now,
@@ -123,8 +123,8 @@ function createService() {
         summary: "Apply weekly coaching package.",
         preview: {},
         riskLevel: "high",
-        expiresAt: new Date("2026-04-20T16:00:00.000Z"),
-        executedAt: new Date("2026-04-20T13:00:00.000Z"),
+        expiresAt: new Date("2099-04-20T16:00:00.000Z"),
+        executedAt: new Date("2099-04-20T13:00:00.000Z"),
         createdAt: now,
         updatedAt: now,
         proposals: []
@@ -172,9 +172,9 @@ function createService() {
         goal: "fat_loss",
         status: "active",
         version: 1,
-        weekOf: "2026-04-20T00:00:00.000Z",
-        createdAt: "2026-04-20T00:00:00.000Z",
-        updatedAt: "2026-04-20T00:00:00.000Z"
+        weekOf: "2099-04-20T00:00:00.000Z",
+        createdAt: "2099-04-20T00:00:00.000Z",
+        updatedAt: "2099-04-20T00:00:00.000Z"
       },
       days: [
         {
@@ -186,7 +186,7 @@ function createService() {
           recoveryTip: "Stretch",
           isCompleted: false,
           sortOrder: 0,
-          updatedAt: "2026-04-20T00:00:00.000Z"
+          updatedAt: "2099-04-20T00:00:00.000Z"
         }
       ]
     })
@@ -212,7 +212,7 @@ test("confirmProposal resumes execution when the proposal is already approved", 
     findCount += 1;
     return findCount === 1
       ? makeProposal({ status: "approved", actionType: "update_plan_day" })
-      : makeProposal({ status: "executed", actionType: "update_plan_day", executedAt: new Date("2026-04-20T12:30:00.000Z") });
+      : makeProposal({ status: "executed", actionType: "update_plan_day", executedAt: new Date("2099-04-20T12:30:00.000Z") });
   };
 
   (service as any).executeApprovedProposal = async () => ({
@@ -249,7 +249,7 @@ test("assertProposalFresh fails when the active plan has changed", async () => {
     makeProposal({
       basePlanId: "plan-old",
       basePlanVersion: 1,
-      basePlanUpdatedAt: new Date("2026-04-20T00:00:00.000Z")
+      basePlanUpdatedAt: new Date("2099-04-20T00:00:00.000Z")
     });
 
   appStore.getCurrentPlanSnapshot = async () => ({
@@ -259,9 +259,9 @@ test("assertProposalFresh fails when the active plan has changed", async () => {
       goal: "fat_loss",
       status: "active",
       version: 2,
-      weekOf: "2026-04-20T00:00:00.000Z",
-      createdAt: "2026-04-20T00:00:00.000Z",
-      updatedAt: "2026-04-20T01:00:00.000Z"
+      weekOf: "2099-04-20T00:00:00.000Z",
+      createdAt: "2099-04-20T00:00:00.000Z",
+      updatedAt: "2099-04-20T01:00:00.000Z"
     },
     days: []
   });
@@ -352,10 +352,10 @@ test("executeProposalGroup applies grouped proposals and marks the review as app
       summary: "Apply weekly coaching package.",
       preview: {},
       riskLevel: "high",
-      expiresAt: new Date("2026-04-20T16:00:00.000Z"),
+      expiresAt: new Date("2099-04-20T16:00:00.000Z"),
       executedAt: null,
-      createdAt: new Date("2026-04-20T12:00:00.000Z"),
-      updatedAt: new Date("2026-04-20T12:00:00.000Z"),
+      createdAt: new Date("2099-04-20T12:00:00.000Z"),
+      updatedAt: new Date("2099-04-20T12:00:00.000Z"),
       proposals: [
         makeProposal({
           id: "proposal-a",

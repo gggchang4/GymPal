@@ -1,4 +1,5 @@
 import { ExerciseLibrarySearch } from "@/components/exercise-library-search";
+import { PageErrorState } from "@/components/page-error-state";
 import { getCurrentPlan, getExerciseCatalog } from "@/lib/api";
 import { requireServerAuthToken } from "@/lib/server-auth";
 
@@ -6,7 +7,14 @@ export const dynamic = "force-dynamic";
 
 export default async function ExercisesPage() {
   const authToken = requireServerAuthToken();
-  const [plan, exerciseCatalog] = await Promise.all([getCurrentPlan(authToken), getExerciseCatalog()]);
+  let plan;
+  let exerciseCatalog;
+
+  try {
+    [plan, exerciseCatalog] = await Promise.all([getCurrentPlan(authToken), getExerciseCatalog()]);
+  } catch (error) {
+    return <PageErrorState title="动作库" message={error instanceof Error ? error.message : undefined} />;
+  }
   const todayFocus = plan[0]?.focus ?? "上肢力量与核心";
 
   return (

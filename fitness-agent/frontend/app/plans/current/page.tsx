@@ -1,4 +1,5 @@
 import { PlanChecklist } from "@/components/plan-checklist";
+import { PageErrorState } from "@/components/page-error-state";
 import { getCurrentPlan } from "@/lib/api";
 import { requireServerAuthToken } from "@/lib/server-auth";
 
@@ -6,7 +7,13 @@ export const dynamic = "force-dynamic";
 
 export default async function CurrentPlanPage() {
   const authToken = requireServerAuthToken();
-  const plan = await getCurrentPlan(authToken);
+  let plan;
+
+  try {
+    plan = await getCurrentPlan(authToken);
+  } catch (error) {
+    return <PageErrorState title="本周计划" message={error instanceof Error ? error.message : undefined} />;
+  }
 
   return (
     <div className="page">
