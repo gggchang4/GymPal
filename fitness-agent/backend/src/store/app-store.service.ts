@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { CoachingOutcomeRecord, CoachingOutcomeService } from "../services/coaching-outcome.service";
 
 export interface HealthProfileRecord {
   age?: number;
@@ -127,6 +128,48 @@ export interface GeneratedAdvicePayload {
   riskFlags: string[];
 }
 
+export interface CoachingMemoryPayload {
+  memoryType: string;
+  title: string;
+  summary: string;
+  value?: Record<string, unknown>;
+  confidence?: number;
+  sourceType?: string;
+  sourceId?: string;
+  reason?: string;
+}
+
+export interface MemorySummaryRecord {
+  activeMemories: Array<{
+    id: string;
+    memoryType: string;
+    title: string;
+    summary: string;
+    value: Prisma.JsonValue;
+    confidence: number;
+    sourceType: string;
+    sourceId: string | null;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  recentEvents: Array<{
+    id: string;
+    memoryId: string | null;
+    eventType: string;
+    reason: string;
+    sourceType: string;
+    sourceId: string | null;
+    createdAt: string;
+  }>;
+  confidenceSummary: {
+    high: number;
+    medium: number;
+    low: number;
+  };
+  safetyConstraints: string[];
+}
+
 export interface CoachSummaryRecord {
   currentPlan: CurrentPlanSnapshotRecord;
   completion: {
@@ -147,6 +190,8 @@ export interface CoachSummaryRecord {
     status: string;
     createdAt: string;
   } | null;
+  memorySummary: MemorySummaryRecord;
+  recentOutcomes: CoachingOutcomeRecord[];
   needsWeeklyReview: boolean;
 }
 
@@ -247,7 +292,10 @@ function buildPlanDays() {
 export class AppStoreService {
   private readonly logger = new Logger(AppStoreService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly outcomeService: CoachingOutcomeService
+  ) {}
 
   private db(client?: DbClient) {
     return client ?? this.prisma;
@@ -706,9 +754,208 @@ export class AppStoreService {
     });
   }
 
+  async getMemorySummary(userId?: string): Promise<MemorySummaryRecord> {
+    const user = await this.getUser(userId);
+    const [activeMemories, recentEvents] = await Promise.all([
+      this.prisma.userCoachingMemory.findMany({
+        where: { userId: user.id, status: "active" },
+        orderBy: [{ confidence: "desc" }, { updatedAt: "desc" }],
+        take: 12
+      }),
+      this.prisma.coachingMemoryEvent.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+        take: 8
+      })
+    ]);
+
+    const confidenceSummary = activeMemories.reduce(
+      (summary, memory) => {
+        if (memory.confidence >= 75) {
+          summary.high += 1;
+        } else if (memory.confidence >= 45) {
+          summary.medium += 1;
+        } else {
+          summary.low += 1;
+        }
+        return summary;
+      },
+      { high: 0, medium: 0, low: 0 }
+    );
+
+    const safetyConstraints = activeMemories
+      .filter((memory) => memory.memoryType === "safety_constraint" || memory.memoryType === "recovery_pattern")
+      .map((memory) => memory.summary);
+
+    return {
+      activeMemories: activeMemories.map((memory) => ({
+        id: memory.id,
+        memoryType: memory.memoryType,
+        title: memory.title,
+        summary: memory.summary,
+        value: memory.value,
+        confidence: memory.confidence,
+        sourceType: memory.sourceType,
+        sourceId: memory.sourceId,
+        status: memory.status,
+        createdAt: memory.createdAt.toISOString(),
+        updatedAt: memory.updatedAt.toISOString()
+      })),
+      recentEvents: recentEvents.map((event) => ({
+        id: event.id,
+        memoryId: event.memoryId,
+        eventType: event.eventType,
+        reason: event.reason,
+        sourceType: event.sourceType,
+        sourceId: event.sourceId,
+        createdAt: event.createdAt.toISOString()
+      })),
+      confidenceSummary,
+      safetyConstraints
+    };
+  }
+
+  async createCoachingMemory(userId: string, payload: CoachingMemoryPayload, client?: DbClient) {
+    const db = this.db(client);
+    const confidence = Math.max(1, Math.min(100, Math.round(payload.confidence ?? 60)));
+    const memoryType = normalizePlanString(payload.memoryType, "behavior_pattern");
+    const title = normalizePlanString(payload.title, "教练记忆");
+    const summary = normalizePlanString(payload.summary, "用户确认了一条长期教练记忆。");
+    const value = asJson(payload.value ?? {});
+    const sourceType = normalizePlanString(payload.sourceType, "chat");
+    return db.userCoachingMemory.create({
+      data: {
+        userId,
+        memoryType,
+        title,
+        summary,
+        value,
+        confidence,
+        sourceType,
+        sourceId: payload.sourceId,
+        status: "active",
+        events: {
+          create: {
+            userId,
+            eventType: "created",
+            reason: normalizePlanString(payload.reason, "用户确认新增教练记忆。"),
+            before: Prisma.JsonNull,
+            after: asJson({
+              memoryType,
+              title,
+              summary,
+              value: payload.value ?? {},
+              confidence,
+              status: "active"
+            }),
+            sourceType,
+            sourceId: payload.sourceId
+          }
+        }
+      }
+    });
+  }
+
+  async updateCoachingMemory(userId: string, memoryId: string, payload: Partial<CoachingMemoryPayload>, client?: DbClient) {
+    const db = this.db(client);
+    const current = await db.userCoachingMemory.findFirst({
+      where: { id: memoryId, userId }
+    });
+
+    if (!current) {
+      throw new NotFoundException("Coaching memory not found.");
+    }
+
+    const nextSnapshot = {
+      memoryType: payload.memoryType ? normalizePlanString(payload.memoryType, current.memoryType) : current.memoryType,
+      title: payload.title ? normalizePlanString(payload.title, current.title) : current.title,
+      summary: payload.summary ? normalizePlanString(payload.summary, current.summary) : current.summary,
+      value: payload.value ?? current.value,
+      confidence:
+        payload.confidence === undefined
+          ? current.confidence
+          : Math.max(1, Math.min(100, Math.round(payload.confidence))),
+      status: current.status
+    };
+    const updated = await db.userCoachingMemory.update({
+      where: { id: current.id },
+      data: {
+        memoryType: payload.memoryType ? nextSnapshot.memoryType : undefined,
+        title: payload.title ? nextSnapshot.title : undefined,
+        summary: payload.summary ? nextSnapshot.summary : undefined,
+        value: payload.value ? asJson(payload.value) : undefined,
+        confidence:
+          payload.confidence === undefined
+            ? undefined
+            : nextSnapshot.confidence,
+        sourceType: payload.sourceType ? normalizePlanString(payload.sourceType, current.sourceType) : undefined,
+        sourceId: payload.sourceId,
+        events: {
+          create: {
+            userId,
+            eventType: "updated",
+            reason: normalizePlanString(payload.reason, "用户确认更新教练记忆。"),
+            before: asJson({
+              memoryType: current.memoryType,
+              title: current.title,
+              summary: current.summary,
+              value: current.value,
+              confidence: current.confidence
+            }),
+            after: asJson(nextSnapshot),
+            sourceType: normalizePlanString(payload.sourceType, "chat"),
+            sourceId: payload.sourceId
+          }
+        }
+      }
+    });
+
+    return updated;
+  }
+
+  async archiveCoachingMemory(userId: string, memoryId: string, reason?: string, client?: DbClient) {
+    const db = this.db(client);
+    const current = await db.userCoachingMemory.findFirst({
+      where: { id: memoryId, userId }
+    });
+
+    if (!current) {
+      throw new NotFoundException("Coaching memory not found.");
+    }
+
+    return db.userCoachingMemory.update({
+      where: { id: current.id },
+      data: {
+        status: "archived",
+        events: {
+          create: {
+            userId,
+            eventType: "archived",
+            reason: normalizePlanString(reason, "用户确认归档教练记忆。"),
+            before: asJson({
+              memoryType: current.memoryType,
+              title: current.title,
+              summary: current.summary,
+              value: current.value,
+              confidence: current.confidence,
+              status: current.status
+            }),
+            after: asJson({ status: "archived" }),
+            sourceType: "chat"
+          }
+        }
+      }
+    });
+  }
+
+  async getRecentCoachingOutcomes(userId?: string, take = 3): Promise<CoachingOutcomeRecord[]> {
+    const user = await this.getUser(userId);
+    return this.outcomeService.getRecentOutcomesForUser(user.id, take);
+  }
+
   async getCoachSummary(userId?: string): Promise<CoachSummaryRecord> {
     const user = await this.getUser(userId);
-    const [currentPlan, recentBodyMetrics, recentDailyCheckins, recentWorkoutLogs, latestDietRecommendation, recentAdviceSnapshots, pendingCoachingPackage] =
+    const [currentPlan, recentBodyMetrics, recentDailyCheckins, recentWorkoutLogs, latestDietRecommendation, recentAdviceSnapshots, pendingCoachingPackage, memorySummary, recentOutcomes] =
       await Promise.all([
         this.getCurrentPlanSnapshot(user.id),
         this.prisma.bodyMetricLog.findMany({
@@ -735,7 +982,9 @@ export class AppStoreService {
         this.prisma.agentProposalGroup.findFirst({
           where: { userId: user.id, status: { in: ["pending", "approved"] } },
           orderBy: { createdAt: "desc" }
-        })
+        }),
+        this.getMemorySummary(user.id),
+        this.outcomeService.getRecentOutcomesForUser(user.id)
       ]);
 
     const totalDays = currentPlan.days.length;
@@ -770,6 +1019,8 @@ export class AppStoreService {
             createdAt: pendingCoachingPackage.createdAt.toISOString()
           }
         : null,
+      memorySummary,
+      recentOutcomes,
       needsWeeklyReview
     };
   }

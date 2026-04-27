@@ -23,16 +23,8 @@ const initialMessages: AgentMessage[] = [
     id: "welcome",
     role: "assistant",
     content:
-      "你可以直接询问训练、恢复和饮食建议，也可以让我先整理一条待确认的执行提案。这里的回复会实时依赖后端和 Agent 服务，不再回退到静态演示数据。"
+      "你可以直接询问训练、恢复和饮食建议，也可以让我先整理一条待确认的执行提案。这里的回复会实时依赖后端和 Agent 服务。"
   }
-];
-
-const quickPrompts = [
-  "帮我复盘这一周，并生成下周的训练、饮食和执行建议。",
-  "根据我最近的恢复状态，给我一份今天的训练建议。",
-  "如果我昨晚没睡好，而且腿很酸，今晚还适合训练吗？",
-  "帮我把当前计划调整成低能量周版本。",
-  "记录我今天睡了 6.5 小时，走了 7000 步。"
 ];
 
 function buildErrorMessage(error: unknown, action: "message" | "proposal" | "package") {
@@ -48,11 +40,7 @@ function buildErrorMessage(error: unknown, action: "message" | "proposal" | "pac
       : "这条提案已经执行过了，刷新页面后查看最新状态。";
   }
 
-  if (detail.includes("expired")) {
-    return "这条提案已经过期，请重新生成。";
-  }
-
-  if (detail.includes("changed") || detail.includes("no longer exists")) {
+  if (detail.includes("expired") || detail.includes("changed") || detail.includes("no longer exists")) {
     return "这条提案已经过期，请重新生成。";
   }
 
@@ -205,7 +193,7 @@ export default function ChatPage() {
           id: crypto.randomUUID(),
           role: "assistant",
           content: buildErrorMessage(error, "message"),
-          reasoningSummary: "这次失败反映的是当前后端或 Agent 服务的真实状态，不会再回退到静态响应。"
+          reasoningSummary: "这次失败反映的是当前后端或 Agent 服务的真实状态。"
         }
       ]);
       setStatus("消息发送失败");
@@ -351,7 +339,7 @@ export default function ChatPage() {
 
         <div className="composer chat-composer">
           <textarea
-            rows={4}
+            rows={2}
             value={text}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={(event) => {
@@ -360,24 +348,10 @@ export default function ChatPage() {
                 void onSubmit();
               }
             }}
-            placeholder="可以询问训练安排、恢复建议、饮食调整，也可以直接让我帮你生成待确认提案。按 Ctrl/Cmd + Enter 发送。"
+            placeholder="给 GymPal 发送消息，按 Ctrl/Cmd + Enter 快速发送"
           />
 
-          <div className="chat-composer-row">
-            <div className="chip-row">
-              {quickPrompts.map((prompt) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  className="chip-button"
-                  onClick={() => setText(prompt)}
-                  disabled={busy || Boolean(pendingProposalId) || hasAuthToken !== true}
-                >
-                  {prompt}
-                </button>
-              ))}
-            </div>
-
+          <div className="chat-composer-row compact">
             <div className="action-row">
               <button
                 type="button"

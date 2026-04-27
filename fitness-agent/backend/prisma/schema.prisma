@@ -23,6 +23,9 @@ model User {
   adviceSnapshots   AdviceSnapshot[]
   agentThreads      AgentThread[]
   coachingReviewSnapshots CoachingReviewSnapshot[]
+  coachingMemories UserCoachingMemory[]
+  coachingMemoryEvents CoachingMemoryEvent[]
+  coachingOutcomes CoachingOutcome[]
   agentActionProposals AgentActionProposal[]
   agentActionExecutions AgentActionExecution[]
   agentProposalGroups AgentProposalGroup[]
@@ -199,9 +202,73 @@ model CoachingReviewSnapshot {
   thread             AgentThread          @relation(fields: [threadId], references: [id], onDelete: Cascade)
   run                AgentRun?            @relation(fields: [runId], references: [id], onDelete: SetNull)
   proposalGroups     AgentProposalGroup[]
+  coachingOutcomes   CoachingOutcome[]
 
   @@index([userId, type, createdAt])
   @@index([threadId, createdAt])
+}
+
+model CoachingOutcome {
+  id                 String                 @id @default(cuid())
+  userId             String
+  reviewSnapshotId   String?
+  proposalGroupId    String?                @unique
+  strategyTemplateId String?
+  strategyVersion    String?
+  status             String                 @default("pending")
+  measurementStart   DateTime
+  measurementEnd     DateTime
+  baseline           Json
+  observed           Json
+  score              Int?
+  signals            Json
+  summary            String
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  user               User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewSnapshot     CoachingReviewSnapshot? @relation(fields: [reviewSnapshotId], references: [id], onDelete: SetNull)
+  proposalGroup      AgentProposalGroup?    @relation(fields: [proposalGroupId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status, updatedAt])
+  @@index([reviewSnapshotId, createdAt])
+}
+
+model UserCoachingMemory {
+  id           String                @id @default(cuid())
+  userId       String
+  memoryType   String
+  title        String
+  summary      String
+  value        Json
+  confidence   Int                   @default(60)
+  sourceType   String
+  sourceId     String?
+  status       String                @default("active")
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events       CoachingMemoryEvent[]
+
+  @@index([userId, status, updatedAt])
+  @@index([userId, memoryType, status])
+}
+
+model CoachingMemoryEvent {
+  id         String              @id @default(cuid())
+  userId     String
+  memoryId   String?
+  eventType  String
+  reason     String
+  before     Json?
+  after      Json?
+  sourceType String
+  sourceId   String?
+  createdAt  DateTime            @default(now())
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  memory     UserCoachingMemory? @relation(fields: [memoryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([memoryId, createdAt])
 }
 
 model AgentThread {
@@ -327,6 +394,7 @@ model AgentProposalGroup {
   user               User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   reviewSnapshot     CoachingReviewSnapshot? @relation(fields: [reviewSnapshotId], references: [id], onDelete: SetNull)
   proposals          AgentActionProposal[]
+  outcome            CoachingOutcome?
 
   @@index([threadId, status, createdAt])
   @@index([userId, status, createdAt])

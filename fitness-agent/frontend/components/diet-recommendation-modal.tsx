@@ -55,7 +55,6 @@ function formatPercent(value: number, total: number) {
   if (!total) {
     return 0;
   }
-
   return Math.round((value / total) * 100);
 }
 
@@ -176,7 +175,7 @@ export function DietRecommendationModal({
           <div>
             <span className="section-label">饮食工作台</span>
             <h3 id="diet-modal-title">今日饮食建议</h3>
-            <p className="muted">把结构、餐次和替换方案放在同一块面板里，阅读更专注，也更适合快速决策。</p>
+            <p className="muted">把结构、餐次和替换方案放进同一块面板里，阅读更专注，也更适合快速决策。</p>
           </div>
           <button className="diet-icon-button" type="button" onClick={onClose} aria-label="关闭饮食建议">
             ×
@@ -223,7 +222,7 @@ export function DietRecommendationModal({
                 <span className="section-label">洞察</span>
                 <h4>整体结构</h4>
               </div>
-              <p className="muted">把今天的宏量构成、三餐热量分配和当前餐内结构放在一组图里查看。</p>
+              <p className="muted">把今天的宏量构成、三餐热量分配和当前餐内结构合并在一组图中查看。</p>
             </div>
 
             <div className="diet-chart-grid compact">
@@ -391,7 +390,7 @@ export function DietRecommendationModal({
                         </div>
 
                         <p className="diet-food-caption">
-                          这份食物以 {macroLabelByKey[dominantMacro]} 为主，蛋白质 {food.nutrition.protein}g，碳水{" "}
+                          这份食物以{macroLabelByKey[dominantMacro]}为主，蛋白质 {food.nutrition.protein}g，碳水{" "}
                           {food.nutrition.carbohydrate}g，脂肪 {food.nutrition.fat}g。
                         </p>
 
@@ -442,7 +441,10 @@ export function DietRecommendationModal({
                       <div className="diet-nutrient-rail" aria-hidden="true">
                         <span className="diet-nutrient-fill" style={{ width: `${progress}%` }} />
                       </div>
-                      <small>剩余 {values.remaining}{row.unit}</small>
+                      <small>
+                        剩余 {values.remaining}
+                        {row.unit}
+                      </small>
                     </div>
                   );
                 })}

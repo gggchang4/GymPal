@@ -10,8 +10,15 @@ import {
 } from "../dtos/agent.dto";
 import { AppStoreService } from "../store/app-store.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { CoachingOutcomeService } from "./coaching-outcome.service";
 
 type TransactionClient = Prisma.TransactionClient | PrismaClient;
+const proposalGroupExecutionInclude = Prisma.validator<Prisma.AgentProposalGroupInclude>()({
+  proposals: {
+    orderBy: { createdAt: "asc" }
+  },
+  reviewSnapshot: true
+});
 
 function asJson(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
@@ -32,7 +39,8 @@ function normalizeArray(value: unknown): string[] {
 export class AgentStateService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly appStore: AppStoreService
+    private readonly appStore: AppStoreService,
+    private readonly outcomeService: CoachingOutcomeService
   ) {}
 
   private async getActor(userId?: string) {
@@ -114,12 +122,7 @@ export class AgentStateService {
         id: proposalGroupId,
         userId: actor.id
       },
-      include: {
-        proposals: {
-          orderBy: { createdAt: "asc" }
-        },
-        reviewSnapshot: true
-      }
+      include: proposalGroupExecutionInclude
     });
 
     if (!proposalGroup) {
@@ -776,10 +779,13 @@ export class AgentStateService {
       return null;
     }
 
+    const outcome = await this.outcomeService.getOutcomeForProposalGroup(proposalGroupId);
+
     return {
       ok: executions.every((execution) => execution.status === "succeeded"),
       status: executions.every((execution) => execution.status === "succeeded") ? "succeeded" : "failed",
       proposalGroupId,
+      outcomeId: outcome?.id ?? null,
       actions: executions.map((execution) => ({
         proposalId: execution.proposalId,
         actionType: execution.proposal.actionType,
@@ -922,10 +928,17 @@ export class AgentStateService {
           });
         }
 
+        const outcome = await this.outcomeService.createPendingOutcomeForExecutedPackage(tx, {
+          proposalGroup,
+          actionCount: actionResults.length,
+          executedAt
+        });
+
         return {
           ok: true,
           status: "succeeded",
           proposalGroupId: proposalGroup.id,
+          outcomeId: outcome.id,
           actions: actionResults
         };
       });
@@ -1178,6 +1191,33 @@ export class AgentStateService {
     };
   }
 
+  private buildCoachingMemoryPayload(payload: Record<string, unknown>) {
+    const value = typeof payload.value === "object" && payload.value ? (payload.value as Record<string, unknown>) : {};
+    return {
+      memoryType: typeof payload.memoryType === "string" ? payload.memoryType : "behavior_pattern",
+      title: typeof payload.title === "string" ? payload.title : "教练记忆",
+      summary: typeof payload.summary === "string" ? payload.summary : "用户确认了一条长期教练记忆。",
+      value,
+      confidence: Number(payload.confidence ?? 60),
+      sourceType: typeof payload.sourceType === "string" ? payload.sourceType : "chat",
+      sourceId: typeof payload.sourceId === "string" ? payload.sourceId : undefined,
+      reason: typeof payload.reason === "string" ? payload.reason : undefined
+    };
+  }
+
+  private buildPartialCoachingMemoryPayload(payload: Record<string, unknown>) {
+    return {
+      memoryType: typeof payload.memoryType === "string" ? payload.memoryType : undefined,
+      title: typeof payload.title === "string" ? payload.title : undefined,
+      summary: typeof payload.summary === "string" ? payload.summary : undefined,
+      value: typeof payload.value === "object" && payload.value ? (payload.value as Record<string, unknown>) : undefined,
+      confidence: payload.confidence === undefined ? undefined : Number(payload.confidence),
+      sourceType: typeof payload.sourceType === "string" ? payload.sourceType : undefined,
+      sourceId: typeof payload.sourceId === "string" ? payload.sourceId : undefined,
+      reason: typeof payload.reason === "string" ? payload.reason : undefined
+    };
+  }
+
   private async dispatchActionWithinTransaction(
     actionType: string,
     payload: Record<string, unknown>,
@@ -1191,6 +1231,18 @@ export class AgentStateService {
         return this.appStore.createGeneratedDietRecommendation(userId, this.buildGeneratedDietPayload(payload), tx);
       case "create_advice_snapshot":
         return this.appStore.createGeneratedAdviceSnapshot(userId, this.buildGeneratedAdvicePayload(payload), tx);
+      case "create_coaching_memory":
+        return this.appStore.createCoachingMemory(userId, this.buildCoachingMemoryPayload(payload), tx);
+      case "update_coaching_memory":
+        if (typeof payload.memoryId !== "string") {
+          throw new ConflictException("The proposal is missing the target memory id.");
+        }
+        return this.appStore.updateCoachingMemory(userId, payload.memoryId, this.buildPartialCoachingMemoryPayload(payload), tx);
+      case "archive_coaching_memory":
+        if (typeof payload.memoryId !== "string") {
+          throw new ConflictException("The proposal is missing the target memory id.");
+        }
+        return this.appStore.archiveCoachingMemory(userId, payload.memoryId, typeof payload.reason === "string" ? payload.reason : undefined, tx);
       default:
         throw new ConflictException(`Action type ${actionType} is not supported inside a transactional coaching package.`);
     }
@@ -1276,6 +1328,18 @@ export class AgentStateService {
         return this.appStore.createGeneratedDietRecommendation(userId, this.buildGeneratedDietPayload(payload));
       case "create_advice_snapshot":
         return this.appStore.createGeneratedAdviceSnapshot(userId, this.buildGeneratedAdvicePayload(payload));
+      case "create_coaching_memory":
+        return this.appStore.createCoachingMemory(userId, this.buildCoachingMemoryPayload(payload));
+      case "update_coaching_memory":
+        if (typeof payload.memoryId !== "string") {
+          throw new ConflictException("The proposal is missing the target memory id.");
+        }
+        return this.appStore.updateCoachingMemory(userId, payload.memoryId, this.buildPartialCoachingMemoryPayload(payload));
+      case "archive_coaching_memory":
+        if (typeof payload.memoryId !== "string") {
+          throw new ConflictException("The proposal is missing the target memory id.");
+        }
+        return this.appStore.archiveCoachingMemory(userId, payload.memoryId, typeof payload.reason === "string" ? payload.reason : undefined);
       default:
         throw new ConflictException(`Unsupported action type: ${actionType}`);
     }

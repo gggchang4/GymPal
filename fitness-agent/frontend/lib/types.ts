@@ -97,6 +97,55 @@ export interface AdviceSnapshot {
   createdAt: string;
 }
 
+export interface MemorySummarySnapshot {
+  activeMemories: Array<{
+    id: string;
+    memoryType: string;
+    title: string;
+    summary: string;
+    value: Record<string, unknown>;
+    confidence: number;
+    sourceType: string;
+    sourceId?: string | null;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  recentEvents: Array<{
+    id: string;
+    memoryId?: string | null;
+    eventType: string;
+    reason: string;
+    sourceType: string;
+    sourceId?: string | null;
+    createdAt: string;
+  }>;
+  confidenceSummary: {
+    high: number;
+    medium: number;
+    low: number;
+  };
+  safetyConstraints: string[];
+}
+
+export interface CoachingOutcomeSnapshot {
+  id: string;
+  reviewSnapshotId?: string | null;
+  proposalGroupId?: string | null;
+  strategyTemplateId?: string | null;
+  strategyVersion?: string | null;
+  status: string;
+  measurementStart: string;
+  measurementEnd: string;
+  baseline: Record<string, unknown>;
+  observed: Record<string, unknown>;
+  score?: number | null;
+  signals: Record<string, unknown>;
+  summary: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CurrentPlanSnapshot {
   plan: {
     id: string;
@@ -123,6 +172,8 @@ export interface CoachSummarySnapshot {
   recentWorkoutLogs: WorkoutLog[];
   latestDietRecommendation: DietRecommendationSnapshot | null;
   recentAdviceSnapshots: AdviceSnapshot[];
+  memorySummary: MemorySummarySnapshot;
+  recentOutcomes: CoachingOutcomeSnapshot[];
   pendingCoachingPackage: {
     id: string;
     threadId: string;
