@@ -12,6 +12,17 @@ import { AppStoreService } from "../store/app-store.service";
 import { PrismaService } from "../prisma/prisma.service";
 
 type TransactionClient = Prisma.TransactionClient | PrismaClient;
+const OUTCOME_MEASUREMENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const proposalGroupExecutionInclude = Prisma.validator<Prisma.AgentProposalGroupInclude>()({
+  proposals: {
+    orderBy: { createdAt: "asc" }
+  },
+  reviewSnapshot: true
+});
+
+type ProposalGroupWithReview = Prisma.AgentProposalGroupGetPayload<{
+  include: typeof proposalGroupExecutionInclude;
+}>;
 
 function asJson(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
@@ -114,12 +125,7 @@ export class AgentStateService {
         id: proposalGroupId,
         userId: actor.id
       },
-      include: {
-        proposals: {
-          orderBy: { createdAt: "asc" }
-        },
-        reviewSnapshot: true
-      }
+      include: proposalGroupExecutionInclude
     });
 
     if (!proposalGroup) {
@@ -274,6 +280,48 @@ export class AgentStateService {
       proposals: group.proposals?.map((proposal) => this.mapProposal(proposal)) ?? [],
       created_at: group.createdAt.toISOString(),
       updated_at: group.updatedAt.toISOString()
+    };
+  }
+
+  private buildInitialOutcomePayload({
+    proposalGroup,
+    actionCount,
+    executedAt
+  }: {
+    proposalGroup: ProposalGroupWithReview;
+    actionCount: number;
+    executedAt: Date;
+  }) {
+    const review = proposalGroup.reviewSnapshot;
+    const measurementEnd = new Date(executedAt.getTime() + OUTCOME_MEASUREMENT_WINDOW_MS);
+    const inputSnapshot = typeof review?.inputSnapshot === "object" && review.inputSnapshot ? review.inputSnapshot : {};
+    const resultSnapshot = typeof review?.resultSnapshot === "object" && review.resultSnapshot ? review.resultSnapshot : {};
+
+    return {
+      userId: proposalGroup.userId,
+      reviewSnapshotId: proposalGroup.reviewSnapshotId,
+      proposalGroupId: proposalGroup.id,
+      status: "pending",
+      measurementStart: executedAt,
+      measurementEnd,
+      baseline: asJson({
+        reviewType: review?.type ?? null,
+        reviewTitle: review?.title ?? null,
+        adherenceScore: review?.adherenceScore ?? null,
+        riskFlags: review?.riskFlags ?? [],
+        focusAreas: review?.focusAreas ?? [],
+        recommendationTags: review?.recommendationTags ?? [],
+        inputSnapshot,
+        resultSnapshot,
+        packagePreview: proposalGroup.preview
+      }),
+      observed: asJson({}),
+      signals: asJson({
+        source: "coaching_package_execution",
+        actionCount,
+        createdFromStatus: "executed"
+      }),
+      summary: "Pending outcome measurement. Add workout logs, daily check-ins, or body metrics to evaluate this package."
     };
   }
 
@@ -776,10 +824,15 @@ export class AgentStateService {
       return null;
     }
 
+    const outcome = await this.prisma.coachingOutcome.findUnique({
+      where: { proposalGroupId }
+    });
+
     return {
       ok: executions.every((execution) => execution.status === "succeeded"),
       status: executions.every((execution) => execution.status === "succeeded") ? "succeeded" : "failed",
       proposalGroupId,
+      outcomeId: outcome?.id ?? null,
       actions: executions.map((execution) => ({
         proposalId: execution.proposalId,
         actionType: execution.proposal.actionType,
@@ -922,10 +975,21 @@ export class AgentStateService {
           });
         }
 
+        const outcome = await tx.coachingOutcome.upsert({
+          where: { proposalGroupId: proposalGroup.id },
+          update: {},
+          create: this.buildInitialOutcomePayload({
+            proposalGroup,
+            actionCount: actionResults.length,
+            executedAt
+          })
+        });
+
         return {
           ok: true,
           status: "succeeded",
           proposalGroupId: proposalGroup.id,
+          outcomeId: outcome.id,
           actions: actionResults
         };
       });

@@ -25,6 +25,7 @@ model User {
   coachingReviewSnapshots CoachingReviewSnapshot[]
   coachingMemories UserCoachingMemory[]
   coachingMemoryEvents CoachingMemoryEvent[]
+  coachingOutcomes CoachingOutcome[]
   agentActionProposals AgentActionProposal[]
   agentActionExecutions AgentActionExecution[]
   agentProposalGroups AgentProposalGroup[]
@@ -201,9 +202,35 @@ model CoachingReviewSnapshot {
   thread             AgentThread          @relation(fields: [threadId], references: [id], onDelete: Cascade)
   run                AgentRun?            @relation(fields: [runId], references: [id], onDelete: SetNull)
   proposalGroups     AgentProposalGroup[]
+  coachingOutcomes   CoachingOutcome[]
 
   @@index([userId, type, createdAt])
   @@index([threadId, createdAt])
+}
+
+model CoachingOutcome {
+  id                 String                 @id @default(cuid())
+  userId             String
+  reviewSnapshotId   String?
+  proposalGroupId    String?                @unique
+  strategyTemplateId String?
+  strategyVersion    String?
+  status             String                 @default("pending")
+  measurementStart   DateTime
+  measurementEnd     DateTime
+  baseline           Json
+  observed           Json
+  score              Int?
+  signals            Json
+  summary            String
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  user               User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewSnapshot     CoachingReviewSnapshot? @relation(fields: [reviewSnapshotId], references: [id], onDelete: SetNull)
+  proposalGroup      AgentProposalGroup?    @relation(fields: [proposalGroupId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status, updatedAt])
+  @@index([reviewSnapshotId, createdAt])
 }
 
 model UserCoachingMemory {
@@ -367,6 +394,7 @@ model AgentProposalGroup {
   user               User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   reviewSnapshot     CoachingReviewSnapshot? @relation(fields: [reviewSnapshotId], references: [id], onDelete: SetNull)
   proposals          AgentActionProposal[]
+  outcome            CoachingOutcome?
 
   @@index([threadId, status, createdAt])
   @@index([userId, status, createdAt])

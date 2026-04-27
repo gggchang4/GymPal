@@ -2,6 +2,8 @@ import { Injectable, Logger, NotFoundException, UnauthorizedException } from "@n
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 
+type CoachingOutcomeEntity = Awaited<ReturnType<PrismaService["coachingOutcome"]["findMany"]>>[number];
+
 export interface HealthProfileRecord {
   age?: number;
   gender?: string;
@@ -169,6 +171,24 @@ export interface MemorySummaryRecord {
   safetyConstraints: string[];
 }
 
+export interface CoachingOutcomeRecord {
+  id: string;
+  reviewSnapshotId: string | null;
+  proposalGroupId: string | null;
+  strategyTemplateId: string | null;
+  strategyVersion: string | null;
+  status: string;
+  measurementStart: string;
+  measurementEnd: string;
+  baseline: Prisma.JsonValue;
+  observed: Prisma.JsonValue;
+  score: number | null;
+  signals: Prisma.JsonValue;
+  summary: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CoachSummaryRecord {
   currentPlan: CurrentPlanSnapshotRecord;
   completion: {
@@ -190,6 +210,7 @@ export interface CoachSummaryRecord {
     createdAt: string;
   } | null;
   memorySummary: MemorySummaryRecord;
+  recentOutcomes: CoachingOutcomeRecord[];
   needsWeeklyReview: boolean;
 }
 
@@ -943,9 +964,44 @@ export class AppStoreService {
     });
   }
 
+  async getRecentCoachingOutcomes(userId?: string, take = 3): Promise<CoachingOutcomeRecord[]> {
+    const user = await this.getUser(userId);
+    return this.getRecentCoachingOutcomesForUser(user.id, take);
+  }
+
+  private async getRecentCoachingOutcomesForUser(userId: string, take = 3): Promise<CoachingOutcomeRecord[]> {
+    const outcomes = await this.prisma.coachingOutcome.findMany({
+      where: { userId },
+      orderBy: { updatedAt: "desc" },
+      take
+    });
+
+    return outcomes.map((outcome) => this.mapCoachingOutcome(outcome));
+  }
+
+  private mapCoachingOutcome(outcome: CoachingOutcomeEntity): CoachingOutcomeRecord {
+    return {
+      id: outcome.id,
+      reviewSnapshotId: outcome.reviewSnapshotId,
+      proposalGroupId: outcome.proposalGroupId,
+      strategyTemplateId: outcome.strategyTemplateId,
+      strategyVersion: outcome.strategyVersion,
+      status: outcome.status,
+      measurementStart: outcome.measurementStart.toISOString(),
+      measurementEnd: outcome.measurementEnd.toISOString(),
+      baseline: outcome.baseline,
+      observed: outcome.observed,
+      score: outcome.score,
+      signals: outcome.signals,
+      summary: outcome.summary,
+      createdAt: outcome.createdAt.toISOString(),
+      updatedAt: outcome.updatedAt.toISOString()
+    };
+  }
+
   async getCoachSummary(userId?: string): Promise<CoachSummaryRecord> {
     const user = await this.getUser(userId);
-    const [currentPlan, recentBodyMetrics, recentDailyCheckins, recentWorkoutLogs, latestDietRecommendation, recentAdviceSnapshots, pendingCoachingPackage, memorySummary] =
+    const [currentPlan, recentBodyMetrics, recentDailyCheckins, recentWorkoutLogs, latestDietRecommendation, recentAdviceSnapshots, pendingCoachingPackage, memorySummary, recentOutcomes] =
       await Promise.all([
         this.getCurrentPlanSnapshot(user.id),
         this.prisma.bodyMetricLog.findMany({
@@ -973,7 +1029,8 @@ export class AppStoreService {
           where: { userId: user.id, status: { in: ["pending", "approved"] } },
           orderBy: { createdAt: "desc" }
         }),
-        this.getMemorySummary(user.id)
+        this.getMemorySummary(user.id),
+        this.getRecentCoachingOutcomesForUser(user.id)
       ]);
 
     const totalDays = currentPlan.days.length;
@@ -1009,6 +1066,7 @@ export class AppStoreService {
           }
         : null,
       memorySummary,
+      recentOutcomes,
       needsWeeklyReview
     };
   }

@@ -157,6 +157,10 @@ function createService() {
       findMany: async () => [],
       create: async () => ({})
     },
+    coachingOutcome: {
+      findUnique: async () => null,
+      upsert: async () => ({ id: "outcome-1" })
+    },
     $transaction: async (input: unknown) => {
       if (typeof input === "function") {
         return input(prisma);

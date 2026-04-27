@@ -128,6 +128,24 @@ export interface MemorySummarySnapshot {
   safetyConstraints: string[];
 }
 
+export interface CoachingOutcomeSnapshot {
+  id: string;
+  reviewSnapshotId?: string | null;
+  proposalGroupId?: string | null;
+  strategyTemplateId?: string | null;
+  strategyVersion?: string | null;
+  status: string;
+  measurementStart: string;
+  measurementEnd: string;
+  baseline: Record<string, unknown>;
+  observed: Record<string, unknown>;
+  score?: number | null;
+  signals: Record<string, unknown>;
+  summary: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CurrentPlanSnapshot {
   plan: {
     id: string;
@@ -155,6 +173,7 @@ export interface CoachSummarySnapshot {
   latestDietRecommendation: DietRecommendationSnapshot | null;
   recentAdviceSnapshots: AdviceSnapshot[];
   memorySummary: MemorySummarySnapshot;
+  recentOutcomes: CoachingOutcomeSnapshot[];
   pendingCoachingPackage: {
     id: string;
     threadId: string;

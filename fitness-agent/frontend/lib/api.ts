@@ -163,6 +163,7 @@ interface RawCoachSummarySnapshot {
   latestDietRecommendation: DietRecommendationSnapshot | null;
   recentAdviceSnapshots: RawAdviceSnapshot[];
   memorySummary?: RawMemorySummarySnapshot;
+  recentOutcomes?: CoachSummarySnapshot["recentOutcomes"];
   pendingCoachingPackage: {
     id: string;
     threadId: string;
@@ -374,6 +375,7 @@ function mapCoachSummary(snapshot: RawCoachSummarySnapshot): CoachSummarySnapsho
     latestDietRecommendation: snapshot.latestDietRecommendation ?? null,
     recentAdviceSnapshots: (snapshot.recentAdviceSnapshots ?? []).map(mapAdviceSnapshot),
     memorySummary: snapshot.memorySummary ?? buildEmptyMemorySummary(),
+    recentOutcomes: snapshot.recentOutcomes ?? [],
     pendingCoachingPackage: snapshot.pendingCoachingPackage,
     needsWeeklyReview: Boolean(snapshot.needsWeeklyReview)
   };
