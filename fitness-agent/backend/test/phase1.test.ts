@@ -157,6 +157,10 @@ function createService() {
       findMany: async () => [],
       create: async () => ({})
     },
+    coachingOutcome: {
+      findUnique: async () => null,
+      upsert: async () => ({ id: "outcome-1" })
+    },
     $transaction: async (input: unknown) => {
       if (typeof input === "function") {
         return input(prisma);
@@ -194,11 +198,15 @@ function createService() {
       ]
     })
   };
+  const outcomeService = {
+    getOutcomeForProposalGroup: async () => null,
+    createPendingOutcomeForExecutedPackage: async () => ({ id: "outcome-1" })
+  };
 
   return {
     prisma,
     appStore,
-    service: new AgentStateService(prisma as never, appStore as never)
+    service: new AgentStateService(prisma as never, appStore as never, outcomeService as never)
   };
 }
 

@@ -5,6 +5,7 @@ import type {
   AgentProposalGroup,
   BodyMetricLog,
   CoachSummarySnapshot,
+  CoachingOutcomeSnapshot,
   CoachingReviewSnapshot,
   CurrentPlanSnapshot,
   CreateThreadResponse,
@@ -13,6 +14,7 @@ import type {
   DietRecommendationSnapshot,
   ExerciseItem,
   HealthProfile,
+  MemorySummarySnapshot,
   ProposalDecisionResponse,
   PostMessageResponse,
   RunStepEventPayload,
@@ -147,6 +149,8 @@ interface RawCurrentPlanSnapshot {
   days: WorkoutPlanDay[];
 }
 
+type RawMemorySummarySnapshot = MemorySummarySnapshot;
+
 interface RawCoachSummarySnapshot {
   currentPlan: RawCurrentPlanSnapshot;
   completion: {
@@ -159,6 +163,8 @@ interface RawCoachSummarySnapshot {
   recentWorkoutLogs: WorkoutLog[];
   latestDietRecommendation: DietRecommendationSnapshot | null;
   recentAdviceSnapshots: RawAdviceSnapshot[];
+  memorySummary?: RawMemorySummarySnapshot;
+  recentOutcomes?: CoachSummarySnapshot["recentOutcomes"];
   pendingCoachingPackage: {
     id: string;
     threadId: string;
@@ -347,6 +353,19 @@ function mapCurrentPlanSnapshot(snapshot: RawCurrentPlanSnapshot): CurrentPlanSn
   };
 }
 
+function buildEmptyMemorySummary(): MemorySummarySnapshot {
+  return {
+    activeMemories: [],
+    recentEvents: [],
+    confidenceSummary: {
+      high: 0,
+      medium: 0,
+      low: 0
+    },
+    safetyConstraints: []
+  };
+}
+
 function mapCoachSummary(snapshot: RawCoachSummarySnapshot): CoachSummarySnapshot {
   return {
     currentPlan: mapCurrentPlanSnapshot(snapshot.currentPlan),
@@ -356,6 +375,8 @@ function mapCoachSummary(snapshot: RawCoachSummarySnapshot): CoachSummarySnapsho
     recentWorkoutLogs: snapshot.recentWorkoutLogs ?? [],
     latestDietRecommendation: snapshot.latestDietRecommendation ?? null,
     recentAdviceSnapshots: (snapshot.recentAdviceSnapshots ?? []).map(mapAdviceSnapshot),
+    memorySummary: snapshot.memorySummary ?? buildEmptyMemorySummary(),
+    recentOutcomes: snapshot.recentOutcomes ?? [],
     pendingCoachingPackage: snapshot.pendingCoachingPackage,
     needsWeeklyReview: Boolean(snapshot.needsWeeklyReview)
   };
@@ -600,6 +621,32 @@ export async function getThreadProposalGroups(threadId: string): Promise<AgentPr
 export async function getThreadCoachingReviews(threadId: string): Promise<CoachingReviewSnapshot[]> {
   const result = await requestJson<RawCoachingReviewSnapshot[]>(`${backendBaseUrl}/agent/state/threads/${threadId}/reviews`);
   return result.map(mapCoachingReview);
+}
+
+export async function getThreadCoachingOutcomes(threadId: string): Promise<CoachingOutcomeSnapshot[]> {
+  return requestJson<CoachingOutcomeSnapshot[]>(`${backendBaseUrl}/agent/state/threads/${threadId}/outcomes`);
+}
+
+export async function refreshDueCoachingOutcomes(): Promise<{
+  refreshedCount: number;
+  outcomes: CoachingOutcomeSnapshot[];
+}> {
+  return requestJson<{ refreshedCount: number; outcomes: CoachingOutcomeSnapshot[] }>(
+    `${backendBaseUrl}/agent/state/outcomes/refresh-due`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    }
+  );
+}
+
+export async function refreshCoachingOutcome(outcomeId: string): Promise<CoachingOutcomeSnapshot> {
+  return requestJson<CoachingOutcomeSnapshot>(`${backendBaseUrl}/agent/state/outcomes/${outcomeId}/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({})
+  });
 }
 
 export async function streamRun(

@@ -89,6 +89,7 @@ export function AgentCardList({
         const isProposalGroup = card.type === "coaching_package_card" && proposalGroupId;
         const actionState = getProposalActionState(proposalStatus, pendingProposalId, proposalId);
         const groupActionState = getProposalActionState(proposalStatus, pendingProposalId, proposalGroupId);
+        const tone = toneByType[card.type] ?? { label: "结果", tone: "mist" };
 
         return (
           <InfoCard
@@ -96,8 +97,8 @@ export function AgentCardList({
             title={card.title}
             description={card.description}
             bullets={card.bullets}
-            kicker={toneByType[card.type].label}
-            tone={toneByType[card.type].tone}
+            kicker={tone.label}
+            tone={tone.tone}
           >
             {isProposal ? (
               <div className="action-row">

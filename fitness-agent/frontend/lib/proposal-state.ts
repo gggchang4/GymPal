@@ -1,11 +1,4 @@
-export type ProposalStatus =
-  | "pending"
-  | "approved"
-  | "executed"
-  | "rejected"
-  | "failed"
-  | "expired"
-  | "executing";
+export type ProposalStatus = "pending" | "approved" | "executed" | "rejected" | "failed" | "expired" | "executing";
 
 export interface ProposalActionState {
   canAct: boolean;

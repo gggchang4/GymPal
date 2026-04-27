@@ -34,6 +34,9 @@ class HealthAgentRuntime:
         "generate_next_week_plan",
         "generate_diet_snapshot",
         "create_advice_snapshot",
+        "create_coaching_memory",
+        "update_coaching_memory",
+        "archive_coaching_memory",
     }
 
     LOCATION_KEYWORDS = ("附近", "周围", "公园", "步道", "游泳", "健身房", "gym", "park")
@@ -101,6 +104,18 @@ class HealthAgentRuntime:
         return items[:3] or fallback
 
     @staticmethod
+    def _dedupe_text_items(items: list[str]) -> list[str]:
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for item in items:
+            normalized = str(item).strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            deduped.append(normalized)
+        return deduped
+
+    @staticmethod
     def _extract_number(patterns: list[str], text: str) -> float | None:
         for pattern in patterns:
             match = re.search(pattern, text, flags=re.IGNORECASE)
@@ -143,6 +158,9 @@ class HealthAgentRuntime:
             "generate_next_week_plan": "生成下周训练计划",
             "generate_diet_snapshot": "生成饮食建议快照",
             "create_advice_snapshot": "生成行为建议快照",
+            "create_coaching_memory": "新增教练记忆",
+            "update_coaching_memory": "更新教练记忆",
+            "archive_coaching_memory": "归档教练记忆",
         }
         return title_map.get(action_type, "待确认操作")
 
@@ -174,7 +192,7 @@ class HealthAgentRuntime:
     def _risk_for_action(self, action_type: str) -> str:
         if action_type in {"generate_plan", "adjust_plan", "delete_plan_day", "generate_next_week_plan", "generate_diet_snapshot"}:
             return "high"
-        if action_type in {"update_plan_day", "create_workout_log", "create_advice_snapshot"}:
+        if action_type in {"update_plan_day", "create_workout_log", "create_advice_snapshot", "create_coaching_memory", "update_coaching_memory", "archive_coaching_memory"}:
             return "medium"
         return "low"
 
@@ -209,6 +227,11 @@ class HealthAgentRuntime:
         lowered = text.lower()
         if any(keyword in text for keyword in self.HIGH_RISK_KEYWORDS):
             return None
+
+        if any(keyword in text for keyword in ("记住", "以后", "偏好", "不喜欢", "喜欢", "膝盖", "设备", "时间")) and any(
+            keyword in text for keyword in ("记住", "以后", "偏好", "不喜欢", "喜欢")
+        ):
+            return "memory"
 
         if any(keyword in text for keyword in ("体重", "体脂", "腰围", "weight", "body fat")) and any(char.isdigit() for char in text):
             return "body_metric"
@@ -489,6 +512,21 @@ class HealthAgentRuntime:
             )
             if plan.ok:
                 context["current_plan"] = plan.data
+        elif domain == "memory":
+            tool_events.append(
+                ToolEvent(event="tool_call_started", tool_name="get_memory_summary", summary="读取教练记忆")
+            )
+            memory = await self.tools.get_memory_summary(authorization)
+            tool_events.append(
+                ToolEvent(
+                    event="tool_call_completed",
+                    tool_name="get_memory_summary",
+                    summary=memory.human_readable,
+                    payload=self._tool_payload(memory),
+                )
+            )
+            if memory.ok:
+                context["memory_summary"] = memory.data
         elif domain in {"body_metric", "daily_checkin", "workout_log"}:
             tool_events.append(
                 ToolEvent(event="tool_call_started", tool_name="query_recent_health_data", summary="读取近期健康数据")
@@ -559,6 +597,84 @@ class HealthAgentRuntime:
             if key in summary:
                 return summary[key]
         return fallback
+
+    def _build_outcome_context(self, coach_summary: dict[str, Any]) -> dict[str, Any]:
+        raw_outcomes = self._read_summary_value(coach_summary, "recentOutcomes", "recent_outcomes", fallback=[])
+        outcomes = raw_outcomes if isinstance(raw_outcomes, list) else []
+        normalized: list[dict[str, Any]] = []
+        status_counts: dict[str, int] = {}
+
+        for raw_outcome in outcomes[:5]:
+            if not isinstance(raw_outcome, dict):
+                continue
+
+            status = str(raw_outcome.get("status") or "unknown").strip().lower()
+            status_counts[status] = status_counts.get(status, 0) + 1
+            score = raw_outcome.get("score")
+            summary = str(raw_outcome.get("summary") or "").strip()
+            observed = raw_outcome.get("observed") if isinstance(raw_outcome.get("observed"), dict) else {}
+            normalized.append(
+                {
+                    "id": raw_outcome.get("id"),
+                    "status": status,
+                    "score": score if isinstance(score, (int, float)) and not isinstance(score, bool) else None,
+                    "summary": summary[:180],
+                    "measurementStart": raw_outcome.get("measurementStart") or raw_outcome.get("measurement_start"),
+                    "measurementEnd": raw_outcome.get("measurementEnd") or raw_outcome.get("measurement_end"),
+                    "observed": observed,
+                }
+            )
+
+        bullets: list[str] = []
+        constraints: list[str] = []
+        risk_flags: list[str] = []
+        recommendation_tags: list[str] = []
+
+        if not normalized:
+            return {
+                "available": False,
+                "bullets": [],
+                "constraints": [],
+                "risk_flags": [],
+                "recommendation_tags": [],
+                "snapshot": {"statusCounts": {}, "items": []},
+            }
+
+        for item in normalized[:3]:
+            score_text = f", score {item['score']}" if item.get("score") is not None else ""
+            summary_text = f": {item['summary']}" if item.get("summary") else ""
+            bullets.append(f"Outcome {item['status']}{score_text}{summary_text}")
+
+        if status_counts.get("positive", 0) > 0:
+            constraints.append("Reuse patterns from recent positive outcomes; keep the next package similarly actionable.")
+            recommendation_tags.append("outcome_positive")
+        if status_counts.get("mixed", 0) > 0:
+            constraints.append("Treat mixed outcomes as a signal to reduce complexity and add clearer recovery checks.")
+            risk_flags.append("recent_mixed_outcome")
+            recommendation_tags.append("outcome_mixed")
+        if status_counts.get("negative", 0) > 0:
+            constraints.append("Avoid increasing intensity until the reason behind the negative outcome is understood.")
+            risk_flags.append("recent_negative_outcome")
+            recommendation_tags.append("outcome_negative")
+        if status_counts.get("inconclusive", 0) > 0:
+            constraints.append("Follow-up data was insufficient for at least one outcome; request clearer logs before strong conclusions.")
+            risk_flags.append("outcome_data_insufficient")
+            recommendation_tags.append("outcome_inconclusive")
+        if status_counts.get("pending", 0) > 0:
+            constraints.append("There are pending outcomes still measuring; avoid over-interpreting the latest package.")
+            recommendation_tags.append("outcome_pending")
+
+        return {
+            "available": True,
+            "bullets": bullets,
+            "constraints": constraints[:4],
+            "risk_flags": risk_flags,
+            "recommendation_tags": recommendation_tags,
+            "snapshot": {
+                "statusCounts": status_counts,
+                "items": normalized,
+            },
+        }
 
     def _build_phase2_plan_days(self, summary: dict[str, Any], recovery_mode: bool) -> list[dict[str, Any]]:
         current_plan = self._read_summary_value(summary, "currentPlan", "current_plan", fallback={})
@@ -636,6 +752,15 @@ class HealthAgentRuntime:
         ]
         risk_flags = ["最近恢复不足"] if recovery_mode else []
         recommendation_tags = ["weekly_review", "training", "diet"] if flow_type == "weekly_review" else ["daily_guidance", "recovery"]
+        outcome_context = self._build_outcome_context(coach_summary)
+        outcome_constraints = outcome_context["constraints"] if outcome_context.get("available") else []
+        outcome_bullets = outcome_context["bullets"] if outcome_context.get("available") else []
+        if outcome_constraints:
+            focus_areas.append(str(outcome_constraints[0]))
+        risk_flags.extend(str(flag) for flag in outcome_context.get("risk_flags", []))
+        recommendation_tags.extend(str(tag) for tag in outcome_context.get("recommendation_tags", []))
+        risk_flags = self._dedupe_text_items(risk_flags)
+        recommendation_tags = self._dedupe_text_items(recommendation_tags)
 
         current_plan = self._read_summary_value(coach_summary, "currentPlan", "current_plan", fallback={})
         snapshot_fields = self._build_plan_snapshot_fields(current_plan if isinstance(current_plan, dict) else {})
@@ -670,6 +795,9 @@ class HealthAgentRuntime:
                 "completion_rate": completion_rate,
                 "generated_plan_days": 0 if data_insufficient else len(next_week_days),
                 "data_insufficient": data_insufficient,
+                "recent_outcomes": outcome_context.get("snapshot"),
+                "outcome_constraints": outcome_constraints,
+                "outcome_evidence": outcome_bullets,
             }
             proposals = [
                 self._draft_proposal(
@@ -798,6 +926,9 @@ class HealthAgentRuntime:
                     "晚间优先补水并尽量保证 7 小时以上睡眠。",
                 ],
                 "risk_flags": risk_flags,
+                "recent_outcomes": outcome_context.get("snapshot"),
+                "outcome_constraints": outcome_constraints,
+                "outcome_evidence": outcome_bullets,
             }
             proposals = [
                 self._draft_proposal(
@@ -825,6 +956,12 @@ class HealthAgentRuntime:
                 "今日重点": "恢复优先" if recovery_mode else "保持节奏",
                 "依据": f"完成 {completed_days}/{total_days} 个训练日",
             }
+
+        if outcome_bullets:
+            group_preview["Recent outcome evidence"] = outcome_bullets[:2]
+        if outcome_constraints:
+            group_preview["Outcome constraint"] = outcome_constraints[0]
+            reasoning_summary = f"{reasoning_summary} Recent outcome evidence was applied as a constraint: {outcome_constraints[0]}"
 
         review_payload = {
             "type": flow_type,
@@ -862,7 +999,63 @@ class HealthAgentRuntime:
             return self._workout_log_proposals(user_text)
         if domain == "plan":
             return self._plan_proposals(user_text, context)
+        if domain == "memory":
+            return self._memory_proposals(user_text, context)
         return []
+
+    def _memory_type_from_text(self, user_text: str) -> str:
+        if any(keyword in user_text for keyword in ("膝盖", "疼", "不舒服", "受伤", "恢复", "疲劳")):
+            return "recovery_pattern"
+        if any(keyword in user_text for keyword in ("器械", "设备", "哑铃", "杠铃", "健身房", "家里")):
+            return "equipment_constraint"
+        if any(keyword in user_text for keyword in ("早上", "晚上", "中午", "时间", "周末")):
+            return "schedule_preference"
+        if any(keyword in user_text for keyword in ("吃", "饮食", "乳糖", "过敏", "素食")):
+            return "diet_preference"
+        if any(keyword in user_text for keyword in ("喜欢", "不喜欢", "跑步", "力量", "有氧")):
+            return "training_preference"
+        return "behavior_pattern"
+
+    def _memory_proposals(self, user_text: str, context: dict[str, Any]) -> list[dict[str, Any]]:
+        memory_summary = context.get("memory_summary")
+        active_memories = memory_summary.get("activeMemories") if isinstance(memory_summary, dict) else []
+        normalized_text = re.sub(r"\s+", " ", user_text).strip()
+        cleaned = re.sub(r"^(请)?(帮我)?记住[:,，：]?", "", normalized_text).strip()
+        summary = cleaned[:120] if cleaned else normalized_text[:120]
+        memory_type = self._memory_type_from_text(user_text)
+
+        if not summary:
+            return []
+
+        preview: dict[str, Any] = {
+            "记忆类型": memory_type,
+            "记忆摘要": summary,
+            "置信度": 72,
+        }
+        if isinstance(active_memories, list) and active_memories:
+            preview["已有记忆数量"] = len(active_memories)
+
+        return [
+            self._draft_proposal(
+                action_type="create_coaching_memory",
+                entity_type="coaching_memory",
+                title=self._proposal_title("create_coaching_memory"),
+                summary=f"保存一条长期教练记忆：{summary}",
+                payload={
+                    "memoryType": memory_type,
+                    "title": "用户偏好与约束",
+                    "summary": summary,
+                    "value": {
+                        "rawText": normalized_text,
+                        "extractedSummary": summary,
+                    },
+                    "confidence": 72,
+                    "sourceType": "chat",
+                    "reason": "用户在聊天中明确要求记住长期偏好或约束。",
+                },
+                preview=preview,
+            )
+        ]
 
     def _body_metric_proposals(self, user_text: str) -> list[dict[str, Any]]:
         weight = self._extract_number(

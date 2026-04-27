@@ -21,6 +21,7 @@ class ToolGateway:
             "query_recent_health_data": self.query_recent_health_data,
             "load_current_plan": self.load_current_plan,
             "get_coach_summary": self.get_coach_summary,
+            "get_memory_summary": self.get_memory_summary,
             "get_exercise_catalog": self.get_exercise_catalog,
             "get_recovery_guidance": self.get_recovery_guidance,
             "geocode_location": self.geocode_location,
@@ -182,6 +183,24 @@ class ToolGateway:
         except Exception as exc:
             return self._backend_failure("load the coaching summary", exc)
 
+    async def get_memory_summary(self, authorization: str | None = None) -> ToolResponse:
+        try:
+            logger.info("[TOOLS] Requesting coaching memory summary from backend.")
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(
+                    f"{settings.backend_base_url}/agent/context/memory-summary",
+                    headers=self._backend_headers(authorization),
+                )
+                response.raise_for_status()
+                return ToolResponse(
+                    ok=True,
+                    data=response.json(),
+                    human_readable="Loaded the coaching memory summary from backend.",
+                    source="backend",
+                )
+        except Exception as exc:
+            return self._backend_failure("load the coaching memory summary", exc)
+
     async def get_exercise_catalog(self) -> ToolResponse:
         try:
             logger.info("[TOOLS] Requesting exercise catalog from backend.")
@@ -218,6 +237,9 @@ class ToolGateway:
             "generate_next_week_plan": "apply-next-week-plan",
             "generate_diet_snapshot": "generate-diet-snapshot",
             "create_advice_snapshot": "create-advice-snapshot",
+            "create_coaching_memory": "create-memory",
+            "update_coaching_memory": "update-memory",
+            "archive_coaching_memory": "archive-memory",
         }
 
         endpoint = endpoint_by_action.get(action_type)

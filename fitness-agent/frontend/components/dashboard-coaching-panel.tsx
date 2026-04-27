@@ -32,6 +32,7 @@ export function DashboardCoachingPanel({
 
   const pendingPackage = coachSummary.pendingCoachingPackage;
   const latestAdvice = coachSummary.recentAdviceSnapshots[0];
+  const activeMemories = coachSummary.memorySummary.activeMemories.slice(0, 3);
 
   async function handleGenerate(prompt: string, action: "weekly" | "daily") {
     setBusyAction(action);
@@ -116,6 +117,26 @@ export function DashboardCoachingPanel({
           </div>
         </div>
       ) : null}
+
+      <div className="dashboard-coaching-note">
+        <span className="section-label">教练记忆</span>
+        <strong>
+          {activeMemories.length > 0
+            ? `已确认 ${coachSummary.memorySummary.activeMemories.length} 条长期偏好`
+            : "还没有确认的长期偏好"}
+        </strong>
+        {activeMemories.length > 0 ? (
+          <ul className="info-list">
+            {activeMemories.map((memory) => (
+              <li key={memory.id}>
+                {memory.title}：{memory.summary}（置信度 {memory.confidence}%）
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <small>在 chat 里说“请记住……”，我会先生成待确认记忆，不会直接写入。</small>
+        )}
+      </div>
 
       <div className="action-row">
         <button

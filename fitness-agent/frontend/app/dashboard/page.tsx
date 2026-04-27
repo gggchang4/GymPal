@@ -1,117 +1,161 @@
 import { ActivityRings } from "@/components/activity-rings";
-import { DashboardCoachingPanel } from "@/components/dashboard-coaching-panel";
 import { DietPlateCard } from "@/components/diet-plate-card";
-import {
-  getBodyMetrics,
-  getCoachSummary,
-  getCurrentPlan,
-  getDashboard,
-  getDailyCheckins,
-  getTodayDietRecommendation,
-  getWorkoutLogs
-} from "@/lib/api";
+import { getCurrentPlan, getDashboard, getTodayDietRecommendation } from "@/lib/api";
 import { requireServerAuthToken } from "@/lib/server-auth";
-import type {
-  BodyMetricLog,
-  CoachSummarySnapshot,
-  DashboardSnapshot,
-  DailyCheckin,
-  DietRecommendationSnapshot,
-  WorkoutLog,
-  WorkoutPlanDay
-} from "@/lib/types";
+import type { DashboardSnapshot, DietRecommendationSnapshot, WorkoutPlanDay } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 const goalLabelByType: Record<string, string> = {
-  fat_loss: "Fat loss",
-  muscle_gain: "Muscle gain",
-  maintenance: "Maintenance"
+  fat_loss: "减脂",
+  muscle_gain: "增肌",
+  maintenance: "维持"
 };
 
-const valueLabelMap: Record<string, string> = {
-  low: "Low",
-  medium: "Medium",
-  moderate: "Moderate",
-  high: "High",
-  normal: "Normal",
-  none: "None"
+const staticDietRecommendation: DietRecommendationSnapshot = {
+  id: "static-dashboard-plate",
+  date: "2026-04-27",
+  userGoal: "fat_loss",
+  totalCalorie: 1940,
+  targetCalorie: 2100,
+  nutritionRatio: { carbohydrate: 42, protein: 34, fat: 24 },
+  nutritionDetail: {
+    protein: { target: 145, recommend: 141, remaining: 4 },
+    carbohydrate: { target: 210, recommend: 188, remaining: 22 },
+    fat: { target: 60, recommend: 52, remaining: 8 },
+    fiber: { target: 28, recommend: 26, remaining: 2 }
+  },
+  meals: [
+    {
+      mealType: "breakfast",
+      totalCalorie: 460,
+      foods: [
+        {
+          name: "Greek yogurt bowl",
+          weight: 320,
+          calorie: 260,
+          cooking: "cold prep",
+          nutrition: { protein: 24, carbohydrate: 32, fat: 6, fiber: 5 },
+          replaceable: [
+            {
+              name: "soy yogurt bowl",
+              weight: 300,
+              calorie: 240,
+              cooking: "cold prep",
+              nutrition: { protein: 20, carbohydrate: 30, fat: 7, fiber: 6 }
+            }
+          ]
+        },
+        {
+          name: "oats",
+          weight: 55,
+          calorie: 200,
+          cooking: "boiled",
+          nutrition: { protein: 8, carbohydrate: 28, fat: 5, fiber: 4 },
+          replaceable: []
+        }
+      ]
+    },
+    {
+      mealType: "lunch",
+      totalCalorie: 690,
+      foods: [
+        {
+          name: "chicken breast",
+          weight: 160,
+          calorie: 260,
+          cooking: "pan seared",
+          nutrition: { protein: 42, carbohydrate: 0, fat: 8, fiber: 0 },
+          replaceable: []
+        },
+        {
+          name: "brown rice",
+          weight: 180,
+          calorie: 220,
+          cooking: "steamed",
+          nutrition: { protein: 5, carbohydrate: 46, fat: 2, fiber: 3 },
+          replaceable: []
+        },
+        {
+          name: "broccoli",
+          weight: 180,
+          calorie: 160,
+          cooking: "steamed",
+          nutrition: { protein: 10, carbohydrate: 18, fat: 2, fiber: 7 },
+          replaceable: []
+        }
+      ]
+    },
+    {
+      mealType: "dinner",
+      totalCalorie: 790,
+      foods: [
+        {
+          name: "salmon",
+          weight: 150,
+          calorie: 300,
+          cooking: "oven baked",
+          nutrition: { protein: 34, carbohydrate: 0, fat: 18, fiber: 0 },
+          replaceable: []
+        },
+        {
+          name: "quinoa",
+          weight: 160,
+          calorie: 190,
+          cooking: "boiled",
+          nutrition: { protein: 7, carbohydrate: 33, fat: 3, fiber: 4 },
+          replaceable: []
+        },
+        {
+          name: "mixed greens",
+          weight: 170,
+          calorie: 120,
+          cooking: "olive oil toss",
+          nutrition: { protein: 5, carbohydrate: 14, fat: 4, fiber: 7 },
+          replaceable: []
+        },
+        {
+          name: "olive oil",
+          weight: 14,
+          calorie: 180,
+          cooking: "dressing",
+          nutrition: { protein: 0, carbohydrate: 0, fat: 20, fiber: 0 },
+          replaceable: []
+        }
+      ]
+    }
+  ],
+  agentTips: [
+    "把午餐作为体积最大的餐次，下午饱腹感会更稳。",
+    "三餐平均铺开蛋白质，训练恢复会更容易跟上。",
+    "如果夜间饥饿感上升，先增加蔬菜，再增加主食。"
+  ],
+  remark: "静态餐盘用于 dashboard 降级展示，后续可直接替换为接口返回数据。",
+  fitTips: "保持高蛋白、适量碳水和稳定蔬菜摄入。"
 };
-
-function formatValueLabel(value?: string) {
-  if (!value) {
-    return "Not logged";
-  }
-
-  return valueLabelMap[value] ?? value.replace(/_/g, " ");
-}
-
-function formatCompletionRate(value: string) {
-  const percent = value.match(/\d+%/)?.[0];
-  return percent ? `This week ${percent}` : value;
-}
-
-function formatWeightDelta(values: number[]) {
-  if (values.length === 0) {
-    return "Waiting for more weight logs";
-  }
-
-  if (values.length === 1) {
-    return `${values[0].toFixed(1)} kg`;
-  }
-
-  const delta = values.at(-1)! - values[0];
-  return `${delta > 0 ? "+" : ""}${delta.toFixed(1)} kg`;
-}
-
-function buildFallbackDietRecommendation(): DietRecommendationSnapshot | null {
-  return null;
-}
 
 function buildFallbackDashboardSnapshot(): DashboardSnapshot {
   return {
-    weightTrend: "Weight trend will appear after more check-ins.",
-    weeklyCompletionRate: "Weekly completion data is temporarily unavailable.",
-    todayFocus: "Keep today simple and rebuild momentum with one small session.",
-    recoveryStatus: "Recovery data is temporarily unavailable."
-  };
-}
-
-function buildFallbackCoachSummary(): CoachSummarySnapshot {
-  return {
-    currentPlan: {
-      plan: null,
-      days: []
-    },
-    completion: {
-      completedDays: 0,
-      totalDays: 0,
-      completionRate: 0
-    },
-    recentBodyMetrics: [],
-    recentDailyCheckins: [],
-    recentWorkoutLogs: [],
-    latestDietRecommendation: null,
-    recentAdviceSnapshots: [],
-    pendingCoachingPackage: null,
-    needsWeeklyReview: false
+    weightTrend: "体重趋势等待更多记录",
+    weeklyCompletionRate: "本周完成率 76%",
+    todayFocus: "今天保持一次低摩擦训练，优先稳定执行。",
+    recoveryStatus: "恢复状态稳定"
   };
 }
 
 function buildFallbackPlan(): WorkoutPlanDay[] {
-  return [];
-}
-
-function buildFallbackBodyMetrics(): BodyMetricLog[] {
-  return [];
-}
-
-function buildFallbackDailyCheckins(): DailyCheckin[] {
-  return [];
-}
-
-function buildFallbackWorkoutLogs(): WorkoutLog[] {
-  return [];
+  return [
+    {
+      id: "static-dashboard-plan",
+      dayLabel: "Today",
+      focus: "全身稳定训练",
+      duration: "45 分钟",
+      exercises: ["Goblet squat 4x10", "Seated row 4x10", "Push-up 3x12"],
+      recoveryTip: "每组保留 1-2 次余力，避免额外疲劳。",
+      isCompleted: false,
+      sortOrder: 0
+    }
+  ];
 }
 
 async function resolveSection<T>(loader: Promise<T>, fallback: T) {
@@ -130,106 +174,41 @@ async function resolveSection<T>(loader: Promise<T>, fallback: T) {
 
 export default async function DashboardPage() {
   const authToken = requireServerAuthToken();
-  const [snapshotResult, planResult, recommendationResult, metricsResult, checkinsResult, workoutsResult, coachSummaryResult] =
-    await Promise.all([
-      resolveSection(getDashboard(authToken), buildFallbackDashboardSnapshot()),
-      resolveSection(getCurrentPlan(authToken), buildFallbackPlan()),
-      resolveSection(getTodayDietRecommendation(authToken), buildFallbackDietRecommendation()),
-      resolveSection(getBodyMetrics(authToken), buildFallbackBodyMetrics()),
-      resolveSection(getDailyCheckins(authToken), buildFallbackDailyCheckins()),
-      resolveSection(getWorkoutLogs(authToken), buildFallbackWorkoutLogs()),
-      resolveSection(getCoachSummary(authToken), buildFallbackCoachSummary())
-    ]);
+  const [snapshotResult, planResult, recommendationResult] = await Promise.all([
+    resolveSection(getDashboard(authToken), buildFallbackDashboardSnapshot()),
+    resolveSection(getCurrentPlan(authToken), buildFallbackPlan()),
+    resolveSection(getTodayDietRecommendation(authToken), staticDietRecommendation)
+  ]);
 
   const snapshot = snapshotResult.data;
   const plan = planResult.data;
   const recommendation = recommendationResult.data;
-  const metrics = metricsResult.data;
-  const checkins = checkinsResult.data;
-  const workouts = workoutsResult.data;
-  const coachSummary = coachSummaryResult.data;
-
-  const isDegraded =
-    snapshotResult.degraded ||
-    planResult.degraded ||
-    recommendationResult.degraded ||
-    metricsResult.degraded ||
-    checkinsResult.degraded ||
-    workoutsResult.degraded ||
-    coachSummaryResult.degraded;
-
+  const isDegraded = snapshotResult.degraded || planResult.degraded || recommendationResult.degraded;
   const todayPlan = plan[0];
-  const latestMetric = metrics[0];
-  const latestCheckin = checkins[0];
-  const weeklyWorkouts = workouts.filter((workout) => {
-    if (!workout.recordedAt) {
-      return false;
-    }
-
-    return Date.now() - new Date(workout.recordedAt).getTime() <= 7 * 24 * 60 * 60 * 1000;
-  });
-
-  const weeklyDuration = weeklyWorkouts.reduce((sum, workout) => sum + workout.durationMin, 0);
-  const recentDurations = [...workouts]
-    .slice(0, 7)
-    .reverse()
-    .map((workout) => Math.max(28, Math.min(100, Math.round((workout.durationMin / 75) * 100))));
-  const burnValues = recentDurations.length > 0 ? recentDurations : [36, 48, 58, 44, 62, 54, 68];
-  const weightHistory = [...metrics].slice(0, 7).reverse().map((item) => item.weightKg);
-  const focusValue = Math.min(
-    100,
-    Math.round(((weeklyWorkouts.length || 1) / Math.max(plan.length || 1, 1)) * 100)
-  );
-  const calorieGap = recommendation ? recommendation.targetCalorie - recommendation.totalCalorie : 0;
-  const calorieStatus = calorieGap >= 0 ? "Calorie gap" : "Calorie surplus";
-
   const rings = [
-    {
-      slug: "move",
-      label: "Move",
-      value: Math.min(100, Math.round(((latestCheckin?.steps ?? 0) / 10000) * 100)),
-      note: latestCheckin
-        ? `Today ${latestCheckin.steps.toLocaleString("zh-CN")} / 10,000 steps`
-        : "No check-in recorded yet for today.",
-      accent: "#d53832"
-    },
-    {
-      slug: "load",
-      label: "Load",
-      value: Math.min(100, Math.round((weeklyDuration / 180) * 100)),
-      note: `Last 7 days ${weeklyDuration} training minutes`,
-      accent: "#20202a"
-    },
-    {
-      slug: "focus",
-      label: "Focus",
-      value: focusValue,
-      note: todayPlan?.focus ?? snapshot.todayFocus,
-      accent: "#8f9199"
-    }
+    { slug: "move", label: "消耗", value: 76, note: "今日已消耗 612 kcal", accent: "#d53832" },
+    { slug: "load", label: "负荷", value: 64, note: "已完成 18 组训练", accent: "#20202a" },
+    { slug: "focus", label: "专注", value: 82, note: "计划执行质量 82%", accent: "#8f9199" }
   ];
+  const burnValues = [38, 52, 66, 48, 74, 61, 83];
+  const calorieGap = recommendation.targetCalorie - recommendation.totalCalorie;
+  const calorieStatus = calorieGap >= 0 ? "热量缺口" : "热量盈余";
 
   const summaryRows = [
     {
-      label: "Recovery",
+      label: "恢复",
       value: snapshot.recoveryStatus,
-      meta: latestCheckin
-        ? `Sleep ${latestCheckin.sleepHours} h | Fatigue ${formatValueLabel(latestCheckin.fatigueLevel)}`
-        : "Waiting for today's recovery data."
+      meta: "准备度 76"
     },
     {
-      label: "Nutrition",
-      value: recommendation
-        ? `${goalLabelByType[recommendation.userGoal] ?? recommendation.userGoal} | ${calorieStatus}`
-        : "Today's plate has not been generated yet",
-      meta: recommendation
-        ? `${recommendation.totalCalorie}/${recommendation.targetCalorie} kcal`
-        : "You can still keep the dashboard open while nutrition data catches up."
+      label: "饮食",
+      value: `${goalLabelByType[recommendation.userGoal] ?? recommendation.userGoal} · ${calorieStatus}`,
+      meta: `${recommendation.totalCalorie}/${recommendation.targetCalorie} kcal`
     },
     {
-      label: "Plan",
-      value: todayPlan?.focus ?? "No synchronized training plan for today yet",
-      meta: todayPlan?.duration ?? "Rest or recovery day"
+      label: "计划",
+      value: todayPlan?.focus ?? "今日训练待同步",
+      meta: todayPlan?.duration ?? "休息日"
     }
   ];
 
@@ -238,18 +217,15 @@ export default async function DashboardPage() {
       <div className="page-header-compact dashboard-header">
         <div>
           <span className="section-label">Dashboard</span>
-          <h2>Today&apos;s overview</h2>
+          <h2>今日总览</h2>
           {isDegraded ? (
-            <p className="muted">
-              Some live dashboard data is temporarily unavailable. The page is staying usable with fallback values.
-            </p>
+            <p className="muted">部分实时数据暂时不可用，当前页面已使用静态兜底数据保持可用。</p>
           ) : null}
         </div>
-
         <div className="chip-row">
-          <span className="mini-chip">{formatCompletionRate(snapshot.weeklyCompletionRate)}</span>
-          <span className="status-pill live">
-            {latestMetric ? `Latest weight ${latestMetric.weightKg} kg` : "Waiting for more records"}
+          <span className="mini-chip">{snapshot.weeklyCompletionRate}</span>
+          <span className={`status-pill ${isDegraded ? "idle" : "live"}`}>
+            {isDegraded ? "静态兜底" : "已同步"}
           </span>
         </div>
       </div>
@@ -257,32 +233,14 @@ export default async function DashboardPage() {
       <section className="dash-grid dashboard-refined">
         <div className="viz-wrap dashboard-main">
           <ActivityRings rings={rings} />
-
-          <DashboardCoachingPanel coachSummary={coachSummary} />
-
-          {recommendation ? (
-            <DietPlateCard recommendation={recommendation} />
-          ) : (
-            <section className="diet-plate-panel">
-              <div className="section-head">
-                <div className="section-copy">
-                  <span className="section-label">Nutrition</span>
-                  <h3>Today&apos;s recommended plate</h3>
-                  <p className="muted">
-                    Nutrition data is missing right now, so this section stays empty instead of taking down the whole
-                    dashboard.
-                  </p>
-                </div>
-              </div>
-            </section>
-          )}
+          <DietPlateCard recommendation={recommendation} />
         </div>
 
         <aside className="viz-wrap dashboard-rail">
           <section className="dashboard-summary-panel">
             <div className="section-copy">
               <span className="section-label">Today</span>
-              <h3>Key signals</h3>
+              <h3>关键状态</h3>
             </div>
 
             <div className="dashboard-summary-list">
@@ -300,8 +258,8 @@ export default async function DashboardPage() {
 
           <section className="dashboard-burn-panel">
             <div className="section-copy">
-              <span className="section-label">Trend</span>
-              <h3>7-day pace</h3>
+              <span className="section-label">Burn</span>
+              <h3>7 日趋势</h3>
             </div>
 
             <div className="bar-chart compact" aria-hidden="true">
@@ -315,12 +273,8 @@ export default async function DashboardPage() {
             </div>
 
             <div className="dashboard-burn-foot">
-              <strong>{formatWeightDelta(weightHistory)}</strong>
-              <small>
-                {todayPlan?.recoveryTip ??
-                  latestCheckin?.hungerLevel?.replace(/_/g, " ") ??
-                  "Keep logging check-ins and training data to stabilize the next recommendation."}
-              </small>
+              <strong>{snapshot.weightTrend}</strong>
+              <small>{snapshot.todayFocus}</small>
             </div>
           </section>
         </aside>

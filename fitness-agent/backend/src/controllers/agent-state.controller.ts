@@ -13,10 +13,14 @@ import {
   ProposalDecisionDto
 } from "../dtos/agent.dto";
 import { AgentStateService } from "../services/agent-state.service";
+import { CoachingOutcomeService } from "../services/coaching-outcome.service";
 
 @Controller("agent/state")
 export class AgentStateController {
-  constructor(private readonly agentState: AgentStateService) {}
+  constructor(
+    private readonly agentState: AgentStateService,
+    private readonly outcomeService: CoachingOutcomeService
+  ) {}
 
   @Post("threads")
   async createThread(@Body() body: CreateAgentThreadDto, @CurrentUser() user: AuthTokenClaims) {
@@ -81,6 +85,11 @@ export class AgentStateController {
   @Get("threads/:threadId/reviews")
   async listCoachingReviews(@Param("threadId") threadId: string, @CurrentUser() user: AuthTokenClaims) {
     return this.agentState.listCoachingReviews(threadId, user.sub);
+  }
+
+  @Get("threads/:threadId/outcomes")
+  async listThreadOutcomes(@Param("threadId") threadId: string, @CurrentUser() user: AuthTokenClaims) {
+    return this.outcomeService.listThreadOutcomes(threadId, user.sub);
   }
 
   @Post("threads/:threadId/proposal-groups")
@@ -155,5 +164,15 @@ export class AgentStateController {
     @CurrentUser() user: AuthTokenClaims
   ) {
     return this.agentState.confirmProposalGroup(proposalGroupId, body.idempotencyKey, user.sub);
+  }
+
+  @Post("outcomes/refresh-due")
+  async refreshDueOutcomes(@CurrentUser() user: AuthTokenClaims) {
+    return this.outcomeService.refreshDueOutcomesForUser(user.sub);
+  }
+
+  @Post("outcomes/:outcomeId/refresh")
+  async refreshOutcome(@Param("outcomeId") outcomeId: string, @CurrentUser() user: AuthTokenClaims) {
+    return this.outcomeService.refreshOutcome(outcomeId, user.sub);
   }
 }

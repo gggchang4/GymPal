@@ -16,6 +16,7 @@ import { LogsController } from "./controllers/logs.controller";
 import { MeController } from "./controllers/me.controller";
 import { PlansController } from "./controllers/plans.controller";
 import { AgentStateService } from "./services/agent-state.service";
+import { CoachingOutcomeService } from "./services/coaching-outcome.service";
 
 @Module({
   controllers: [
@@ -33,6 +34,7 @@ import { AgentStateService } from "./services/agent-state.service";
   ],
   providers: [
     PrismaService,
+    CoachingOutcomeService,
     AppStoreService,
     AgentStateService,
     AuthTokenService,

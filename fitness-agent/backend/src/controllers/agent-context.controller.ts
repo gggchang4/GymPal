@@ -16,4 +16,9 @@ export class AgentContextController {
   async getCoachSummary(@CurrentUser() user: AuthTokenClaims) {
     return this.store.getCoachSummary(user.sub);
   }
+
+  @Get("memory-summary")
+  async getMemorySummary(@CurrentUser() user: AuthTokenClaims) {
+    return this.store.getMemorySummary(user.sub);
+  }
 }
