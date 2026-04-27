@@ -104,6 +104,18 @@ class HealthAgentRuntime:
         return items[:3] or fallback
 
     @staticmethod
+    def _dedupe_text_items(items: list[str]) -> list[str]:
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for item in items:
+            normalized = str(item).strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            deduped.append(normalized)
+        return deduped
+
+    @staticmethod
     def _extract_number(patterns: list[str], text: str) -> float | None:
         for pattern in patterns:
             match = re.search(pattern, text, flags=re.IGNORECASE)
@@ -586,6 +598,84 @@ class HealthAgentRuntime:
                 return summary[key]
         return fallback
 
+    def _build_outcome_context(self, coach_summary: dict[str, Any]) -> dict[str, Any]:
+        raw_outcomes = self._read_summary_value(coach_summary, "recentOutcomes", "recent_outcomes", fallback=[])
+        outcomes = raw_outcomes if isinstance(raw_outcomes, list) else []
+        normalized: list[dict[str, Any]] = []
+        status_counts: dict[str, int] = {}
+
+        for raw_outcome in outcomes[:5]:
+            if not isinstance(raw_outcome, dict):
+                continue
+
+            status = str(raw_outcome.get("status") or "unknown").strip().lower()
+            status_counts[status] = status_counts.get(status, 0) + 1
+            score = raw_outcome.get("score")
+            summary = str(raw_outcome.get("summary") or "").strip()
+            observed = raw_outcome.get("observed") if isinstance(raw_outcome.get("observed"), dict) else {}
+            normalized.append(
+                {
+                    "id": raw_outcome.get("id"),
+                    "status": status,
+                    "score": score if isinstance(score, (int, float)) and not isinstance(score, bool) else None,
+                    "summary": summary[:180],
+                    "measurementStart": raw_outcome.get("measurementStart") or raw_outcome.get("measurement_start"),
+                    "measurementEnd": raw_outcome.get("measurementEnd") or raw_outcome.get("measurement_end"),
+                    "observed": observed,
+                }
+            )
+
+        bullets: list[str] = []
+        constraints: list[str] = []
+        risk_flags: list[str] = []
+        recommendation_tags: list[str] = []
+
+        if not normalized:
+            return {
+                "available": False,
+                "bullets": [],
+                "constraints": [],
+                "risk_flags": [],
+                "recommendation_tags": [],
+                "snapshot": {"statusCounts": {}, "items": []},
+            }
+
+        for item in normalized[:3]:
+            score_text = f", score {item['score']}" if item.get("score") is not None else ""
+            summary_text = f": {item['summary']}" if item.get("summary") else ""
+            bullets.append(f"Outcome {item['status']}{score_text}{summary_text}")
+
+        if status_counts.get("positive", 0) > 0:
+            constraints.append("Reuse patterns from recent positive outcomes; keep the next package similarly actionable.")
+            recommendation_tags.append("outcome_positive")
+        if status_counts.get("mixed", 0) > 0:
+            constraints.append("Treat mixed outcomes as a signal to reduce complexity and add clearer recovery checks.")
+            risk_flags.append("recent_mixed_outcome")
+            recommendation_tags.append("outcome_mixed")
+        if status_counts.get("negative", 0) > 0:
+            constraints.append("Avoid increasing intensity until the reason behind the negative outcome is understood.")
+            risk_flags.append("recent_negative_outcome")
+            recommendation_tags.append("outcome_negative")
+        if status_counts.get("inconclusive", 0) > 0:
+            constraints.append("Follow-up data was insufficient for at least one outcome; request clearer logs before strong conclusions.")
+            risk_flags.append("outcome_data_insufficient")
+            recommendation_tags.append("outcome_inconclusive")
+        if status_counts.get("pending", 0) > 0:
+            constraints.append("There are pending outcomes still measuring; avoid over-interpreting the latest package.")
+            recommendation_tags.append("outcome_pending")
+
+        return {
+            "available": True,
+            "bullets": bullets,
+            "constraints": constraints[:4],
+            "risk_flags": risk_flags,
+            "recommendation_tags": recommendation_tags,
+            "snapshot": {
+                "statusCounts": status_counts,
+                "items": normalized,
+            },
+        }
+
     def _build_phase2_plan_days(self, summary: dict[str, Any], recovery_mode: bool) -> list[dict[str, Any]]:
         current_plan = self._read_summary_value(summary, "currentPlan", "current_plan", fallback={})
         current_days = current_plan.get("days") if isinstance(current_plan, dict) else []
@@ -662,6 +752,15 @@ class HealthAgentRuntime:
         ]
         risk_flags = ["最近恢复不足"] if recovery_mode else []
         recommendation_tags = ["weekly_review", "training", "diet"] if flow_type == "weekly_review" else ["daily_guidance", "recovery"]
+        outcome_context = self._build_outcome_context(coach_summary)
+        outcome_constraints = outcome_context["constraints"] if outcome_context.get("available") else []
+        outcome_bullets = outcome_context["bullets"] if outcome_context.get("available") else []
+        if outcome_constraints:
+            focus_areas.append(str(outcome_constraints[0]))
+        risk_flags.extend(str(flag) for flag in outcome_context.get("risk_flags", []))
+        recommendation_tags.extend(str(tag) for tag in outcome_context.get("recommendation_tags", []))
+        risk_flags = self._dedupe_text_items(risk_flags)
+        recommendation_tags = self._dedupe_text_items(recommendation_tags)
 
         current_plan = self._read_summary_value(coach_summary, "currentPlan", "current_plan", fallback={})
         snapshot_fields = self._build_plan_snapshot_fields(current_plan if isinstance(current_plan, dict) else {})
@@ -696,6 +795,9 @@ class HealthAgentRuntime:
                 "completion_rate": completion_rate,
                 "generated_plan_days": 0 if data_insufficient else len(next_week_days),
                 "data_insufficient": data_insufficient,
+                "recent_outcomes": outcome_context.get("snapshot"),
+                "outcome_constraints": outcome_constraints,
+                "outcome_evidence": outcome_bullets,
             }
             proposals = [
                 self._draft_proposal(
@@ -824,6 +926,9 @@ class HealthAgentRuntime:
                     "晚间优先补水并尽量保证 7 小时以上睡眠。",
                 ],
                 "risk_flags": risk_flags,
+                "recent_outcomes": outcome_context.get("snapshot"),
+                "outcome_constraints": outcome_constraints,
+                "outcome_evidence": outcome_bullets,
             }
             proposals = [
                 self._draft_proposal(
@@ -851,6 +956,12 @@ class HealthAgentRuntime:
                 "今日重点": "恢复优先" if recovery_mode else "保持节奏",
                 "依据": f"完成 {completed_days}/{total_days} 个训练日",
             }
+
+        if outcome_bullets:
+            group_preview["Recent outcome evidence"] = outcome_bullets[:2]
+        if outcome_constraints:
+            group_preview["Outcome constraint"] = outcome_constraints[0]
+            reasoning_summary = f"{reasoning_summary} Recent outcome evidence was applied as a constraint: {outcome_constraints[0]}"
 
         review_payload = {
             "type": flow_type,
