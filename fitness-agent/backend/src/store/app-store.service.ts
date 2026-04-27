@@ -1,8 +1,7 @@
 import { Injectable, Logger, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
-
-type CoachingOutcomeEntity = Awaited<ReturnType<PrismaService["coachingOutcome"]["findMany"]>>[number];
+import { CoachingOutcomeRecord, CoachingOutcomeService } from "../services/coaching-outcome.service";
 
 export interface HealthProfileRecord {
   age?: number;
@@ -171,24 +170,6 @@ export interface MemorySummaryRecord {
   safetyConstraints: string[];
 }
 
-export interface CoachingOutcomeRecord {
-  id: string;
-  reviewSnapshotId: string | null;
-  proposalGroupId: string | null;
-  strategyTemplateId: string | null;
-  strategyVersion: string | null;
-  status: string;
-  measurementStart: string;
-  measurementEnd: string;
-  baseline: Prisma.JsonValue;
-  observed: Prisma.JsonValue;
-  score: number | null;
-  signals: Prisma.JsonValue;
-  summary: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface CoachSummaryRecord {
   currentPlan: CurrentPlanSnapshotRecord;
   completion: {
@@ -311,7 +292,10 @@ function buildPlanDays() {
 export class AppStoreService {
   private readonly logger = new Logger(AppStoreService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly outcomeService: CoachingOutcomeService
+  ) {}
 
   private db(client?: DbClient) {
     return client ?? this.prisma;
@@ -966,37 +950,7 @@ export class AppStoreService {
 
   async getRecentCoachingOutcomes(userId?: string, take = 3): Promise<CoachingOutcomeRecord[]> {
     const user = await this.getUser(userId);
-    return this.getRecentCoachingOutcomesForUser(user.id, take);
-  }
-
-  private async getRecentCoachingOutcomesForUser(userId: string, take = 3): Promise<CoachingOutcomeRecord[]> {
-    const outcomes = await this.prisma.coachingOutcome.findMany({
-      where: { userId },
-      orderBy: { updatedAt: "desc" },
-      take
-    });
-
-    return outcomes.map((outcome) => this.mapCoachingOutcome(outcome));
-  }
-
-  private mapCoachingOutcome(outcome: CoachingOutcomeEntity): CoachingOutcomeRecord {
-    return {
-      id: outcome.id,
-      reviewSnapshotId: outcome.reviewSnapshotId,
-      proposalGroupId: outcome.proposalGroupId,
-      strategyTemplateId: outcome.strategyTemplateId,
-      strategyVersion: outcome.strategyVersion,
-      status: outcome.status,
-      measurementStart: outcome.measurementStart.toISOString(),
-      measurementEnd: outcome.measurementEnd.toISOString(),
-      baseline: outcome.baseline,
-      observed: outcome.observed,
-      score: outcome.score,
-      signals: outcome.signals,
-      summary: outcome.summary,
-      createdAt: outcome.createdAt.toISOString(),
-      updatedAt: outcome.updatedAt.toISOString()
-    };
+    return this.outcomeService.getRecentOutcomesForUser(user.id, take);
   }
 
   async getCoachSummary(userId?: string): Promise<CoachSummaryRecord> {
@@ -1030,7 +984,7 @@ export class AppStoreService {
           orderBy: { createdAt: "desc" }
         }),
         this.getMemorySummary(user.id),
-        this.getRecentCoachingOutcomesForUser(user.id)
+        this.outcomeService.getRecentOutcomesForUser(user.id)
       ]);
 
     const totalDays = currentPlan.days.length;
