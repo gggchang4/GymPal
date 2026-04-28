@@ -17,6 +17,7 @@ import { MeController } from "./controllers/me.controller";
 import { PlansController } from "./controllers/plans.controller";
 import { AgentStateService } from "./services/agent-state.service";
 import { CoachingOutcomeService } from "./services/coaching-outcome.service";
+import { CoachingStrategyService } from "./services/coaching-strategy.service";
 
 @Module({
   controllers: [
@@ -34,6 +35,7 @@ import { CoachingOutcomeService } from "./services/coaching-outcome.service";
   ],
   providers: [
     PrismaService,
+    CoachingStrategyService,
     CoachingOutcomeService,
     AppStoreService,
     AgentStateService,

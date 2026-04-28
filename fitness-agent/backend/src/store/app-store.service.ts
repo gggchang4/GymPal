@@ -223,6 +223,15 @@ function normalizePlanString(value: string | undefined, fallback: string) {
   return normalized && normalized.length > 0 ? normalized : fallback;
 }
 
+function normalizeConfidence(value: unknown, fallback = 60) {
+  const numericValue = Number(value ?? fallback);
+  if (!Number.isFinite(numericValue)) {
+    return fallback;
+  }
+
+  return Math.max(1, Math.min(100, Math.round(numericValue)));
+}
+
 function mapWorkoutPlanDay(day: {
   id: string;
   dayLabel: string;
@@ -817,7 +826,7 @@ export class AppStoreService {
 
   async createCoachingMemory(userId: string, payload: CoachingMemoryPayload, client?: DbClient) {
     const db = this.db(client);
-    const confidence = Math.max(1, Math.min(100, Math.round(payload.confidence ?? 60)));
+    const confidence = normalizeConfidence(payload.confidence);
     const memoryType = normalizePlanString(payload.memoryType, "behavior_pattern");
     const title = normalizePlanString(payload.title, "教练记忆");
     const summary = normalizePlanString(payload.summary, "用户确认了一条长期教练记忆。");
@@ -874,7 +883,7 @@ export class AppStoreService {
       confidence:
         payload.confidence === undefined
           ? current.confidence
-          : Math.max(1, Math.min(100, Math.round(payload.confidence))),
+          : normalizeConfidence(payload.confidence, current.confidence),
       status: current.status
     };
     const updated = await db.userCoachingMemory.update({

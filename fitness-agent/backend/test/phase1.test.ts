@@ -72,6 +72,10 @@ function createService() {
         recommendationTags: [],
         inputSnapshot: {},
         resultSnapshot: {},
+        strategyTemplateId: data.strategyTemplateId ?? null,
+        strategyVersion: data.strategyVersion ?? null,
+        evidence: data.evidence ?? null,
+        uncertaintyFlags: data.uncertaintyFlags ?? [],
         createdAt: now,
         updatedAt: now
       }),
@@ -89,6 +93,9 @@ function createService() {
         summary: data.summary ?? "Apply weekly coaching package.",
         preview: {},
         riskLevel: data.riskLevel ?? "high",
+        strategyTemplateId: data.strategyTemplateId ?? null,
+        strategyVersion: data.strategyVersion ?? null,
+        policyLabels: data.policyLabels ?? [],
         expiresAt: new Date("2099-04-20T16:00:00.000Z"),
         executedAt: null,
         createdAt: now,
@@ -106,6 +113,9 @@ function createService() {
         summary: "Apply weekly coaching package.",
         preview: {},
         riskLevel: "high",
+        strategyTemplateId: null,
+        strategyVersion: null,
+        policyLabels: [],
         expiresAt: new Date("2099-04-20T16:00:00.000Z"),
         executedAt: null,
         createdAt: now,
@@ -123,6 +133,9 @@ function createService() {
         summary: "Apply weekly coaching package.",
         preview: {},
         riskLevel: "high",
+        strategyTemplateId: null,
+        strategyVersion: null,
+        policyLabels: [],
         expiresAt: new Date("2099-04-20T16:00:00.000Z"),
         executedAt: new Date("2099-04-20T13:00:00.000Z"),
         createdAt: now,
@@ -172,6 +185,7 @@ function createService() {
 
   const appStore = {
     getUser: async (userId?: string) => ({ id: userId ?? "user-1" }),
+    getMemorySummary: async () => ({ activeMemories: [] }),
     getCurrentPlanSnapshot: async () => ({
       plan: {
         id: "plan-1",
@@ -202,11 +216,20 @@ function createService() {
     getOutcomeForProposalGroup: async () => null,
     createPendingOutcomeForExecutedPackage: async () => ({ id: "outcome-1" })
   };
+  const strategyService = {
+    chooseForCoachingReview: async () => ({
+      templateId: "strategy-1",
+      version: "1.0.0",
+      policyLabels: ["low_risk_write"],
+      evidence: { selectedBecause: "test" },
+      uncertaintyFlags: []
+    })
+  };
 
   return {
     prisma,
     appStore,
-    service: new AgentStateService(prisma as never, appStore as never, outcomeService as never)
+    service: new AgentStateService(prisma as never, appStore as never, outcomeService as never, strategyService as never)
   };
 }
 

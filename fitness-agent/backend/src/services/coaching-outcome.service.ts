@@ -128,6 +128,8 @@ export class CoachingOutcomeService {
       userId: proposalGroup.userId,
       reviewSnapshotId: proposalGroup.reviewSnapshotId,
       proposalGroupId: proposalGroup.id,
+      strategyTemplateId: proposalGroup.strategyTemplateId,
+      strategyVersion: proposalGroup.strategyVersion,
       status: "pending",
       measurementStart: executedAt,
       measurementEnd,

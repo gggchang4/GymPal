@@ -68,6 +68,10 @@ export interface CoachingReviewSnapshot {
   recommendationTags: string[];
   inputSnapshot: Record<string, unknown>;
   resultSnapshot: Record<string, unknown>;
+  strategyTemplateId?: string | null;
+  strategyVersion?: string | null;
+  evidence?: Record<string, unknown> | null;
+  uncertaintyFlags: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -82,6 +86,9 @@ export interface AgentProposalGroup {
   summary: string;
   preview: Record<string, unknown>;
   riskLevel: "low" | "medium" | "high";
+  strategyTemplateId?: string | null;
+  strategyVersion?: string | null;
+  policyLabels: string[];
   createdAt: string;
   updatedAt: string;
 }

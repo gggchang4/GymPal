@@ -8,6 +8,7 @@ import { AppStoreService } from "../src/store/app-store.service";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { AgentStateService } from "../src/services/agent-state.service";
 import { CoachingOutcomeService } from "../src/services/coaching-outcome.service";
+import { CoachingStrategyService } from "../src/services/coaching-strategy.service";
 
 function loadBackendEnv() {
   const envPath = resolve(__dirname, "..", ".env");
@@ -40,8 +41,9 @@ const skipWithoutDatabase = databaseUrl ? false : "Set backend/.env DATABASE_URL
 function createServices() {
   const prisma = new PrismaService();
   const outcomeService = new CoachingOutcomeService(prisma);
+  const strategyService = new CoachingStrategyService(prisma);
   const appStore = new AppStoreService(prisma, outcomeService);
-  const agentState = new AgentStateService(prisma, appStore, outcomeService);
+  const agentState = new AgentStateService(prisma, appStore, outcomeService, strategyService);
 
   return { prisma, appStore, agentState };
 }

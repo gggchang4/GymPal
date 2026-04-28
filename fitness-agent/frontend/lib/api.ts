@@ -92,6 +92,10 @@ interface RawCoachingReviewSnapshot {
   recommendation_tags?: string[];
   input_snapshot?: Record<string, unknown>;
   result_snapshot?: Record<string, unknown>;
+  strategy_template_id?: string | null;
+  strategy_version?: string | null;
+  evidence?: Record<string, unknown> | null;
+  uncertainty_flags?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -106,6 +110,9 @@ interface RawAgentProposalGroup {
   summary: string;
   preview?: Record<string, unknown>;
   risk_level: "low" | "medium" | "high";
+  strategy_template_id?: string | null;
+  strategy_version?: string | null;
+  policy_labels?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -312,6 +319,10 @@ function mapCoachingReview(review: RawCoachingReviewSnapshot): CoachingReviewSna
     recommendationTags: review.recommendation_tags ?? [],
     inputSnapshot: review.input_snapshot ?? {},
     resultSnapshot: review.result_snapshot ?? {},
+    strategyTemplateId: review.strategy_template_id ?? null,
+    strategyVersion: review.strategy_version ?? null,
+    evidence: review.evidence ?? null,
+    uncertaintyFlags: review.uncertainty_flags ?? [],
     createdAt: review.created_at,
     updatedAt: review.updated_at
   };
@@ -328,6 +339,9 @@ function mapProposalGroup(group: RawAgentProposalGroup): AgentProposalGroup {
     summary: group.summary,
     preview: group.preview ?? {},
     riskLevel: group.risk_level,
+    strategyTemplateId: group.strategy_template_id ?? null,
+    strategyVersion: group.strategy_version ?? null,
+    policyLabels: group.policy_labels ?? [],
     createdAt: group.created_at,
     updatedAt: group.updated_at
   };

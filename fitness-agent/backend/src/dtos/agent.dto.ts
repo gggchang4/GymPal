@@ -231,6 +231,23 @@ export class CreateCoachingReviewSnapshotDto {
   @IsOptional()
   @IsObject()
   resultSnapshot?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsString()
+  strategyTemplateId?: string;
+
+  @IsOptional()
+  @IsString()
+  strategyVersion?: string;
+
+  @IsOptional()
+  @IsObject()
+  evidence?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  uncertaintyFlags?: string[];
 }
 
 export class CreateAgentProposalGroupDto {
@@ -252,6 +269,19 @@ export class CreateAgentProposalGroupDto {
 
   @IsIn(["low", "medium", "high"])
   riskLevel!: "low" | "medium" | "high";
+
+  @IsOptional()
+  @IsString()
+  strategyTemplateId?: string;
+
+  @IsOptional()
+  @IsString()
+  strategyVersion?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  policyLabels?: string[];
 
   @IsOptional()
   @IsString()

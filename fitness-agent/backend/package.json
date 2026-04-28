@@ -13,6 +13,7 @@
     "test:phase2:e2e": "node -r ts-node/register .\\test\\phase2-e2e.test.ts",
     "test:phase3:memory": "node -r ts-node/register .\\test\\phase3-memory.test.ts",
     "test:phase3:outcome": "node -r ts-node/register .\\test\\phase3-outcome.test.ts",
+    "test:phase3:strategy": "node -r ts-node/register .\\test\\phase3-strategy.test.ts",
     "lint": "eslint \"src/**/*.ts\"",
     "prisma:generate": "prisma generate",
     "prisma:dbpush": "prisma db push",

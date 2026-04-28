@@ -8,6 +8,7 @@ import { AppStoreService } from "../src/store/app-store.service";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { AgentStateService } from "../src/services/agent-state.service";
 import { CoachingOutcomeService } from "../src/services/coaching-outcome.service";
+import { CoachingStrategyService } from "../src/services/coaching-strategy.service";
 
 function loadBackendEnv() {
   const envPath = resolve(__dirname, "..", ".env");
@@ -41,8 +42,9 @@ const skipWithoutDatabase = process.env.DATABASE_URL
 function createServices() {
   const prisma = new PrismaService();
   const outcomeService = new CoachingOutcomeService(prisma);
+  const strategyService = new CoachingStrategyService(prisma);
   const appStore = new AppStoreService(prisma, outcomeService);
-  const agentState = new AgentStateService(prisma, appStore, outcomeService);
+  const agentState = new AgentStateService(prisma, appStore, outcomeService, strategyService);
 
   return { prisma, appStore, agentState };
 }
@@ -195,6 +197,40 @@ test("phase3 partial memory updates do not overwrite stable fields", { skip: ski
     assert.equal(summary.activeMemories[0].summary, "User trains mostly at home and has adjustable dumbbells.");
     assert.equal(summary.activeMemories[0].confidence, 82);
     assert.equal(summary.recentEvents[0].eventType, "updated");
+  } finally {
+    await cleanupTestUsers(prisma, runId);
+    await prisma.$disconnect();
+  }
+});
+
+test("phase3 memory confidence falls back when proposal payload is malformed", { skip: skipWithoutDatabase }, async () => {
+  const runId = randomUUID();
+  const { prisma, appStore } = createServices();
+  await prisma.$connect();
+
+  try {
+    await cleanupTestUsers(prisma, runId);
+    const user = await createUser(appStore, runId, "confidence");
+    const memory = await appStore.createCoachingMemory(user.id, {
+      memoryType: "behavior_pattern",
+      title: "Malformed confidence",
+      summary: "Confidence should fall back instead of failing execution.",
+      value: {},
+      confidence: Number.NaN,
+      sourceType: "chat"
+    });
+
+    let summary = await appStore.getMemorySummary(user.id);
+    assert.equal(summary.activeMemories[0].id, memory.id);
+    assert.equal(summary.activeMemories[0].confidence, 60);
+
+    await appStore.updateCoachingMemory(user.id, memory.id, {
+      confidence: Number.NaN,
+      reason: "Malformed update payload should keep the previous confidence."
+    });
+
+    summary = await appStore.getMemorySummary(user.id);
+    assert.equal(summary.activeMemories[0].confidence, 60);
   } finally {
     await cleanupTestUsers(prisma, runId);
     await prisma.$disconnect();

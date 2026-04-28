@@ -228,8 +228,32 @@ class HealthAgentRuntime:
         if any(keyword in text for keyword in self.HIGH_RISK_KEYWORDS):
             return None
 
-        if any(keyword in text for keyword in ("记住", "以后", "偏好", "不喜欢", "喜欢", "膝盖", "设备", "时间")) and any(
-            keyword in text for keyword in ("记住", "以后", "偏好", "不喜欢", "喜欢")
+        explicit_memory_markers = (
+            "记住",
+            "帮我记",
+            "以后请",
+            "以后不要",
+            "以后别",
+            "请以后",
+            "我的偏好",
+            "我偏好",
+            "我不喜欢",
+            "我喜欢",
+            "不要给我安排",
+            "优先安排",
+        )
+        explicit_memory_markers_en = (
+            "remember that",
+            "please remember",
+            "my preference",
+            "i prefer",
+            "i don't like",
+            "do not assign",
+            "avoid for me",
+        )
+        is_question = text.strip().endswith(("?", "？", "吗"))
+        if (any(marker in text for marker in explicit_memory_markers) or any(marker in lowered for marker in explicit_memory_markers_en)) and (
+            not is_question or "记住" in text or "remember" in lowered
         ):
             return "memory"
 

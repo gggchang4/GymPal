@@ -196,6 +196,10 @@ model CoachingReviewSnapshot {
   recommendationTags String[]
   inputSnapshot      Json
   resultSnapshot     Json
+  strategyTemplateId String?
+  strategyVersion    String?
+  evidence           Json?
+  uncertaintyFlags   String[]             @default([])
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -231,6 +235,23 @@ model CoachingOutcome {
 
   @@index([userId, status, updatedAt])
   @@index([reviewSnapshotId, createdAt])
+}
+
+model CoachingStrategyTemplate {
+  id           String   @id @default(cuid())
+  key          String
+  version      String
+  title        String
+  description  String
+  triggerRules Json
+  riskPolicy   String
+  outputShape  Json
+  status       String   @default("draft")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([key, version])
+  @@index([status, key])
 }
 
 model UserCoachingMemory {
@@ -385,6 +406,9 @@ model AgentProposalGroup {
   summary            String
   preview            Json
   riskLevel          String
+  strategyTemplateId String?
+  strategyVersion    String?
+  policyLabels       String[]              @default([])
   expiresAt          DateTime?
   executedAt         DateTime?
   createdAt          DateTime              @default(now())

@@ -10,6 +10,18 @@ import type { CoachSummarySnapshot } from "@/lib/types";
 const weeklyReviewPrompt = "帮我复盘这一周，并生成下周的训练、饮食和执行建议。";
 const dailyGuidancePrompt = "根据我最近的恢复状态，给我一份今天的训练建议。";
 
+function getOutcomeStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    pending: "观察中",
+    positive: "效果积极",
+    mixed: "效果混合",
+    negative: "需要调整",
+    inconclusive: "数据不足"
+  };
+
+  return labels[status] ?? status;
+}
+
 async function ensureAgentThread() {
   const currentThreadId = readAgentThreadId();
   if (currentThreadId) {
@@ -33,6 +45,7 @@ export function DashboardCoachingPanel({
   const pendingPackage = coachSummary.pendingCoachingPackage;
   const latestAdvice = coachSummary.recentAdviceSnapshots[0];
   const activeMemories = coachSummary.memorySummary.activeMemories.slice(0, 3);
+  const latestOutcome = coachSummary.recentOutcomes[0];
 
   async function handleGenerate(prompt: string, action: "weekly" | "daily") {
     setBusyAction(action);
@@ -135,6 +148,19 @@ export function DashboardCoachingPanel({
           </ul>
         ) : (
           <small>在 chat 里说“请记住……”，我会先生成待确认记忆，不会直接写入。</small>
+        )}
+      </div>
+
+      <div className="dashboard-coaching-note">
+        <span className="section-label">建议效果</span>
+        <strong>{latestOutcome ? getOutcomeStatusLabel(latestOutcome.status) : "暂无可评估建议"}</strong>
+        {latestOutcome ? (
+          <small>
+            {latestOutcome.summary}
+            {typeof latestOutcome.score === "number" ? ` · 评分 ${latestOutcome.score}` : ""}
+          </small>
+        ) : (
+          <small>执行教练包后，系统会跟踪后续训练、打卡和指标变化，再给出效果评估。</small>
         )}
       </div>
 

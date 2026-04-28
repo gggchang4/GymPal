@@ -11,6 +11,7 @@ import {
 import { AppStoreService } from "../store/app-store.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { CoachingOutcomeService } from "./coaching-outcome.service";
+import { CoachingStrategyService } from "./coaching-strategy.service";
 
 type TransactionClient = Prisma.TransactionClient | PrismaClient;
 const proposalGroupExecutionInclude = Prisma.validator<Prisma.AgentProposalGroupInclude>()({
@@ -40,7 +41,8 @@ export class AgentStateService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly appStore: AppStoreService,
-    private readonly outcomeService: CoachingOutcomeService
+    private readonly outcomeService: CoachingOutcomeService,
+    private readonly strategyService: CoachingStrategyService
   ) {}
 
   private async getActor(userId?: string) {
@@ -219,6 +221,10 @@ export class AgentStateService {
     recommendationTags: string[];
     inputSnapshot: Prisma.JsonValue;
     resultSnapshot: Prisma.JsonValue;
+    strategyTemplateId: string | null;
+    strategyVersion: string | null;
+    evidence: Prisma.JsonValue | null;
+    uncertaintyFlags: string[];
     createdAt: Date;
     updatedAt: Date;
   }) {
@@ -239,6 +245,10 @@ export class AgentStateService {
       recommendation_tags: review.recommendationTags,
       input_snapshot: review.inputSnapshot,
       result_snapshot: review.resultSnapshot,
+      strategy_template_id: review.strategyTemplateId,
+      strategy_version: review.strategyVersion,
+      evidence: review.evidence,
+      uncertainty_flags: review.uncertaintyFlags,
       created_at: review.createdAt.toISOString(),
       updated_at: review.updatedAt.toISOString()
     };
@@ -255,6 +265,9 @@ export class AgentStateService {
     summary: string;
     preview: Prisma.JsonValue;
     riskLevel: string;
+    strategyTemplateId: string | null;
+    strategyVersion: string | null;
+    policyLabels: string[];
     expiresAt: Date | null;
     executedAt: Date | null;
     createdAt: Date;
@@ -272,6 +285,9 @@ export class AgentStateService {
       summary: group.summary,
       preview: group.preview,
       risk_level: group.riskLevel,
+      strategy_template_id: group.strategyTemplateId,
+      strategy_version: group.strategyVersion,
+      policy_labels: group.policyLabels,
       expires_at: group.expiresAt?.toISOString() ?? null,
       executed_at: group.executedAt?.toISOString() ?? null,
       proposals: group.proposals?.map((proposal) => this.mapProposal(proposal)) ?? [],
@@ -367,6 +383,15 @@ export class AgentStateService {
     const packageExpiresAt =
       payload.proposalGroup.expiresAt ? new Date(payload.proposalGroup.expiresAt) : new Date(Date.now() + 1000 * 60 * 60 * 4);
     const proposalExpiresAtDefault = new Date(Date.now() + 1000 * 60 * 60 * 2);
+    const memorySummary = await this.appStore.getMemorySummary(actor.id);
+    const strategyDecision = await this.strategyService.chooseForCoachingReview({
+      adherenceScore: payload.review.adherenceScore ?? null,
+      riskFlags: payload.review.riskFlags ?? [],
+      recommendationTags: payload.review.recommendationTags ?? [],
+      memoryCount: memorySummary.activeMemories.length
+    });
+    const strategyTemplateId = payload.review.strategyTemplateId ?? payload.proposalGroup.strategyTemplateId ?? strategyDecision.templateId;
+    const strategyVersion = payload.review.strategyVersion ?? payload.proposalGroup.strategyVersion ?? strategyDecision.version;
 
     const created = await this.prisma.$transaction(async (tx) => {
       const review = await tx.coachingReviewSnapshot.create({
@@ -385,7 +410,11 @@ export class AgentStateService {
           focusAreas: payload.review.focusAreas ?? [],
           recommendationTags: payload.review.recommendationTags ?? [],
           inputSnapshot: asJson(payload.review.inputSnapshot ?? {}),
-          resultSnapshot: asJson(payload.review.resultSnapshot ?? {})
+          resultSnapshot: asJson(payload.review.resultSnapshot ?? {}),
+          strategyTemplateId,
+          strategyVersion,
+          evidence: asJson(payload.review.evidence ?? strategyDecision.evidence),
+          uncertaintyFlags: payload.review.uncertaintyFlags ?? strategyDecision.uncertaintyFlags
         }
       });
 
@@ -400,6 +429,9 @@ export class AgentStateService {
           summary: payload.proposalGroup.summary,
           preview: asJson(payload.proposalGroup.preview),
           riskLevel: payload.proposalGroup.riskLevel,
+          strategyTemplateId,
+          strategyVersion,
+          policyLabels: payload.proposalGroup.policyLabels ?? strategyDecision.policyLabels,
           expiresAt: packageExpiresAt
         }
       });
@@ -532,7 +564,11 @@ export class AgentStateService {
         focusAreas: payload.focusAreas ?? [],
         recommendationTags: payload.recommendationTags ?? [],
         inputSnapshot: asJson(payload.inputSnapshot ?? {}),
-        resultSnapshot: asJson(payload.resultSnapshot ?? {})
+        resultSnapshot: asJson(payload.resultSnapshot ?? {}),
+        strategyTemplateId: payload.strategyTemplateId,
+        strategyVersion: payload.strategyVersion,
+        evidence: payload.evidence ? asJson(payload.evidence) : undefined,
+        uncertaintyFlags: payload.uncertaintyFlags ?? []
       }
     });
 
@@ -567,6 +603,9 @@ export class AgentStateService {
         summary: payload.summary,
         preview: asJson(payload.preview),
         riskLevel: payload.riskLevel,
+        strategyTemplateId: payload.strategyTemplateId,
+        strategyVersion: payload.strategyVersion,
+        policyLabels: payload.policyLabels ?? [],
         expiresAt: payload.expiresAt ? new Date(payload.expiresAt) : new Date(Date.now() + 1000 * 60 * 60 * 4)
       },
       include: {
