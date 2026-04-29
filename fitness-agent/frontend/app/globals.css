@@ -831,6 +831,87 @@ select:focus {
   word-break: break-word;
 }
 
+.phase4-card-details {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.phase4-card-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.phase4-card-status-grid > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid rgba(20, 20, 20, 0.1);
+}
+
+.phase4-card-status-grid span,
+.phase4-card-detail-title {
+  color: rgba(20, 20, 20, 0.58);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.phase4-card-status-grid strong,
+.phase4-card-note,
+.revision-compare-grid p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.phase4-card-status-grid strong {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.revision-compare-grid p {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.phase4-card-note {
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.phase4-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.phase4-card-detail-section {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.revision-compare-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  min-width: 0;
+}
+
+.revision-compare-grid > div {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 12px;
+  border-top: 1px solid rgba(20, 20, 20, 0.1);
+}
+
 .tone-sage,
 .tone-sand,
 .tone-slate,
@@ -1142,6 +1223,87 @@ select:focus {
 .dashboard-coaching-error {
   margin: 0;
   color: #9f2d28;
+}
+
+.dashboard-coaching-error.neutral {
+  color: rgba(20, 20, 20, 0.62);
+}
+
+.coach-workspace-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.coach-workspace-heading {
+  max-width: 760px;
+}
+
+.coach-workspace-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.coach-workspace-strip > div,
+.coach-workspace-empty,
+.coach-work-item {
+  min-width: 0;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.44);
+}
+
+.coach-workspace-strip > div,
+.coach-workspace-empty {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+}
+
+.coach-workspace-strip span,
+.coach-workspace-strip small,
+.coach-workspace-empty small,
+.coach-work-item small {
+  color: rgba(20, 20, 20, 0.58);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.coach-workspace-strip strong,
+.coach-workspace-empty strong,
+.coach-work-item strong {
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.coach-work-item-list {
+  display: grid;
+  gap: 12px;
+}
+
+.coach-work-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 16px;
+}
+
+.coach-work-item.priority-high {
+  border-color: rgba(159, 45, 40, 0.34);
+}
+
+.coach-work-item-copy {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.coach-work-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-content: flex-start;
+  justify-content: flex-end;
 }
 
 .dashboard-summary-list {
@@ -3723,8 +3885,14 @@ select:focus {
   .profile-mini-metrics,
   .profile-recent-grid,
   .dashboard-summary-row,
-  .dashboard-coaching-status {
+  .dashboard-coaching-status,
+  .coach-workspace-strip,
+  .coach-work-item {
     grid-template-columns: 1fr;
+  }
+
+  .coach-work-item-actions {
+    justify-content: flex-start;
   }
 
   .todo-toolbar {

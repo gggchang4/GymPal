@@ -30,6 +30,9 @@ model User {
   agentActionProposals AgentActionProposal[]
   agentActionExecutions AgentActionExecution[]
   agentProposalGroups AgentProposalGroup[]
+  agentWorkItems AgentWorkItem[]
+  agentProductEvents AgentProductEvent[]
+  agentQualityChecks AgentQualityCheck[]
 }
 
 model HealthProfile {
@@ -443,6 +446,79 @@ model AgentProposalGroup {
   @@index([threadId, status, createdAt])
   @@index([userId, status, createdAt])
   @@index([reviewSnapshotId, createdAt])
+}
+
+model AgentWorkItem {
+  id                     String   @id @default(cuid())
+  userId                 String
+  type                   String
+  status                 String   @default("pending")
+  priority               String   @default("medium")
+  source                 String
+  title                  String
+  summary                String
+  reason                 String
+  payload                Json
+  requestId              String?
+  relatedThreadId        String?
+  relatedReviewId        String?
+  relatedProposalGroupId String?
+  relatedOutcomeId       String?
+  convertedEntityType    String?
+  convertedEntityId      String?
+  expiresAt              DateTime?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, priority, createdAt])
+  @@index([userId, type, status, createdAt])
+  @@index([requestId])
+  @@index([relatedProposalGroupId])
+  @@index([relatedOutcomeId])
+}
+
+model AgentProductEvent {
+  id         String   @id @default(cuid())
+  userId     String
+  eventType  String
+  source     String
+  entityType String?
+  entityId   String?
+  requestId  String?
+  sessionId  String?
+  payload    Json
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([eventType, createdAt])
+  @@index([requestId])
+  @@index([entityType, entityId])
+}
+
+model AgentQualityCheck {
+  id                 String   @id @default(cuid())
+  userId             String
+  threadId           String?
+  runId              String?
+  reviewSnapshotId   String?
+  proposalGroupId    String?
+  scope              String
+  status             String
+  score              Int
+  blockedReasons     String[] @default([])
+  downgradeReasons   String[] @default([])
+  passedPolicyLabels String[] @default([])
+  evidence           Json
+  createdAt          DateTime @default(now())
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([runId, createdAt])
+  @@index([proposalGroupId, createdAt])
+  @@index([reviewSnapshotId, createdAt])
+  @@index([scope, status, createdAt])
 }
 
 model ToolInvocationLog {

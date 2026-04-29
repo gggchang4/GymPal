@@ -13,6 +13,7 @@
     "test:phase1": "npm --workspace backend run test:phase1",
     "test:phase2": "npm --workspace backend run test:phase2:e2e && npm --workspace frontend run test:cards",
     "test:phase3": "npm --workspace backend run test:phase3:policy && npm --workspace backend run test:phase3:memory && npm --workspace backend run test:phase3:outcome && npm --workspace backend run test:phase3:strategy",
+    "test:phase4": "npm --workspace backend run test:phase4:work-items && npm --workspace backend run test:phase4:quality && npm --workspace backend run test:phase4:product-events && npm --workspace frontend run test:cards",
     "dev:frontend": "npm --workspace frontend run dev",
     "dev:backend": "npm --workspace backend run start:dev",
     "build:frontend": "npm --workspace frontend run build",

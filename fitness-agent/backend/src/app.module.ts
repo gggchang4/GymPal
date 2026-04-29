@@ -9,6 +9,8 @@ import { AgentFeedbackController } from "./controllers/agent-feedback.controller
 import { AgentContextController } from "./controllers/agent-context.controller";
 import { AgentCommandsController } from "./controllers/agent-commands.controller";
 import { AgentStateController } from "./controllers/agent-state.controller";
+import { AgentWorkItemsController } from "./controllers/agent-work-items.controller";
+import { AgentQualityController } from "./controllers/agent-quality.controller";
 import { DashboardController } from "./controllers/dashboard.controller";
 import { DietRecommendationController } from "./controllers/diet-recommendation.controller";
 import { ExercisesController } from "./controllers/exercises.controller";
@@ -20,6 +22,9 @@ import { AgentStateService } from "./services/agent-state.service";
 import { CoachingOutcomeService } from "./services/coaching-outcome.service";
 import { CoachingStrategyService } from "./services/coaching-strategy.service";
 import { AgentPolicyService } from "./services/agent-policy.service";
+import { AgentWorkItemService } from "./services/agent-work-item.service";
+import { AgentQualityService } from "./services/agent-quality.service";
+import { AgentProductEventService } from "./services/agent-product-event.service";
 
 @Module({
   controllers: [
@@ -28,6 +33,8 @@ import { AgentPolicyService } from "./services/agent-policy.service";
     MeController,
     AgentFeedbackController,
     AgentContextController,
+    AgentWorkItemsController,
+    AgentQualityController,
     AgentStateController,
     AgentCommandsController,
     DashboardController,
@@ -43,6 +50,9 @@ import { AgentPolicyService } from "./services/agent-policy.service";
     AgentPolicyService,
     AppStoreService,
     AgentStateService,
+    AgentWorkItemService,
+    AgentQualityService,
+    AgentProductEventService,
     AuthTokenService,
     {
       provide: APP_GUARD,

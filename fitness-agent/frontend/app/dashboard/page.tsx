@@ -1,8 +1,9 @@
 import { ActivityRings } from "@/components/activity-rings";
+import { CoachWorkspacePanel } from "@/components/coach-workspace-panel";
 import { DietPlateCard } from "@/components/diet-plate-card";
-import { getCurrentPlan, getDashboard, getTodayDietRecommendation } from "@/lib/api";
+import { getCurrentPlan, getDashboard, getTodayDietRecommendation, getWorkspaceSummary } from "@/lib/api";
 import { requireServerAuthToken } from "@/lib/server-auth";
-import type { DashboardSnapshot, DietRecommendationSnapshot, WorkoutPlanDay } from "@/lib/types";
+import type { DashboardSnapshot, DietRecommendationSnapshot, WorkspaceSummarySnapshot, WorkoutPlanDay } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -174,16 +175,18 @@ async function resolveSection<T>(loader: Promise<T>, fallback: T) {
 
 export default async function DashboardPage() {
   const authToken = requireServerAuthToken();
-  const [snapshotResult, planResult, recommendationResult] = await Promise.all([
+  const [snapshotResult, planResult, recommendationResult, workspaceResult] = await Promise.all([
     resolveSection(getDashboard(authToken), buildFallbackDashboardSnapshot()),
     resolveSection(getCurrentPlan(authToken), buildFallbackPlan()),
-    resolveSection(getTodayDietRecommendation(authToken), staticDietRecommendation)
+    resolveSection(getTodayDietRecommendation(authToken), staticDietRecommendation),
+    resolveSection<WorkspaceSummarySnapshot | null>(getWorkspaceSummary(authToken), null)
   ]);
 
   const snapshot = snapshotResult.data;
   const plan = planResult.data;
   const recommendation = recommendationResult.data;
-  const isDegraded = snapshotResult.degraded || planResult.degraded || recommendationResult.degraded;
+  const workspace = workspaceResult.data;
+  const isDegraded = snapshotResult.degraded || planResult.degraded || recommendationResult.degraded || workspaceResult.degraded;
   const todayPlan = plan[0];
   const rings = [
     { slug: "move", label: "消耗", value: 76, note: "今日已消耗 612 kcal", accent: "#d53832" },
@@ -229,6 +232,8 @@ export default async function DashboardPage() {
           </span>
         </div>
       </div>
+
+      {workspace ? <CoachWorkspacePanel workspace={workspace} /> : null}
 
       <section className="dash-grid dashboard-refined">
         <div className="viz-wrap dashboard-main">

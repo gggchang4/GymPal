@@ -1,25 +1,33 @@
 import type { ReactNode } from "react";
-import type { AgentCard, RecommendationFeedbackType } from "@/lib/types";
+import type { AgentCard, CardType, RecommendationFeedbackType } from "@/lib/types";
 import { getProposalActionState, type ProposalStatus } from "@/lib/proposal-state";
 
-const toneByType: Record<AgentCard["type"], { label: string; tone: string }> = {
-  health_advice_card: { label: "健康建议", tone: "sage" },
-  workout_plan_card: { label: "训练计划", tone: "sand" },
-  exercise_card: { label: "动作说明", tone: "slate" },
-  recovery_card: { label: "恢复建议", tone: "amber" },
-  place_result_card: { label: "地点结果", tone: "marine" },
-  reasoning_summary_card: { label: "推理摘要", tone: "mist" },
-  tool_activity_card: { label: "工具活动", tone: "mist" },
-  action_proposal_card: { label: "待确认操作", tone: "marine" },
-  action_result_card: { label: "执行结果", tone: "sage" },
-  weekly_review_card: { label: "周复盘", tone: "sand" },
-  daily_guidance_card: { label: "今日建议", tone: "amber" },
-  coaching_package_card: { label: "教练包", tone: "marine" },
-  evidence_card: { label: "建议依据", tone: "mist" },
-  memory_candidate_card: { label: "记忆候选", tone: "sage" },
-  outcome_summary_card: { label: "效果评估", tone: "sand" },
-  strategy_decision_card: { label: "策略选择", tone: "marine" }
+type ToneConfig = { label: string; tone: string };
+
+const toneByType: Record<CardType, ToneConfig> = {
+  health_advice_card: { label: "Health advice", tone: "sage" },
+  workout_plan_card: { label: "Workout plan", tone: "sand" },
+  exercise_card: { label: "Exercise", tone: "slate" },
+  recovery_card: { label: "Recovery", tone: "amber" },
+  place_result_card: { label: "Place result", tone: "marine" },
+  reasoning_summary_card: { label: "Reasoning", tone: "mist" },
+  tool_activity_card: { label: "Tool activity", tone: "mist" },
+  action_proposal_card: { label: "Needs confirmation", tone: "marine" },
+  action_result_card: { label: "Action result", tone: "sage" },
+  weekly_review_card: { label: "Weekly review", tone: "sand" },
+  daily_guidance_card: { label: "Daily guidance", tone: "amber" },
+  coaching_package_card: { label: "Coaching package", tone: "marine" },
+  evidence_card: { label: "Evidence", tone: "mist" },
+  memory_candidate_card: { label: "Memory candidate", tone: "sage" },
+  outcome_summary_card: { label: "Outcome", tone: "sand" },
+  strategy_decision_card: { label: "Strategy", tone: "marine" },
+  work_item_card: { label: "Work item", tone: "amber" },
+  quality_check_card: { label: "Quality check", tone: "slate" },
+  revision_card: { label: "Revision", tone: "marine" },
+  coach_workspace_card: { label: "Workspace", tone: "sage" }
 };
+
+const terminalWorkItemStatuses = new Set(["dismissed", "converted", "expired"]);
 
 function extractProposalId(card: AgentCard) {
   const proposalId = card.data?.proposalId;
@@ -45,12 +53,42 @@ function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
+function textValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function firstText(data: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = textValue(data[key]);
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
 function textList(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
   }
 
   return value.map((item) => String(item).trim()).filter(Boolean);
+}
+
+function firstTextList(data: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = textList(data[key]);
+    if (value.length > 0) {
+      return value;
+    }
+  }
+
+  return [];
 }
 
 function formatEvidenceValue(value: unknown): string {
@@ -70,31 +108,42 @@ function formatEvidenceValue(value: unknown): string {
 
 function evidenceLabel(key: string) {
   const labels: Record<string, string> = {
-    adherenceScore: "完成度",
-    memoryCount: "记忆数量",
-    recommendationTags: "建议标签",
-    riskFlags: "风险信号",
-    selectedBecause: "策略选择原因",
-    outcome_evidence: "建议效果依据",
-    "Recent outcome evidence": "建议效果依据",
-    "Outcome constraint": "效果约束"
+    adherenceScore: "Adherence",
+    memoryCount: "Memory count",
+    recommendationTags: "Recommendation tags",
+    riskFlags: "Risk flags",
+    selectedBecause: "Strategy reason",
+    outcome_evidence: "Outcome evidence",
+    "Recent outcome evidence": "Outcome evidence",
+    "Outcome constraint": "Outcome constraint",
+    dataWindow: "Data window",
+    sourceEntities: "Source entities",
+    policyLabels: "Policy labels"
   };
 
   return labels[key] ?? key;
 }
 
+function collectEvidenceLines(value: unknown): string[] {
+  const evidence = asRecord(value);
+  const lines: string[] = [];
+
+  for (const [key, item] of Object.entries(evidence)) {
+    if (item !== null && item !== undefined && item !== "") {
+      lines.push(`${evidenceLabel(key)}: ${formatEvidenceValue(item)}`);
+    }
+  }
+
+  return lines;
+}
+
 function buildEvidenceLines(card: AgentCard): string[] {
   const data = asRecord(card.data);
-  const evidence = asRecord(data.evidence);
   const resultSnapshot = asRecord(data.resultSnapshot);
   const preview = asRecord(data.preview);
   const lines: string[] = [];
 
-  for (const [key, value] of Object.entries(evidence)) {
-    if (value !== null && value !== undefined && value !== "") {
-      lines.push(`${evidenceLabel(key)}: ${formatEvidenceValue(value)}`);
-    }
-  }
+  lines.push(...collectEvidenceLines(data.evidence));
 
   for (const key of ["outcome_evidence", "Recent outcome evidence", "Outcome constraint"]) {
     const value = resultSnapshot[key] ?? preview[key];
@@ -109,23 +158,217 @@ function buildEvidenceLines(card: AgentCard): string[] {
 function buildMetaTags(card: AgentCard): string[] {
   const data = asRecord(card.data);
   const tags: string[] = [];
-  const strategyVersion = typeof data.strategyVersion === "string" ? data.strategyVersion : "";
-  const policyLabels = textList(data.policyLabels);
-  const uncertaintyFlags = textList(data.uncertaintyFlags);
-  const riskLevel = typeof data.riskLevel === "string" ? data.riskLevel : "";
+  const status = firstText(data, "status");
+  const priority = firstText(data, "priority");
+  const scope = firstText(data, "scope");
+  const source = firstText(data, "source");
+  const strategyVersion = firstText(data, "strategyVersion", "strategy_version");
+  const riskLevel = firstText(data, "riskLevel", "risk_level");
+  const policyLabels = firstTextList(data, "policyLabels", "policy_labels", "passedPolicyLabels", "passed_policy_labels");
+  const uncertaintyFlags = firstTextList(data, "uncertaintyFlags", "uncertainty_flags");
 
-  if (strategyVersion) {
-    tags.push(`策略版本 ${strategyVersion}`);
-  }
+  if (status) tags.push(`Status ${status}`);
+  if (priority) tags.push(`Priority ${priority}`);
+  if (scope) tags.push(`Scope ${scope}`);
+  if (source) tags.push(`Source ${source}`);
+  if (strategyVersion) tags.push(`Strategy ${strategyVersion}`);
+  if (riskLevel) tags.push(`Risk ${riskLevel}`);
 
-  if (riskLevel) {
-    tags.push(`风险 ${riskLevel}`);
-  }
-
-  tags.push(...policyLabels.map((label) => `策略标签 ${label}`));
-  tags.push(...uncertaintyFlags.map((flag) => `不确定性 ${flag}`));
+  tags.push(...policyLabels.map((label) => `Policy ${label}`));
+  tags.push(...uncertaintyFlags.map((flag) => `Uncertainty ${flag}`));
 
   return tags.slice(0, 8);
+}
+
+function formatDateTime(value: string) {
+  const time = new Date(value);
+  if (Number.isNaN(time.getTime())) {
+    return value;
+  }
+
+  return time.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function DetailList({ title, items }: { title: string; items: string[] }) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="phase4-card-detail-section">
+      <span className="phase4-card-detail-title">{title}</span>
+      <ul className="evidence-list">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function qualityDisplayLabel(status: string) {
+  if (status === "blocked") {
+    return "Needs more data";
+  }
+
+  if (status === "downgraded") {
+    return "Conservative version";
+  }
+
+  if (status === "passed") {
+    return "Ready to show";
+  }
+
+  return "Internal check";
+}
+
+function WorkItemDetails({ card }: { card: AgentCard }) {
+  const data = asRecord(card.data);
+  const status = firstText(data, "status") || "pending";
+  const priority = firstText(data, "priority") || "medium";
+  const reason = firstText(data, "reason");
+  const expiresAt = firstText(data, "expiresAt", "expires_at");
+  const nextAction = firstText(data, "nextAction", "next_action") || "Open in workspace";
+  const isReadOnly = terminalWorkItemStatuses.has(status);
+
+  return (
+    <div className="phase4-card-details work-item-card-details">
+      <div className="phase4-card-status-grid">
+        <div>
+          <span>Status</span>
+          <strong>{status}</strong>
+        </div>
+        <div>
+          <span>Priority</span>
+          <strong>{priority}</strong>
+        </div>
+        <div>
+          <span>Expires</span>
+          <strong>{expiresAt ? formatDateTime(expiresAt) : "No deadline"}</strong>
+        </div>
+      </div>
+      {reason ? <p className="phase4-card-note">{reason}</p> : null}
+      <p className="phase4-card-note">{isReadOnly ? "This item is read-only after its final state." : `Next step: ${nextAction}`}</p>
+    </div>
+  );
+}
+
+function QualityCheckDetails({ card }: { card: AgentCard }) {
+  const data = asRecord(card.data);
+  const status = firstText(data, "status") || "passed";
+  const blockedReasons = firstTextList(data, "blockedReasons", "blocked_reasons");
+  const downgradeReasons = firstTextList(data, "downgradeReasons", "downgrade_reasons");
+  const passedLabels = firstTextList(data, "passedPolicyLabels", "passed_policy_labels", "policyLabels", "policy_labels");
+  const evidenceLines = collectEvidenceLines(data.evidence).slice(0, 6);
+
+  return (
+    <div className="phase4-card-details quality-check-card-details">
+      <div className="phase4-card-status-grid">
+        <div>
+          <span>Status</span>
+          <strong>{status}</strong>
+        </div>
+        <div>
+          <span>Display meaning</span>
+          <strong>{qualityDisplayLabel(status)}</strong>
+        </div>
+      </div>
+      <DetailList title="Blocked reasons" items={blockedReasons} />
+      <DetailList title="Downgrade reasons" items={downgradeReasons} />
+      <DetailList title="Passed policy labels" items={passedLabels} />
+      <DetailList title="Key evidence" items={evidenceLines} />
+    </div>
+  );
+}
+
+function RevisionDetails({ card }: { card: AgentCard }) {
+  const data = asRecord(card.data);
+  const sourceReviewId = firstText(data, "sourceReviewId", "source_review_id", "reviewSnapshotId", "review_snapshot_id");
+  const sourceProposalGroupId = firstText(data, "sourceProposalGroupId", "source_proposal_group_id", "proposalGroupId", "proposal_group_id");
+  const oldSummary = firstText(data, "oldSummary", "previousSummary", "previous_summary", "sourceSummary", "source_summary");
+  const newSummary = firstText(data, "newSummary", "revisedSummary", "revised_summary", "targetSummary", "target_summary");
+  const changes = firstTextList(data, "changes", "diff", "revisionChanges", "revision_changes");
+
+  return (
+    <div className="phase4-card-details revision-card-details">
+      <div className="phase4-card-status-grid">
+        <div>
+          <span>Source review</span>
+          <strong>{sourceReviewId || "Not linked"}</strong>
+        </div>
+        <div>
+          <span>Source package</span>
+          <strong>{sourceProposalGroupId || "Not linked"}</strong>
+        </div>
+      </div>
+      {oldSummary || newSummary ? (
+        <div className="revision-compare-grid">
+          <div>
+            <span className="phase4-card-detail-title">Previous</span>
+            <p>{oldSummary || "No previous summary provided."}</p>
+          </div>
+          <div>
+            <span className="phase4-card-detail-title">Revised</span>
+            <p>{newSummary || "No revised summary provided."}</p>
+          </div>
+        </div>
+      ) : null}
+      <DetailList title="Revision changes" items={changes} />
+    </div>
+  );
+}
+
+function CoachWorkspaceDetails({ card }: { card: AgentCard }) {
+  const data = asRecord(card.data);
+  const pendingWorkItems = numberValue(data.pendingWorkItemsCount ?? data.pending_work_items_count);
+  const pendingPackage = firstText(data, "pendingPackageTitle", "pending_package_title", "pendingPackage");
+  const qualityStatus = firstText(data, "qualityStatus", "quality_status");
+  const entryPoints = firstTextList(data, "recommendedEntryPoints", "recommended_entry_points");
+
+  return (
+    <div className="phase4-card-details coach-workspace-card-details">
+      <div className="phase4-card-status-grid">
+        <div>
+          <span>Work items</span>
+          <strong>{pendingWorkItems === null ? "Unknown" : pendingWorkItems}</strong>
+        </div>
+        <div>
+          <span>Package</span>
+          <strong>{pendingPackage || "None pending"}</strong>
+        </div>
+        <div>
+          <span>Quality</span>
+          <strong>{qualityStatus || "No checks yet"}</strong>
+        </div>
+      </div>
+      <DetailList title="Recommended entry points" items={entryPoints} />
+    </div>
+  );
+}
+
+function Phase4CardDetails({ card }: { card: AgentCard }) {
+  if (card.type === "work_item_card") {
+    return <WorkItemDetails card={card} />;
+  }
+
+  if (card.type === "quality_check_card") {
+    return <QualityCheckDetails card={card} />;
+  }
+
+  if (card.type === "revision_card") {
+    return <RevisionDetails card={card} />;
+  }
+
+  if (card.type === "coach_workspace_card") {
+    return <CoachWorkspaceDetails card={card} />;
+  }
+
+  return null;
 }
 
 export function InfoCard({
@@ -194,7 +437,7 @@ export function AgentCardList({
         const groupActionState = getProposalActionState(proposalStatus, pendingProposalId, proposalGroupId);
         const metaTags = buildMetaTags(card);
         const evidenceLines = buildEvidenceLines(card);
-        const tone = toneByType[card.type] ?? { label: "结果", tone: "mist" };
+        const tone = toneByType[card.type];
         const canSubmitFeedback =
           Boolean(onSubmitRecommendationFeedback) &&
           ["weekly_review_card", "daily_guidance_card", "coaching_package_card"].includes(card.type) &&
@@ -220,7 +463,7 @@ export function AgentCardList({
             ) : null}
             {evidenceLines.length > 0 ? (
               <div className="evidence-block">
-                <span className="evidence-title">依据</span>
+                <span className="evidence-title">Evidence</span>
                 <ul className="evidence-list">
                   {evidenceLines.map((line) => (
                     <li key={line}>{line}</li>
@@ -228,6 +471,7 @@ export function AgentCardList({
                 </ul>
               </div>
             ) : null}
+            <Phase4CardDetails card={card} />
             {isProposal ? (
               <div className="action-row">
                 <button
@@ -282,7 +526,7 @@ export function AgentCardList({
                     })
                   }
                 >
-                  有帮助
+                  Helpful
                 </button>
                 <button
                   type="button"
@@ -296,7 +540,7 @@ export function AgentCardList({
                     })
                   }
                 >
-                  太难
+                  Too hard
                 </button>
                 <button
                   type="button"
@@ -310,7 +554,7 @@ export function AgentCardList({
                     })
                   }
                 >
-                  不清楚
+                  Unclear
                 </button>
               </div>
             ) : null}

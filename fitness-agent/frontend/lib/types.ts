@@ -14,7 +14,11 @@ export type CardType =
   | "evidence_card"
   | "memory_candidate_card"
   | "outcome_summary_card"
-  | "strategy_decision_card";
+  | "strategy_decision_card"
+  | "work_item_card"
+  | "quality_check_card"
+  | "revision_card"
+  | "coach_workspace_card";
 
 export type RunStepType =
   | "thinking_summary"
@@ -217,6 +221,82 @@ export interface CoachSummarySnapshot {
     createdAt: string;
   } | null;
   needsWeeklyReview: boolean;
+}
+
+export type AgentWorkItemStatus = "pending" | "opened" | "dismissed" | "converted" | "expired" | string;
+export type AgentWorkItemPriority = "low" | "medium" | "high" | string;
+
+export interface AgentWorkItemSnapshot {
+  id: string;
+  type: string;
+  status: AgentWorkItemStatus;
+  priority: AgentWorkItemPriority;
+  source: string;
+  title: string;
+  summary: string;
+  reason: string;
+  payload: Record<string, unknown>;
+  requestId?: string | null;
+  relatedThreadId?: string | null;
+  relatedReviewId?: string | null;
+  relatedProposalGroupId?: string | null;
+  relatedOutcomeId?: string | null;
+  convertedEntityType?: string | null;
+  convertedEntityId?: string | null;
+  expiresAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentProductEventSnapshot {
+  id: string;
+  eventType: string;
+  source: string;
+  entityType?: string | null;
+  entityId?: string | null;
+  requestId?: string | null;
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface AgentQualityCheckSnapshot {
+  id: string;
+  userId: string;
+  threadId?: string | null;
+  runId?: string | null;
+  reviewSnapshotId?: string | null;
+  proposalGroupId?: string | null;
+  scope: string;
+  status: "passed" | "downgraded" | "blocked" | string;
+  score: number;
+  blockedReasons: string[];
+  downgradeReasons: string[];
+  passedPolicyLabels: string[];
+  evidence: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface WorkspaceSummarySnapshot {
+  coachSummary: CoachSummarySnapshot;
+  memorySummary: MemorySummarySnapshot;
+  recentOutcomes: CoachingOutcomeSnapshot[];
+  recentFeedback: RecommendationFeedbackSnapshot[];
+  pendingPackage: CoachSummarySnapshot["pendingCoachingPackage"];
+  pendingWorkItems: AgentWorkItemSnapshot[];
+  latestQualityChecks: AgentQualityCheckSnapshot[];
+  latestProductEvents: AgentProductEventSnapshot[];
+  todayPlan: WorkoutPlanDay | null;
+  logGapSummary: {
+    latestCheckinAt?: string | null;
+    latestWorkoutAt?: string | null;
+    needsCheckin: boolean;
+    needsWorkoutLog: boolean;
+  };
+  recommendedEntryPoints: Array<{
+    key: string;
+    label: string;
+    route: string;
+  }>;
 }
 
 export interface CreateThreadResponse {

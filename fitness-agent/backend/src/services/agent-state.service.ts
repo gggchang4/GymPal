@@ -13,6 +13,8 @@ import { PrismaService } from "../prisma/prisma.service";
 import { CoachingOutcomeService } from "./coaching-outcome.service";
 import { CoachingStrategyService } from "./coaching-strategy.service";
 import { AgentPolicyService } from "./agent-policy.service";
+import { AgentQualityService } from "./agent-quality.service";
+import { AgentProductEventService } from "./agent-product-event.service";
 
 type TransactionClient = Prisma.TransactionClient | PrismaClient;
 const proposalGroupExecutionInclude = Prisma.validator<Prisma.AgentProposalGroupInclude>()({
@@ -57,7 +59,9 @@ export class AgentStateService {
     private readonly appStore: AppStoreService,
     private readonly outcomeService: CoachingOutcomeService,
     private readonly strategyService: CoachingStrategyService,
-    private readonly policyService: AgentPolicyService = new AgentPolicyService()
+    private readonly policyService: AgentPolicyService = new AgentPolicyService(),
+    private readonly qualityService: AgentQualityService = new AgentQualityService(prisma, appStore, policyService),
+    private readonly productEvents: AgentProductEventService = new AgentProductEventService(prisma)
   ) {}
 
   private async getActor(userId?: string) {
@@ -427,6 +431,13 @@ export class AgentStateService {
       maxRiskLevel([proposal.riskLevel, proposalPolicies[index]?.risk])
     );
     const groupRiskLevel = maxRiskLevel([payload.proposalGroup.riskLevel, ...proposalRiskLevels]);
+    const effectiveReviewPayload = {
+      ...payload.review,
+      evidence: payload.review.evidence ?? strategyDecision.evidence,
+      uncertaintyFlags: payload.review.uncertaintyFlags ?? strategyDecision.uncertaintyFlags,
+      strategyTemplateId,
+      strategyVersion
+    };
 
     const created = await this.prisma.$transaction(async (tx) => {
       const review = await tx.coachingReviewSnapshot.create({
@@ -448,8 +459,8 @@ export class AgentStateService {
           resultSnapshot: asJson(payload.review.resultSnapshot ?? {}),
           strategyTemplateId,
           strategyVersion,
-          evidence: asJson(payload.review.evidence ?? strategyDecision.evidence),
-          uncertaintyFlags: payload.review.uncertaintyFlags ?? strategyDecision.uncertaintyFlags
+          evidence: asJson(effectiveReviewPayload.evidence ?? {}),
+          uncertaintyFlags: effectiveReviewPayload.uncertaintyFlags ?? []
         }
       });
 
@@ -500,10 +511,24 @@ export class AgentStateService {
         )
       );
 
+      const qualityDraft = this.qualityService.buildPackageQualityDraft({
+        userId: actor.id,
+        threadId: thread.id,
+        runId: payload.proposalGroup.runId,
+        review: effectiveReviewPayload,
+        packagePayload: payload,
+        riskLevel: groupRiskLevel,
+        policyLabels,
+        reviewSnapshotId: review.id,
+        proposalGroupId: proposalGroup.id
+      });
+      const qualityCheck = await this.qualityService.createQualityCheck(qualityDraft, tx);
+
       return {
         review,
         proposalGroup,
-        proposals
+        proposals,
+        qualityCheck
       };
     });
 
@@ -513,7 +538,8 @@ export class AgentStateService {
         ...created.proposalGroup,
         proposals: created.proposals
       }),
-      proposals: created.proposals.map((proposal) => this.mapProposal(proposal))
+      proposals: created.proposals.map((proposal) => this.mapProposal(proposal)),
+      quality_check: created.qualityCheck
     };
   }
 
@@ -589,31 +615,46 @@ export class AgentStateService {
       await this.getRunForActor(payload.runId, actor.id);
     }
 
-    const review = await this.prisma.coachingReviewSnapshot.create({
-      data: {
+    const created = await this.prisma.$transaction(async (tx) => {
+      const review = await tx.coachingReviewSnapshot.create({
+        data: {
+          userId: actor.id,
+          threadId: thread.id,
+          runId: payload.runId,
+          type: payload.type,
+          status: payload.status ?? "draft",
+          periodStart: payload.periodStart ? new Date(payload.periodStart) : undefined,
+          periodEnd: payload.periodEnd ? new Date(payload.periodEnd) : undefined,
+          title: payload.title,
+          summary: payload.summary,
+          adherenceScore: payload.adherenceScore,
+          riskFlags: payload.riskFlags ?? [],
+          focusAreas: payload.focusAreas ?? [],
+          recommendationTags: payload.recommendationTags ?? [],
+          inputSnapshot: asJson(payload.inputSnapshot ?? {}),
+          resultSnapshot: asJson(payload.resultSnapshot ?? {}),
+          strategyTemplateId: payload.strategyTemplateId,
+          strategyVersion: payload.strategyVersion,
+          evidence: payload.evidence ? asJson(payload.evidence) : undefined,
+          uncertaintyFlags: payload.uncertaintyFlags ?? []
+        }
+      });
+      const qualityDraft = this.qualityService.buildReviewQualityDraft({
         userId: actor.id,
         threadId: thread.id,
         runId: payload.runId,
-        type: payload.type,
-        status: payload.status ?? "draft",
-        periodStart: payload.periodStart ? new Date(payload.periodStart) : undefined,
-        periodEnd: payload.periodEnd ? new Date(payload.periodEnd) : undefined,
-        title: payload.title,
-        summary: payload.summary,
-        adherenceScore: payload.adherenceScore,
-        riskFlags: payload.riskFlags ?? [],
-        focusAreas: payload.focusAreas ?? [],
-        recommendationTags: payload.recommendationTags ?? [],
-        inputSnapshot: asJson(payload.inputSnapshot ?? {}),
-        resultSnapshot: asJson(payload.resultSnapshot ?? {}),
-        strategyTemplateId: payload.strategyTemplateId,
-        strategyVersion: payload.strategyVersion,
-        evidence: payload.evidence ? asJson(payload.evidence) : undefined,
-        uncertaintyFlags: payload.uncertaintyFlags ?? []
-      }
+        reviewSnapshotId: review.id,
+        review: payload
+      });
+      const qualityCheck = await this.qualityService.createQualityCheck(qualityDraft, tx);
+
+      return { review, qualityCheck };
     });
 
-    return this.mapCoachingReview(review);
+    return {
+      ...this.mapCoachingReview(created.review),
+      quality_check: created.qualityCheck
+    };
   }
 
   async listCoachingReviews(threadId: string, userId?: string) {
@@ -765,6 +806,23 @@ export class AgentStateService {
           data: { status: "rejected" }
         });
       }
+
+      await this.productEvents.record(
+        proposalGroup.userId,
+        {
+          eventType: "package_rejected",
+          source: "chat",
+          entityType: "agent_proposal_group",
+          entityId: proposalGroup.id,
+          payload: {
+            previousStatus: proposalGroup.status,
+            riskLevel: proposalGroup.riskLevel,
+            reviewSnapshotId: proposalGroup.reviewSnapshotId,
+            policyLabels: proposalGroup.policyLabels
+          }
+        },
+        tx
+      );
     });
 
     const refreshed = await this.prisma.agentProposalGroup.findUniqueOrThrow({
@@ -1013,6 +1071,25 @@ export class AgentStateService {
           actionCount: actionResults.length,
           executedAt
         });
+
+        await this.productEvents.record(
+          actor.id,
+          {
+            eventType: "package_approved",
+            source: "chat",
+            entityType: "agent_proposal_group",
+            entityId: proposalGroup.id,
+            requestId: idempotencyKey,
+            payload: {
+              actionCount: actionResults.length,
+              outcomeId: outcome.id,
+              riskLevel: proposalGroup.riskLevel,
+              reviewSnapshotId: proposalGroup.reviewSnapshotId,
+              policyLabels: proposalGroup.policyLabels
+            }
+          },
+          tx
+        );
 
         return {
           ok: true,

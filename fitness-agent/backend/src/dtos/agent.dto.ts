@@ -324,3 +324,23 @@ export class CreateRecommendationFeedbackDto {
   @IsString()
   note?: string;
 }
+
+export class RefreshAgentWorkItemsDto {
+  @IsOptional()
+  @IsString()
+  requestId?: string;
+
+  @IsOptional()
+  @IsString()
+  source?: string;
+}
+
+export class DismissAgentWorkItemDto {
+  @IsOptional()
+  @IsString()
+  reason?: string;
+
+  @IsOptional()
+  @IsString()
+  requestId?: string;
+}

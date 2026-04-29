@@ -23,6 +23,10 @@ CardType = Literal[
     "memory_candidate_card",
     "outcome_summary_card",
     "strategy_decision_card",
+    "work_item_card",
+    "quality_check_card",
+    "revision_card",
+    "coach_workspace_card",
 ]
 
 

@@ -30,4 +30,19 @@ test("chat cards and message bubbles keep long generated text inside their conta
   );
   assertLongTextSafe(".evidence-list li", ruleFor(".evidence-list li"));
   assertLongTextSafe(".evidence-tag", ruleFor(".evidence-tag"));
+  assertLongTextSafe(".phase4-card-status-grid strong", ruleFor(".phase4-card-status-grid strong"));
+  assertLongTextSafe(".revision-compare-grid p", ruleFor(".revision-compare-grid p"));
+});
+
+test("Phase 4 card layouts use stable responsive grids", () => {
+  assert.match(
+    ruleFor(".phase4-card-status-grid"),
+    /grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(118px,\s*1fr\)\);/,
+    "Phase 4 status grid should not resize around dynamic text."
+  );
+  assert.match(
+    ruleFor(".revision-compare-grid"),
+    /grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(160px,\s*1fr\)\);/,
+    "Revision compare grid should keep old and new summaries stable."
+  );
 });

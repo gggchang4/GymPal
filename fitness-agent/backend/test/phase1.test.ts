@@ -175,6 +175,38 @@ function createService() {
       findUnique: async () => null,
       upsert: async () => ({ id: "outcome-1" })
     },
+    agentQualityCheck: {
+      create: async ({ data }: { data: Record<string, unknown> }) => ({
+        id: "quality-1",
+        userId: data.userId ?? "user-1",
+        threadId: data.threadId ?? "thread-1",
+        runId: data.runId ?? "run-1",
+        reviewSnapshotId: data.reviewSnapshotId ?? "review-1",
+        proposalGroupId: data.proposalGroupId ?? "group-1",
+        scope: data.scope ?? "package",
+        status: data.status ?? "passed",
+        score: data.score ?? 100,
+        blockedReasons: data.blockedReasons ?? [],
+        downgradeReasons: data.downgradeReasons ?? [],
+        passedPolicyLabels: data.passedPolicyLabels ?? [],
+        evidence: data.evidence ?? {},
+        createdAt: now
+      })
+    },
+    agentProductEvent: {
+      create: async ({ data }: { data: Record<string, unknown> }) => ({
+        id: "product-event-1",
+        userId: data.userId ?? "user-1",
+        eventType: data.eventType ?? "package_approved",
+        source: data.source ?? "chat",
+        entityType: data.entityType ?? null,
+        entityId: data.entityId ?? null,
+        requestId: data.requestId ?? null,
+        sessionId: data.sessionId ?? null,
+        payload: data.payload ?? {},
+        createdAt: now
+      })
+    },
     $transaction: async (input: unknown) => {
       if (typeof input === "function") {
         return input(prisma);
