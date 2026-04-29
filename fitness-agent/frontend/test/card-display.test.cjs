@@ -28,4 +28,6 @@ test("chat cards and message bubbles keep long generated text inside their conta
     ".info-list li",
     ruleForSelectorPattern("\\.info-list li,\\s*\\.exercise-notes li")
   );
+  assertLongTextSafe(".evidence-list li", ruleFor(".evidence-list li"));
+  assertLongTextSafe(".evidence-tag", ruleFor(".evidence-tag"));
 });

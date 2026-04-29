@@ -10,7 +10,11 @@ export type CardType =
   | "action_result_card"
   | "weekly_review_card"
   | "daily_guidance_card"
-  | "coaching_package_card";
+  | "coaching_package_card"
+  | "evidence_card"
+  | "memory_candidate_card"
+  | "outcome_summary_card"
+  | "strategy_decision_card";
 
 export type RunStepType =
   | "thinking_summary"
@@ -68,6 +72,10 @@ export interface CoachingReviewSnapshot {
   recommendationTags: string[];
   inputSnapshot: Record<string, unknown>;
   resultSnapshot: Record<string, unknown>;
+  strategyTemplateId?: string | null;
+  strategyVersion?: string | null;
+  evidence?: Record<string, unknown> | null;
+  uncertaintyFlags: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -82,6 +90,9 @@ export interface AgentProposalGroup {
   summary: string;
   preview: Record<string, unknown>;
   riskLevel: "low" | "medium" | "high";
+  strategyTemplateId?: string | null;
+  strategyVersion?: string | null;
+  policyLabels: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -146,6 +157,23 @@ export interface CoachingOutcomeSnapshot {
   updatedAt: string;
 }
 
+export type RecommendationFeedbackType =
+  | "helpful"
+  | "too_hard"
+  | "too_easy"
+  | "not_relevant"
+  | "unsafe_or_uncomfortable"
+  | "unclear";
+
+export interface RecommendationFeedbackSnapshot {
+  id: string;
+  reviewSnapshotId?: string | null;
+  proposalGroupId?: string | null;
+  feedbackType: RecommendationFeedbackType | string;
+  note?: string | null;
+  createdAt: string;
+}
+
 export interface CurrentPlanSnapshot {
   plan: {
     id: string;
@@ -174,12 +202,18 @@ export interface CoachSummarySnapshot {
   recentAdviceSnapshots: AdviceSnapshot[];
   memorySummary: MemorySummarySnapshot;
   recentOutcomes: CoachingOutcomeSnapshot[];
+  recentRecommendationFeedback: RecommendationFeedbackSnapshot[];
   pendingCoachingPackage: {
     id: string;
     threadId: string;
     title: string;
     summary: string;
     status: string;
+    preview?: Record<string, unknown>;
+    riskLevel?: "low" | "medium" | "high" | string;
+    strategyTemplateId?: string | null;
+    strategyVersion?: string | null;
+    policyLabels?: string[];
     createdAt: string;
   } | null;
   needsWeeklyReview: boolean;

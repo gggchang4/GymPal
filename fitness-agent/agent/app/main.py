@@ -18,6 +18,7 @@ from .models import (
     FeedbackRequest,
     PostMessageRequest,
     ProposalDecisionResponse,
+    RecommendationFeedbackRequest,
 )
 from .session_store import SessionStore
 from .tool_gateway import ToolGateway
@@ -49,6 +50,27 @@ def require_authorization_header(authorization: str | None) -> str:
         raise HTTPException(status_code=401, detail="Authentication required.")
 
     return authorization
+
+
+async def get_authenticated_user_id(authorization: str) -> str:
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                f"{settings.backend_base_url}/me",
+                headers={"Authorization": authorization},
+            )
+            response.raise_for_status()
+            payload = response.json()
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail="Authentication failed.") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=503, detail="Unable to validate authentication.") from exc
+
+    user_id = payload.get("id")
+    if not isinstance(user_id, str) or not user_id:
+        raise HTTPException(status_code=401, detail="Authentication failed.")
+
+    return user_id
 
 
 def extract_user_id_from_authorization(authorization: str | None) -> str | None:
@@ -102,6 +124,11 @@ async def get_review_state(thread_id: str, authorization: str | None = Header(de
     return await session_store.get_review_state(thread_id, require_authorization_header(authorization))
 
 
+@app.get("/agent/threads/{thread_id}/memory-state")
+async def get_memory_state(thread_id: str, authorization: str | None = Header(default=None)):
+    return await session_store.get_memory_state(thread_id, require_authorization_header(authorization))
+
+
 @app.post("/agent/threads/{thread_id}/messages")
 async def post_message(
     thread_id: str,
@@ -148,12 +175,31 @@ async def stream_run(run_id: str, authorization: str | None = Header(default=Non
 
 @app.post("/agent/runs/{run_id}/feedback")
 async def submit_feedback(run_id: str, payload: FeedbackRequest, authorization: str | None = Header(default=None)):
-    require_authorization_header(authorization)
+    normalized_authorization = require_authorization_header(authorization)
+    try:
+        await session_store.get_run(run_id, normalized_authorization)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail="Run not found") from exc
     session_store.add_feedback(run_id, payload.model_dump())
     return {"ok": True}
+
+
+@app.post("/agent/feedback/recommendation")
+async def submit_recommendation_feedback(
+    payload: RecommendationFeedbackRequest,
+    authorization: str | None = Header(default=None),
+):
+    body = {
+        "reviewSnapshotId": payload.review_snapshot_id,
+        "proposalGroupId": payload.proposal_group_id,
+        "feedbackType": payload.feedback_type,
+        "note": payload.note,
+    }
+    return await session_store.create_recommendation_feedback(body, require_authorization_header(authorization))
 
 
 @app.get("/agent/traces")
 async def list_traces(authorization: str | None = Header(default=None)):
     normalized_authorization = require_authorization_header(authorization)
-    return trace_logger.list_records(extract_user_id_from_authorization(normalized_authorization))
+    user_id = await get_authenticated_user_id(normalized_authorization)
+    return trace_logger.list_records(user_id)

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { AgentCard } from "@/lib/types";
+import type { AgentCard, RecommendationFeedbackType } from "@/lib/types";
 import { getProposalActionState, type ProposalStatus } from "@/lib/proposal-state";
 
 const toneByType: Record<AgentCard["type"], { label: string; tone: string }> = {
@@ -14,7 +14,11 @@ const toneByType: Record<AgentCard["type"], { label: string; tone: string }> = {
   action_result_card: { label: "执行结果", tone: "sage" },
   weekly_review_card: { label: "周复盘", tone: "sand" },
   daily_guidance_card: { label: "今日建议", tone: "amber" },
-  coaching_package_card: { label: "教练包", tone: "marine" }
+  coaching_package_card: { label: "教练包", tone: "marine" },
+  evidence_card: { label: "建议依据", tone: "mist" },
+  memory_candidate_card: { label: "记忆候选", tone: "sage" },
+  outcome_summary_card: { label: "效果评估", tone: "sand" },
+  strategy_decision_card: { label: "策略选择", tone: "marine" }
 };
 
 function extractProposalId(card: AgentCard) {
@@ -30,6 +34,98 @@ function extractProposalStatus(card: AgentCard): ProposalStatus {
 function extractProposalGroupId(card: AgentCard) {
   const proposalGroupId = card.data?.proposalGroupId;
   return typeof proposalGroupId === "string" ? proposalGroupId : "";
+}
+
+function extractReviewId(card: AgentCard) {
+  const reviewId = card.data?.reviewId ?? card.data?.reviewSnapshotId;
+  return typeof reviewId === "string" ? reviewId : "";
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function textList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((item) => String(item).trim()).filter(Boolean);
+}
+
+function formatEvidenceValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).join(" / ");
+  }
+
+  if (typeof value === "object" && value !== null) {
+    return Object.entries(value as Record<string, unknown>)
+      .slice(0, 4)
+      .map(([key, item]) => `${key}: ${String(item)}`)
+      .join(", ");
+  }
+
+  return String(value);
+}
+
+function evidenceLabel(key: string) {
+  const labels: Record<string, string> = {
+    adherenceScore: "完成度",
+    memoryCount: "记忆数量",
+    recommendationTags: "建议标签",
+    riskFlags: "风险信号",
+    selectedBecause: "策略选择原因",
+    outcome_evidence: "建议效果依据",
+    "Recent outcome evidence": "建议效果依据",
+    "Outcome constraint": "效果约束"
+  };
+
+  return labels[key] ?? key;
+}
+
+function buildEvidenceLines(card: AgentCard): string[] {
+  const data = asRecord(card.data);
+  const evidence = asRecord(data.evidence);
+  const resultSnapshot = asRecord(data.resultSnapshot);
+  const preview = asRecord(data.preview);
+  const lines: string[] = [];
+
+  for (const [key, value] of Object.entries(evidence)) {
+    if (value !== null && value !== undefined && value !== "") {
+      lines.push(`${evidenceLabel(key)}: ${formatEvidenceValue(value)}`);
+    }
+  }
+
+  for (const key of ["outcome_evidence", "Recent outcome evidence", "Outcome constraint"]) {
+    const value = resultSnapshot[key] ?? preview[key];
+    if (value !== null && value !== undefined && value !== "") {
+      lines.push(`${evidenceLabel(key)}: ${formatEvidenceValue(value)}`);
+    }
+  }
+
+  return lines.slice(0, 5);
+}
+
+function buildMetaTags(card: AgentCard): string[] {
+  const data = asRecord(card.data);
+  const tags: string[] = [];
+  const strategyVersion = typeof data.strategyVersion === "string" ? data.strategyVersion : "";
+  const policyLabels = textList(data.policyLabels);
+  const uncertaintyFlags = textList(data.uncertaintyFlags);
+  const riskLevel = typeof data.riskLevel === "string" ? data.riskLevel : "";
+
+  if (strategyVersion) {
+    tags.push(`策略版本 ${strategyVersion}`);
+  }
+
+  if (riskLevel) {
+    tags.push(`风险 ${riskLevel}`);
+  }
+
+  tags.push(...policyLabels.map((label) => `策略标签 ${label}`));
+  tags.push(...uncertaintyFlags.map((flag) => `不确定性 ${flag}`));
+
+  return tags.slice(0, 8);
 }
 
 export function InfoCard({
@@ -70,6 +166,7 @@ export function AgentCardList({
   onRejectProposal,
   onApproveProposalGroup,
   onRejectProposalGroup,
+  onSubmitRecommendationFeedback,
   pendingProposalId
 }: {
   cards: AgentCard[];
@@ -77,6 +174,11 @@ export function AgentCardList({
   onRejectProposal?: (proposalId: string) => void;
   onApproveProposalGroup?: (proposalGroupId: string) => void;
   onRejectProposalGroup?: (proposalGroupId: string) => void;
+  onSubmitRecommendationFeedback?: (payload: {
+    reviewSnapshotId?: string | null;
+    proposalGroupId?: string | null;
+    feedbackType: RecommendationFeedbackType;
+  }) => void;
   pendingProposalId?: string | null;
 }) {
   return (
@@ -84,12 +186,19 @@ export function AgentCardList({
       {cards.map((card, index) => {
         const proposalId = extractProposalId(card);
         const proposalGroupId = extractProposalGroupId(card);
+        const reviewSnapshotId = extractReviewId(card);
         const proposalStatus = extractProposalStatus(card);
         const isProposal = card.type === "action_proposal_card" && proposalId;
         const isProposalGroup = card.type === "coaching_package_card" && proposalGroupId;
         const actionState = getProposalActionState(proposalStatus, pendingProposalId, proposalId);
         const groupActionState = getProposalActionState(proposalStatus, pendingProposalId, proposalGroupId);
+        const metaTags = buildMetaTags(card);
+        const evidenceLines = buildEvidenceLines(card);
         const tone = toneByType[card.type] ?? { label: "结果", tone: "mist" };
+        const canSubmitFeedback =
+          Boolean(onSubmitRecommendationFeedback) &&
+          ["weekly_review_card", "daily_guidance_card", "coaching_package_card"].includes(card.type) &&
+          (Boolean(reviewSnapshotId) || Boolean(proposalGroupId));
 
         return (
           <InfoCard
@@ -100,6 +209,25 @@ export function AgentCardList({
             kicker={tone.label}
             tone={tone.tone}
           >
+            {metaTags.length > 0 ? (
+              <div className="evidence-tag-row">
+                {metaTags.map((tag) => (
+                  <span key={tag} className="evidence-tag">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {evidenceLines.length > 0 ? (
+              <div className="evidence-block">
+                <span className="evidence-title">依据</span>
+                <ul className="evidence-list">
+                  {evidenceLines.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {isProposal ? (
               <div className="action-row">
                 <button
@@ -137,6 +265,52 @@ export function AgentCardList({
                   onClick={() => onApproveProposalGroup?.(proposalGroupId)}
                 >
                   {groupActionState.approveLabel}
+                </button>
+              </div>
+            ) : null}
+            {canSubmitFeedback ? (
+              <div className="action-row">
+                <button
+                  type="button"
+                  className="chip-button"
+                  disabled={Boolean(pendingProposalId)}
+                  onClick={() =>
+                    onSubmitRecommendationFeedback?.({
+                      reviewSnapshotId: reviewSnapshotId || null,
+                      proposalGroupId: proposalGroupId || null,
+                      feedbackType: "helpful"
+                    })
+                  }
+                >
+                  有帮助
+                </button>
+                <button
+                  type="button"
+                  className="chip-button"
+                  disabled={Boolean(pendingProposalId)}
+                  onClick={() =>
+                    onSubmitRecommendationFeedback?.({
+                      reviewSnapshotId: reviewSnapshotId || null,
+                      proposalGroupId: proposalGroupId || null,
+                      feedbackType: "too_hard"
+                    })
+                  }
+                >
+                  太难
+                </button>
+                <button
+                  type="button"
+                  className="chip-button"
+                  disabled={Boolean(pendingProposalId)}
+                  onClick={() =>
+                    onSubmitRecommendationFeedback?.({
+                      reviewSnapshotId: reviewSnapshotId || null,
+                      proposalGroupId: proposalGroupId || null,
+                      feedbackType: "unclear"
+                    })
+                  }
+                >
+                  不清楚
                 </button>
               </div>
             ) : null}

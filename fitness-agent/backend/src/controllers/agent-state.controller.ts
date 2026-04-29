@@ -32,6 +32,11 @@ export class AgentStateController {
     return this.agentState.listMessages(threadId, user.sub);
   }
 
+  @Get("threads/:threadId/memory-state")
+  async getThreadMemoryState(@Param("threadId") threadId: string, @CurrentUser() user: AuthTokenClaims) {
+    return this.agentState.getThreadMemoryState(threadId, user.sub);
+  }
+
   @Post("threads/:threadId/messages")
   async appendMessage(
     @Param("threadId") threadId: string,

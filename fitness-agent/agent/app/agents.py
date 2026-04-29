@@ -37,6 +37,8 @@ class HealthAgentRuntime:
         "create_coaching_memory",
         "update_coaching_memory",
         "archive_coaching_memory",
+        "create_recommendation_feedback",
+        "refresh_coaching_outcome",
     }
 
     LOCATION_KEYWORDS = ("附近", "周围", "公园", "步道", "游泳", "健身房", "gym", "park")
@@ -228,8 +230,32 @@ class HealthAgentRuntime:
         if any(keyword in text for keyword in self.HIGH_RISK_KEYWORDS):
             return None
 
-        if any(keyword in text for keyword in ("记住", "以后", "偏好", "不喜欢", "喜欢", "膝盖", "设备", "时间")) and any(
-            keyword in text for keyword in ("记住", "以后", "偏好", "不喜欢", "喜欢")
+        explicit_memory_markers = (
+            "记住",
+            "帮我记",
+            "以后请",
+            "以后不要",
+            "以后别",
+            "请以后",
+            "我的偏好",
+            "我偏好",
+            "我不喜欢",
+            "我喜欢",
+            "不要给我安排",
+            "优先安排",
+        )
+        explicit_memory_markers_en = (
+            "remember that",
+            "please remember",
+            "my preference",
+            "i prefer",
+            "i don't like",
+            "do not assign",
+            "avoid for me",
+        )
+        is_question = text.strip().endswith(("?", "？", "吗"))
+        if (any(marker in text for marker in explicit_memory_markers) or any(marker in lowered for marker in explicit_memory_markers_en)) and (
+            not is_question or "记住" in text or "remember" in lowered
         ):
             return "memory"
 
@@ -448,6 +474,11 @@ class HealthAgentRuntime:
                 "reviewType": review.get("type"),
                 "status": review.get("status"),
                 "adherenceScore": review.get("adherence_score"),
+                "strategyTemplateId": review.get("strategy_template_id"),
+                "strategyVersion": review.get("strategy_version"),
+                "evidence": review.get("evidence"),
+                "uncertaintyFlags": review.get("uncertainty_flags") or [],
+                "resultSnapshot": result,
             },
         )
 
@@ -468,6 +499,11 @@ class HealthAgentRuntime:
                 "reviewId": review.get("id"),
                 "reviewType": review.get("type"),
                 "status": review.get("status"),
+                "strategyTemplateId": review.get("strategy_template_id"),
+                "strategyVersion": review.get("strategy_version"),
+                "evidence": review.get("evidence"),
+                "uncertaintyFlags": review.get("uncertainty_flags") or [],
+                "resultSnapshot": result,
             },
         )
 
@@ -486,6 +522,138 @@ class HealthAgentRuntime:
                 "riskLevel": proposal_group.get("risk_level"),
                 "reviewSnapshotId": proposal_group.get("review_snapshot_id"),
                 "preview": preview_dict,
+                "strategyTemplateId": proposal_group.get("strategy_template_id"),
+                "strategyVersion": proposal_group.get("strategy_version"),
+                "policyLabels": proposal_group.get("policy_labels") or [],
+            },
+        )
+
+    def _build_memory_candidate_card(self, proposal: dict[str, Any]) -> Card | None:
+        if proposal.get("action_type") != "create_coaching_memory":
+            return None
+
+        payload = proposal.get("payload") if isinstance(proposal.get("payload"), dict) else {}
+        preview = proposal.get("preview") if isinstance(proposal.get("preview"), dict) else {}
+        memory_type = str(payload.get("memoryType") or preview.get("记忆类型") or "behavior_pattern")
+        confidence = payload.get("confidence") or preview.get("置信度") or 60
+        summary = str(payload.get("summary") or proposal.get("summary") or "待确认长期记忆")
+        bullets = [
+            f"类型: {memory_type}",
+            f"置信度: {confidence}%",
+            "确认后才会影响后续复盘和教练包。",
+        ]
+
+        return Card(
+            type="memory_candidate_card",
+            title="待确认教练记忆",
+            description=summary,
+            bullets=bullets,
+            data={
+                "proposalId": proposal.get("id"),
+                "memoryType": memory_type,
+                "confidence": confidence,
+                "preview": preview,
+                "sourceType": payload.get("sourceType"),
+            },
+        )
+
+    def _build_evidence_card(self, review: dict[str, Any]) -> Card | None:
+        evidence = review.get("evidence") if isinstance(review.get("evidence"), dict) else {}
+        result = review.get("result_snapshot") if isinstance(review.get("result_snapshot"), dict) else {}
+        uncertainty_flags = review.get("uncertainty_flags") if isinstance(review.get("uncertainty_flags"), list) else []
+        evidence_items: list[str] = []
+
+        selected_because = evidence.get("selectedBecause")
+        if selected_because:
+            evidence_items.append(f"策略依据: {selected_because}")
+
+        for key in ("adherenceScore", "riskFlags", "recommendationTags", "memoryCount"):
+            value = evidence.get(key)
+            if value not in (None, "", []):
+                evidence_items.append(f"{key}: {value}")
+
+        outcome_evidence = result.get("outcome_evidence")
+        if isinstance(outcome_evidence, list):
+            evidence_items.extend(str(item) for item in outcome_evidence[:2])
+
+        if uncertainty_flags:
+            evidence_items.append(f"不确定性: {' / '.join(str(flag) for flag in uncertainty_flags[:3])}")
+
+        if not evidence_items:
+            return None
+
+        return Card(
+            type="evidence_card",
+            title="本次建议依据",
+            description="事实、推断和不确定性会单独展示，避免把推断误当成系统事实。",
+            bullets=evidence_items[:6],
+            data={
+                "reviewId": review.get("id"),
+                "evidence": evidence,
+                "uncertaintyFlags": uncertainty_flags,
+                "resultSnapshot": result,
+            },
+        )
+
+    def _build_strategy_decision_card(self, review: dict[str, Any], proposal_group: dict[str, Any]) -> Card | None:
+        strategy_template_id = review.get("strategy_template_id") or proposal_group.get("strategy_template_id")
+        strategy_version = review.get("strategy_version") or proposal_group.get("strategy_version")
+        policy_labels = proposal_group.get("policy_labels") if isinstance(proposal_group.get("policy_labels"), list) else []
+
+        if not strategy_template_id and not strategy_version and not policy_labels:
+            return None
+
+        bullets = []
+        if strategy_version:
+            bullets.append(f"策略版本: {strategy_version}")
+        if policy_labels:
+            bullets.extend(f"策略标签: {label}" for label in policy_labels[:4])
+
+        return Card(
+            type="strategy_decision_card",
+            title="策略选择记录",
+            description="这次复盘使用的策略版本会随 review/package 一起保存，便于后续回溯和调参。",
+            bullets=bullets or ["已保存策略决策信息。"],
+            data={
+                "reviewId": review.get("id"),
+                "proposalGroupId": proposal_group.get("id"),
+                "strategyTemplateId": strategy_template_id,
+                "strategyVersion": strategy_version,
+                "policyLabels": policy_labels,
+                "riskLevel": proposal_group.get("risk_level"),
+            },
+        )
+
+    def _build_outcome_summary_card(self, review: dict[str, Any]) -> Card | None:
+        result = review.get("result_snapshot") if isinstance(review.get("result_snapshot"), dict) else {}
+        recent_outcomes = result.get("recent_outcomes") if isinstance(result.get("recent_outcomes"), dict) else {}
+        items = recent_outcomes.get("items") if isinstance(recent_outcomes.get("items"), list) else []
+        status_counts = recent_outcomes.get("statusCounts") if isinstance(recent_outcomes.get("statusCounts"), dict) else {}
+
+        if not items and not status_counts:
+            return None
+
+        bullets = []
+        for item in items[:3]:
+            if isinstance(item, dict):
+                status = item.get("status", "unknown")
+                score = item.get("score")
+                summary = str(item.get("summary") or "").strip()
+                score_text = f" / 评分 {score}" if isinstance(score, (int, float)) else ""
+                bullets.append(f"{status}{score_text}: {summary}" if summary else f"{status}{score_text}")
+
+        if not bullets:
+            bullets = [f"{key}: {value}" for key, value in list(status_counts.items())[:4]]
+
+        return Card(
+            type="outcome_summary_card",
+            title="近期建议效果",
+            description="历史 outcome 会作为约束进入本次建议，而不是被静默混入自由文本。",
+            bullets=bullets[:4],
+            data={
+                "reviewId": review.get("id"),
+                "recentOutcomes": recent_outcomes,
+                "evidence": {"statusCounts": status_counts},
             },
         )
 
@@ -609,6 +777,11 @@ class HealthAgentRuntime:
                 continue
 
             status = str(raw_outcome.get("status") or "unknown").strip().lower()
+            status = {
+                "positive": "improved",
+                "mixed": "neutral",
+                "negative": "worsened",
+            }.get(status, status)
             status_counts[status] = status_counts.get(status, 0) + 1
             score = raw_outcome.get("score")
             summary = str(raw_outcome.get("summary") or "").strip()
@@ -645,17 +818,17 @@ class HealthAgentRuntime:
             summary_text = f": {item['summary']}" if item.get("summary") else ""
             bullets.append(f"Outcome {item['status']}{score_text}{summary_text}")
 
-        if status_counts.get("positive", 0) > 0:
-            constraints.append("Reuse patterns from recent positive outcomes; keep the next package similarly actionable.")
-            recommendation_tags.append("outcome_positive")
-        if status_counts.get("mixed", 0) > 0:
-            constraints.append("Treat mixed outcomes as a signal to reduce complexity and add clearer recovery checks.")
-            risk_flags.append("recent_mixed_outcome")
-            recommendation_tags.append("outcome_mixed")
-        if status_counts.get("negative", 0) > 0:
-            constraints.append("Avoid increasing intensity until the reason behind the negative outcome is understood.")
-            risk_flags.append("recent_negative_outcome")
-            recommendation_tags.append("outcome_negative")
+        if status_counts.get("improved", 0) > 0:
+            constraints.append("Reuse patterns from recent improved outcomes; keep the next package similarly actionable.")
+            recommendation_tags.append("outcome_improved")
+        if status_counts.get("neutral", 0) > 0:
+            constraints.append("Treat neutral outcomes as a signal to reduce complexity and add clearer recovery checks.")
+            risk_flags.append("recent_neutral_outcome")
+            recommendation_tags.append("outcome_neutral")
+        if status_counts.get("worsened", 0) > 0:
+            constraints.append("Avoid increasing intensity until the reason behind the worsened outcome is understood.")
+            risk_flags.append("recent_worsened_outcome")
+            recommendation_tags.append("outcome_worsened")
         if status_counts.get("inconclusive", 0) > 0:
             constraints.append("Follow-up data was insufficient for at least one outcome; request clearer logs before strong conclusions.")
             risk_flags.append("outcome_data_insufficient")
@@ -1731,8 +1904,17 @@ class HealthAgentRuntime:
         review = created_package["review"]
         proposal_group = created_package["proposal_group"]
 
+        primary_review_card = (
+            self._build_weekly_review_card(review) if flow_type == "weekly_review" else self._build_daily_guidance_card(review)
+        )
+        optional_cards = [
+            self._build_evidence_card(review),
+            self._build_strategy_decision_card(review, proposal_group),
+            self._build_outcome_summary_card(review),
+        ]
         cards = [
-            self._build_weekly_review_card(review) if flow_type == "weekly_review" else self._build_daily_guidance_card(review),
+            primary_review_card,
+            *(card for card in optional_cards if card is not None),
             self._build_proposal_group_card(proposal_group),
         ]
         message = await self._append_assistant_message(
@@ -1804,7 +1986,12 @@ class HealthAgentRuntime:
             await self.store.save_run(run, authorization)
 
             created_proposals = await self.store.create_proposals(thread_id, run.id, proposals, authorization) if proposals else []
-            cards = [self._build_proposal_card(proposal) for proposal in created_proposals]
+            cards: list[Card] = []
+            for proposal in created_proposals:
+                memory_card = self._build_memory_candidate_card(proposal)
+                if memory_card is not None:
+                    cards.append(memory_card)
+                cards.append(self._build_proposal_card(proposal))
             message = await self._append_assistant_message(
                 thread_id=thread_id,
                 content=assistant_message,

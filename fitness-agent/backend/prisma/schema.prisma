@@ -26,6 +26,7 @@ model User {
   coachingMemories UserCoachingMemory[]
   coachingMemoryEvents CoachingMemoryEvent[]
   coachingOutcomes CoachingOutcome[]
+  recommendationFeedbacks RecommendationFeedback[]
   agentActionProposals AgentActionProposal[]
   agentActionExecutions AgentActionExecution[]
   agentProposalGroups AgentProposalGroup[]
@@ -196,6 +197,10 @@ model CoachingReviewSnapshot {
   recommendationTags String[]
   inputSnapshot      Json
   resultSnapshot     Json
+  strategyTemplateId String?
+  strategyVersion    String?
+  evidence           Json?
+  uncertaintyFlags   String[]             @default([])
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -203,6 +208,7 @@ model CoachingReviewSnapshot {
   run                AgentRun?            @relation(fields: [runId], references: [id], onDelete: SetNull)
   proposalGroups     AgentProposalGroup[]
   coachingOutcomes   CoachingOutcome[]
+  recommendationFeedbacks RecommendationFeedback[]
 
   @@index([userId, type, createdAt])
   @@index([threadId, createdAt])
@@ -231,6 +237,40 @@ model CoachingOutcome {
 
   @@index([userId, status, updatedAt])
   @@index([reviewSnapshotId, createdAt])
+}
+
+model RecommendationFeedback {
+  id               String                  @id @default(cuid())
+  userId           String
+  reviewSnapshotId String?
+  proposalGroupId  String?
+  feedbackType     String
+  note             String?
+  createdAt        DateTime                @default(now())
+  user             User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewSnapshot   CoachingReviewSnapshot? @relation(fields: [reviewSnapshotId], references: [id], onDelete: SetNull)
+  proposalGroup    AgentProposalGroup?     @relation(fields: [proposalGroupId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([reviewSnapshotId, createdAt])
+  @@index([proposalGroupId, createdAt])
+}
+
+model CoachingStrategyTemplate {
+  id           String   @id @default(cuid())
+  key          String
+  version      String
+  title        String
+  description  String
+  triggerRules Json
+  riskPolicy   String
+  outputShape  Json
+  status       String   @default("draft")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([key, version])
+  @@index([status, key])
 }
 
 model UserCoachingMemory {
@@ -385,6 +425,9 @@ model AgentProposalGroup {
   summary            String
   preview            Json
   riskLevel          String
+  strategyTemplateId String?
+  strategyVersion    String?
+  policyLabels       String[]              @default([])
   expiresAt          DateTime?
   executedAt         DateTime?
   createdAt          DateTime              @default(now())
@@ -395,6 +438,7 @@ model AgentProposalGroup {
   reviewSnapshot     CoachingReviewSnapshot? @relation(fields: [reviewSnapshotId], references: [id], onDelete: SetNull)
   proposals          AgentActionProposal[]
   outcome            CoachingOutcome?
+  recommendationFeedbacks RecommendationFeedback[]
 
   @@index([threadId, status, createdAt])
   @@index([userId, status, createdAt])

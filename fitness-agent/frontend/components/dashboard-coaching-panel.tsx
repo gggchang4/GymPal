@@ -10,6 +10,37 @@ import type { CoachSummarySnapshot } from "@/lib/types";
 const weeklyReviewPrompt = "帮我复盘这一周，并生成下周的训练、饮食和执行建议。";
 const dailyGuidancePrompt = "根据我最近的恢复状态，给我一份今天的训练建议。";
 
+function getOutcomeStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    pending: "观察中",
+    improved: "效果改善",
+    neutral: "效果中性",
+    worsened: "需要调整",
+    inconclusive: "数据不足"
+  };
+
+  const legacyLabels: Record<string, string> = {
+    positive: labels.improved,
+    mixed: labels.neutral,
+    negative: labels.worsened
+  };
+
+  return labels[status] ?? legacyLabels[status] ?? status;
+}
+
+function getFeedbackTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    helpful: "有帮助",
+    too_hard: "太难",
+    too_easy: "太轻",
+    not_relevant: "不相关",
+    unsafe_or_uncomfortable: "不舒服或不安全",
+    unclear: "不清楚"
+  };
+
+  return labels[type] ?? type;
+}
+
 async function ensureAgentThread() {
   const currentThreadId = readAgentThreadId();
   if (currentThreadId) {
@@ -19,6 +50,25 @@ async function ensureAgentThread() {
   const created = await createThread();
   writeAgentThreadId(created.threadId);
   return created.threadId;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function formatPreviewValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).join(" / ");
+  }
+
+  if (typeof value === "object" && value !== null) {
+    return Object.entries(value as Record<string, unknown>)
+      .slice(0, 3)
+      .map(([key, item]) => `${key}: ${String(item)}`)
+      .join(", ");
+  }
+
+  return String(value);
 }
 
 export function DashboardCoachingPanel({
@@ -33,6 +83,17 @@ export function DashboardCoachingPanel({
   const pendingPackage = coachSummary.pendingCoachingPackage;
   const latestAdvice = coachSummary.recentAdviceSnapshots[0];
   const activeMemories = coachSummary.memorySummary.activeMemories.slice(0, 3);
+  const latestOutcome = coachSummary.recentOutcomes[0];
+  const latestFeedback = coachSummary.recentRecommendationFeedback[0];
+  const pendingPackagePreview = asRecord(pendingPackage?.preview);
+  const pendingPackagePreviewLines = Object.entries(pendingPackagePreview)
+    .slice(0, 4)
+    .map(([key, value]) => `${key}: ${formatPreviewValue(value)}`);
+  const pendingPackageMetaTags = [
+    pendingPackage?.strategyVersion ? `策略版本 ${pendingPackage.strategyVersion}` : "",
+    pendingPackage?.riskLevel ? `风险 ${pendingPackage.riskLevel}` : "",
+    ...(pendingPackage?.policyLabels ?? []).map((label) => `策略标签 ${label}`)
+  ].filter(Boolean);
 
   async function handleGenerate(prompt: string, action: "weekly" | "daily") {
     setBusyAction(action);
@@ -103,6 +164,22 @@ export function DashboardCoachingPanel({
               当前状态：{pendingPackage.status} · 创建时间：
               {new Date(pendingPackage.createdAt).toLocaleString("zh-CN")}
             </small>
+            {pendingPackageMetaTags.length > 0 ? (
+              <div className="evidence-tag-row">
+                {pendingPackageMetaTags.map((tag) => (
+                  <span key={tag} className="evidence-tag">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {pendingPackagePreviewLines.length > 0 ? (
+              <ul className="evidence-list">
+                {pendingPackagePreviewLines.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            ) : null}
           </div>
 
           <div className="action-row">
@@ -137,6 +214,30 @@ export function DashboardCoachingPanel({
           <small>在 chat 里说“请记住……”，我会先生成待确认记忆，不会直接写入。</small>
         )}
       </div>
+
+      <div className="dashboard-coaching-note">
+        <span className="section-label">建议效果</span>
+        <strong>{latestOutcome ? getOutcomeStatusLabel(latestOutcome.status) : "暂无可评估建议"}</strong>
+        {latestOutcome ? (
+          <small>
+            {latestOutcome.summary}
+            {typeof latestOutcome.score === "number" ? ` · 评分 ${latestOutcome.score}` : ""}
+          </small>
+        ) : (
+          <small>执行教练包后，系统会跟踪后续训练、打卡和指标变化，再给出效果评估。</small>
+        )}
+      </div>
+
+      {latestFeedback ? (
+        <div className="dashboard-coaching-note">
+          <span className="section-label">最近反馈</span>
+          <strong>{getFeedbackTypeLabel(latestFeedback.feedbackType)}</strong>
+          <small>
+            {latestFeedback.note || "用户已对最近的教练建议给出反馈。"} ·{" "}
+            {new Date(latestFeedback.createdAt).toLocaleString("zh-CN")}
+          </small>
+        </div>
+      ) : null}
 
       <div className="action-row">
         <button

@@ -201,6 +201,29 @@ class SessionStore:
             "latest_applied_package": latest_applied_package,
         }
 
+    async def get_memory_state(self, thread_id: str, authorization: str | None = None) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                f"{settings.backend_base_url}/agent/state/threads/{thread_id}/memory-state",
+                headers=self._headers(authorization),
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def create_recommendation_feedback(
+        self,
+        payload: dict[str, Any],
+        authorization: str | None = None,
+    ) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                f"{settings.backend_base_url}/agent/feedback/recommendation",
+                headers=self._headers(authorization),
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
+
     async def get_proposal_group(self, proposal_group_id: str, authorization: str | None = None) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.get(

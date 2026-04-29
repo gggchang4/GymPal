@@ -8,6 +8,7 @@ import { AppStoreService } from "../src/store/app-store.service";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { AgentStateService } from "../src/services/agent-state.service";
 import { CoachingOutcomeService } from "../src/services/coaching-outcome.service";
+import { CoachingStrategyService } from "../src/services/coaching-strategy.service";
 
 function loadBackendEnv() {
   const envPath = resolve(__dirname, "..", ".env");
@@ -40,8 +41,9 @@ const skipWithoutDatabase = databaseUrl ? false : "Set backend/.env DATABASE_URL
 function createServices() {
   const prisma = new PrismaService();
   const outcomeService = new CoachingOutcomeService(prisma);
+  const strategyService = new CoachingStrategyService(prisma);
   const appStore = new AppStoreService(prisma, outcomeService);
-  const agentState = new AgentStateService(prisma, appStore, outcomeService);
+  const agentState = new AgentStateService(prisma, appStore, outcomeService, strategyService);
 
   return { prisma, appStore, agentState };
 }
@@ -155,13 +157,13 @@ test(
               basePlanUpdatedAt: originalPlan.updatedAt.toISOString()
             },
             {
-              actionType: "adjust_plan",
-              entityType: "workout_plan",
-              title: "Unsupported package action",
-              summary: "This action is intentionally blocked inside a transactional package.",
-              payload: { note: "force rollback" },
-              preview: { note: "force rollback" },
-              riskLevel: "high"
+              actionType: "update_coaching_memory",
+              entityType: "coaching_memory",
+              title: "Invalid memory update",
+              summary: "This action is intentionally missing memoryId so the transaction rolls back.",
+              payload: { summary: "force rollback" },
+              preview: { summary: "force rollback" },
+              riskLevel: "medium"
             }
           ]
         },
@@ -172,7 +174,7 @@ test(
         () => agentState.executeProposalGroup(packageResult.proposal_group.id, `idem-${runId}`, user.id),
         (error: unknown) =>
           error instanceof Error &&
-          error.message.includes("not supported inside a transactional coaching package")
+          error.message.includes("missing the target memory id")
       );
 
       const plans = await prisma.workoutPlan.findMany({

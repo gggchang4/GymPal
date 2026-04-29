@@ -17,6 +17,8 @@ import type {
   MemorySummarySnapshot,
   ProposalDecisionResponse,
   PostMessageResponse,
+  RecommendationFeedbackSnapshot,
+  RecommendationFeedbackType,
   RunStepEventPayload,
   StreamEvent,
   ToolEvent,
@@ -92,6 +94,10 @@ interface RawCoachingReviewSnapshot {
   recommendation_tags?: string[];
   input_snapshot?: Record<string, unknown>;
   result_snapshot?: Record<string, unknown>;
+  strategy_template_id?: string | null;
+  strategy_version?: string | null;
+  evidence?: Record<string, unknown> | null;
+  uncertainty_flags?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -106,6 +112,9 @@ interface RawAgentProposalGroup {
   summary: string;
   preview?: Record<string, unknown>;
   risk_level: "low" | "medium" | "high";
+  strategy_template_id?: string | null;
+  strategy_version?: string | null;
+  policy_labels?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -165,12 +174,18 @@ interface RawCoachSummarySnapshot {
   recentAdviceSnapshots: RawAdviceSnapshot[];
   memorySummary?: RawMemorySummarySnapshot;
   recentOutcomes?: CoachSummarySnapshot["recentOutcomes"];
+  recentRecommendationFeedback?: CoachSummarySnapshot["recentRecommendationFeedback"];
   pendingCoachingPackage: {
     id: string;
     threadId: string;
     title: string;
     summary: string;
     status: string;
+    preview?: Record<string, unknown>;
+    riskLevel?: string;
+    strategyTemplateId?: string | null;
+    strategyVersion?: string | null;
+    policyLabels?: string[];
     createdAt: string;
   } | null;
   needsWeeklyReview: boolean;
@@ -312,6 +327,10 @@ function mapCoachingReview(review: RawCoachingReviewSnapshot): CoachingReviewSna
     recommendationTags: review.recommendation_tags ?? [],
     inputSnapshot: review.input_snapshot ?? {},
     resultSnapshot: review.result_snapshot ?? {},
+    strategyTemplateId: review.strategy_template_id ?? null,
+    strategyVersion: review.strategy_version ?? null,
+    evidence: review.evidence ?? null,
+    uncertaintyFlags: review.uncertainty_flags ?? [],
     createdAt: review.created_at,
     updatedAt: review.updated_at
   };
@@ -328,6 +347,9 @@ function mapProposalGroup(group: RawAgentProposalGroup): AgentProposalGroup {
     summary: group.summary,
     preview: group.preview ?? {},
     riskLevel: group.risk_level,
+    strategyTemplateId: group.strategy_template_id ?? null,
+    strategyVersion: group.strategy_version ?? null,
+    policyLabels: group.policy_labels ?? [],
     createdAt: group.created_at,
     updatedAt: group.updated_at
   };
@@ -377,6 +399,7 @@ function mapCoachSummary(snapshot: RawCoachSummarySnapshot): CoachSummarySnapsho
     recentAdviceSnapshots: (snapshot.recentAdviceSnapshots ?? []).map(mapAdviceSnapshot),
     memorySummary: snapshot.memorySummary ?? buildEmptyMemorySummary(),
     recentOutcomes: snapshot.recentOutcomes ?? [],
+    recentRecommendationFeedback: snapshot.recentRecommendationFeedback ?? [],
     pendingCoachingPackage: snapshot.pendingCoachingPackage,
     needsWeeklyReview: Boolean(snapshot.needsWeeklyReview)
   };
@@ -611,6 +634,24 @@ export async function rejectProposalGroup(proposalGroupId: string): Promise<Prop
     }
   );
   return mapProposalDecisionResponse(result);
+}
+
+export async function submitRecommendationFeedback(payload: {
+  reviewSnapshotId?: string | null;
+  proposalGroupId?: string | null;
+  feedbackType: RecommendationFeedbackType;
+  note?: string | null;
+}): Promise<RecommendationFeedbackSnapshot> {
+  return requestJson<RecommendationFeedbackSnapshot>(`${agentBaseUrl}/agent/feedback/recommendation`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      review_snapshot_id: payload.reviewSnapshotId ?? null,
+      proposal_group_id: payload.proposalGroupId ?? null,
+      feedback_type: payload.feedbackType,
+      note: payload.note ?? null
+    })
+  });
 }
 
 export async function getThreadProposalGroups(threadId: string): Promise<AgentProposalGroup[]> {

@@ -19,6 +19,10 @@ CardType = Literal[
     "weekly_review_card",
     "daily_guidance_card",
     "coaching_package_card",
+    "evidence_card",
+    "memory_candidate_card",
+    "outcome_summary_card",
+    "strategy_decision_card",
 ]
 
 
@@ -136,3 +140,9 @@ class FeedbackRequest(BaseModel):
     helpful: bool
     note: str | None = None
 
+
+class RecommendationFeedbackRequest(BaseModel):
+    review_snapshot_id: str | None = None
+    proposal_group_id: str | None = None
+    feedback_type: Literal["helpful", "too_hard", "too_easy", "not_relevant", "unsafe_or_uncomfortable", "unclear"]
+    note: str | None = None

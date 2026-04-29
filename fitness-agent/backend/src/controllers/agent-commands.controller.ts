@@ -87,4 +87,14 @@ export class AgentCommandsController {
   async archiveMemory(@Body() body: ProposalExecutionDto, @CurrentUser() user: AuthTokenClaims) {
     return this.agentState.executeProposal(body.proposalId, body.idempotencyKey, "archive_coaching_memory", user.sub);
   }
+
+  @Post("create-recommendation-feedback")
+  async createRecommendationFeedback(@Body() body: ProposalExecutionDto, @CurrentUser() user: AuthTokenClaims) {
+    return this.agentState.executeProposal(body.proposalId, body.idempotencyKey, "create_recommendation_feedback", user.sub);
+  }
+
+  @Post("refresh-coaching-outcome")
+  async refreshCoachingOutcome(@Body() body: ProposalExecutionDto, @CurrentUser() user: AuthTokenClaims) {
+    return this.agentState.executeProposal(body.proposalId, body.idempotencyKey, "refresh_coaching_outcome", user.sub);
+  }
 }

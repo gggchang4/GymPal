@@ -777,6 +777,60 @@ select:focus {
   background: rgba(213, 56, 50, 0.72);
 }
 
+.evidence-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.evidence-tag {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 8px;
+  border: 1px solid rgba(20, 20, 20, 0.14);
+  border-radius: 999px;
+  color: rgba(20, 20, 20, 0.72);
+  font-size: 12px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.evidence-block {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.evidence-title {
+  color: rgba(20, 20, 20, 0.58);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.evidence-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.evidence-list li {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .tone-sage,
 .tone-sand,
 .tone-slate,

@@ -231,6 +231,23 @@ export class CreateCoachingReviewSnapshotDto {
   @IsOptional()
   @IsObject()
   resultSnapshot?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsString()
+  strategyTemplateId?: string;
+
+  @IsOptional()
+  @IsString()
+  strategyVersion?: string;
+
+  @IsOptional()
+  @IsObject()
+  evidence?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  uncertaintyFlags?: string[];
 }
 
 export class CreateAgentProposalGroupDto {
@@ -255,6 +272,19 @@ export class CreateAgentProposalGroupDto {
 
   @IsOptional()
   @IsString()
+  strategyTemplateId?: string;
+
+  @IsOptional()
+  @IsString()
+  strategyVersion?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  policyLabels?: string[];
+
+  @IsOptional()
+  @IsString()
   expiresAt?: string;
 }
 
@@ -276,4 +306,21 @@ export class CreateCoachingPackageDto {
 export class ProposalGroupConfirmDto {
   @IsString()
   idempotencyKey!: string;
+}
+
+export class CreateRecommendationFeedbackDto {
+  @IsOptional()
+  @IsString()
+  reviewSnapshotId?: string;
+
+  @IsOptional()
+  @IsString()
+  proposalGroupId?: string;
+
+  @IsIn(["helpful", "too_hard", "too_easy", "not_relevant", "unsafe_or_uncomfortable", "unclear"])
+  feedbackType!: "helpful" | "too_hard" | "too_easy" | "not_relevant" | "unsafe_or_uncomfortable" | "unclear";
+
+  @IsOptional()
+  @IsString()
+  note?: string;
 }

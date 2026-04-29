@@ -11,6 +11,8 @@ import {
 import { AppStoreService } from "../store/app-store.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { CoachingOutcomeService } from "./coaching-outcome.service";
+import { CoachingStrategyService } from "./coaching-strategy.service";
+import { AgentPolicyService } from "./agent-policy.service";
 
 type TransactionClient = Prisma.TransactionClient | PrismaClient;
 const proposalGroupExecutionInclude = Prisma.validator<Prisma.AgentProposalGroupInclude>()({
@@ -19,6 +21,19 @@ const proposalGroupExecutionInclude = Prisma.validator<Prisma.AgentProposalGroup
   },
   reviewSnapshot: true
 });
+type RiskLevel = "low" | "medium" | "high";
+const riskRank: Record<RiskLevel, number> = { low: 0, medium: 1, high: 2 };
+
+function normalizeRiskLevel(value: unknown): RiskLevel {
+  return value === "high" || value === "medium" || value === "low" ? value : "medium";
+}
+
+function maxRiskLevel(values: unknown[]): RiskLevel {
+  return values.reduce<RiskLevel>((current, value) => {
+    const normalized = normalizeRiskLevel(value);
+    return riskRank[normalized] > riskRank[current] ? normalized : current;
+  }, "low");
+}
 
 function asJson(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
@@ -40,7 +55,9 @@ export class AgentStateService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly appStore: AppStoreService,
-    private readonly outcomeService: CoachingOutcomeService
+    private readonly outcomeService: CoachingOutcomeService,
+    private readonly strategyService: CoachingStrategyService,
+    private readonly policyService: AgentPolicyService = new AgentPolicyService()
   ) {}
 
   private async getActor(userId?: string) {
@@ -219,6 +236,10 @@ export class AgentStateService {
     recommendationTags: string[];
     inputSnapshot: Prisma.JsonValue;
     resultSnapshot: Prisma.JsonValue;
+    strategyTemplateId: string | null;
+    strategyVersion: string | null;
+    evidence: Prisma.JsonValue | null;
+    uncertaintyFlags: string[];
     createdAt: Date;
     updatedAt: Date;
   }) {
@@ -239,6 +260,10 @@ export class AgentStateService {
       recommendation_tags: review.recommendationTags,
       input_snapshot: review.inputSnapshot,
       result_snapshot: review.resultSnapshot,
+      strategy_template_id: review.strategyTemplateId,
+      strategy_version: review.strategyVersion,
+      evidence: review.evidence,
+      uncertainty_flags: review.uncertaintyFlags,
       created_at: review.createdAt.toISOString(),
       updated_at: review.updatedAt.toISOString()
     };
@@ -255,6 +280,9 @@ export class AgentStateService {
     summary: string;
     preview: Prisma.JsonValue;
     riskLevel: string;
+    strategyTemplateId: string | null;
+    strategyVersion: string | null;
+    policyLabels: string[];
     expiresAt: Date | null;
     executedAt: Date | null;
     createdAt: Date;
@@ -272,6 +300,9 @@ export class AgentStateService {
       summary: group.summary,
       preview: group.preview,
       risk_level: group.riskLevel,
+      strategy_template_id: group.strategyTemplateId,
+      strategy_version: group.strategyVersion,
+      policy_labels: group.policyLabels,
       expires_at: group.expiresAt?.toISOString() ?? null,
       executed_at: group.executedAt?.toISOString() ?? null,
       proposals: group.proposals?.map((proposal) => this.mapProposal(proposal)) ?? [],
@@ -298,6 +329,14 @@ export class AgentStateService {
     });
 
     return messages.map((message) => this.mapMessage(message));
+  }
+
+  async getThreadMemoryState(threadId: string, userId?: string) {
+    const { actor, thread } = await this.getThreadForActor(threadId, userId);
+    return {
+      thread_id: thread.id,
+      memory_summary: await this.appStore.getMemorySummary(actor.id)
+    };
   }
 
   async appendMessage(threadId: string, payload: CreateAgentMessageDto, userId?: string) {
@@ -364,9 +403,30 @@ export class AgentStateService {
       throw new ConflictException("The coaching review and proposal group must belong to the same run.");
     }
 
+    const proposalPolicies = payload.proposals.map((proposal) =>
+      this.policyService.assertActionAllowed(proposal.actionType, proposal.payload, { packageContext: true })
+    );
+
     const packageExpiresAt =
       payload.proposalGroup.expiresAt ? new Date(payload.proposalGroup.expiresAt) : new Date(Date.now() + 1000 * 60 * 60 * 4);
     const proposalExpiresAtDefault = new Date(Date.now() + 1000 * 60 * 60 * 2);
+    const memorySummary = await this.appStore.getMemorySummary(actor.id);
+    const strategyDecision = await this.strategyService.chooseForCoachingReview({
+      adherenceScore: payload.review.adherenceScore ?? null,
+      riskFlags: payload.review.riskFlags ?? [],
+      recommendationTags: payload.review.recommendationTags ?? [],
+      memoryCount: memorySummary.activeMemories.length
+    });
+    const strategyTemplateId = payload.review.strategyTemplateId ?? payload.proposalGroup.strategyTemplateId ?? strategyDecision.templateId;
+    const strategyVersion = payload.review.strategyVersion ?? payload.proposalGroup.strategyVersion ?? strategyDecision.version;
+    const policyLabels = this.policyService.getPolicyLabelsForActions(
+      payload.proposals.map((proposal) => proposal.actionType),
+      payload.proposalGroup.policyLabels ?? strategyDecision.policyLabels
+    );
+    const proposalRiskLevels = payload.proposals.map((proposal, index) =>
+      maxRiskLevel([proposal.riskLevel, proposalPolicies[index]?.risk])
+    );
+    const groupRiskLevel = maxRiskLevel([payload.proposalGroup.riskLevel, ...proposalRiskLevels]);
 
     const created = await this.prisma.$transaction(async (tx) => {
       const review = await tx.coachingReviewSnapshot.create({
@@ -385,7 +445,11 @@ export class AgentStateService {
           focusAreas: payload.review.focusAreas ?? [],
           recommendationTags: payload.review.recommendationTags ?? [],
           inputSnapshot: asJson(payload.review.inputSnapshot ?? {}),
-          resultSnapshot: asJson(payload.review.resultSnapshot ?? {})
+          resultSnapshot: asJson(payload.review.resultSnapshot ?? {}),
+          strategyTemplateId,
+          strategyVersion,
+          evidence: asJson(payload.review.evidence ?? strategyDecision.evidence),
+          uncertaintyFlags: payload.review.uncertaintyFlags ?? strategyDecision.uncertaintyFlags
         }
       });
 
@@ -399,13 +463,16 @@ export class AgentStateService {
           title: payload.proposalGroup.title,
           summary: payload.proposalGroup.summary,
           preview: asJson(payload.proposalGroup.preview),
-          riskLevel: payload.proposalGroup.riskLevel,
+          riskLevel: groupRiskLevel,
+          strategyTemplateId,
+          strategyVersion,
+          policyLabels,
           expiresAt: packageExpiresAt
         }
       });
 
       const proposals = await Promise.all(
-        payload.proposals.map((proposal) =>
+        payload.proposals.map((proposal, index) =>
           tx.agentActionProposal.create({
             data: {
               threadId: thread.id,
@@ -420,7 +487,7 @@ export class AgentStateService {
               summary: proposal.summary,
               payload: asJson(proposal.payload),
               preview: asJson(proposal.preview),
-              riskLevel: proposal.riskLevel,
+              riskLevel: proposalRiskLevels[index],
               requiresConfirmation: proposal.requiresConfirmation ?? true,
               expiresAt: proposal.expiresAt ? new Date(proposal.expiresAt) : proposalExpiresAtDefault,
               basePlanId: proposal.basePlanId,
@@ -476,10 +543,16 @@ export class AgentStateService {
       await this.getProposalGroupForActor(String(proposalGroupId), actor.id);
     }
 
+    const proposalPolicies = payload.proposals.map((proposal) =>
+      this.policyService.assertActionAllowed(proposal.actionType, proposal.payload, {
+        packageContext: Boolean(proposal.proposalGroupId)
+      })
+    );
+
     const expiresAtDefault = new Date(Date.now() + 1000 * 60 * 60 * 2);
 
     const proposals = await this.prisma.$transaction(
-      payload.proposals.map((proposal) =>
+      payload.proposals.map((proposal, index) =>
         this.prisma.agentActionProposal.create({
           data: {
             threadId: thread.id,
@@ -494,7 +567,7 @@ export class AgentStateService {
             summary: proposal.summary,
             payload: asJson(proposal.payload),
             preview: asJson(proposal.preview),
-            riskLevel: proposal.riskLevel,
+            riskLevel: maxRiskLevel([proposal.riskLevel, proposalPolicies[index]?.risk]),
             requiresConfirmation: proposal.requiresConfirmation ?? true,
             expiresAt: proposal.expiresAt ? new Date(proposal.expiresAt) : expiresAtDefault,
             basePlanId: proposal.basePlanId,
@@ -532,7 +605,11 @@ export class AgentStateService {
         focusAreas: payload.focusAreas ?? [],
         recommendationTags: payload.recommendationTags ?? [],
         inputSnapshot: asJson(payload.inputSnapshot ?? {}),
-        resultSnapshot: asJson(payload.resultSnapshot ?? {})
+        resultSnapshot: asJson(payload.resultSnapshot ?? {}),
+        strategyTemplateId: payload.strategyTemplateId,
+        strategyVersion: payload.strategyVersion,
+        evidence: payload.evidence ? asJson(payload.evidence) : undefined,
+        uncertaintyFlags: payload.uncertaintyFlags ?? []
       }
     });
 
@@ -567,6 +644,9 @@ export class AgentStateService {
         summary: payload.summary,
         preview: asJson(payload.preview),
         riskLevel: payload.riskLevel,
+        strategyTemplateId: payload.strategyTemplateId,
+        strategyVersion: payload.strategyVersion,
+        policyLabels: this.policyService.getPolicyLabelsForActions([], payload.policyLabels ?? []),
         expiresAt: payload.expiresAt ? new Date(payload.expiresAt) : new Date(Date.now() + 1000 * 60 * 60 * 4)
       },
       include: {
@@ -1218,12 +1298,23 @@ export class AgentStateService {
     };
   }
 
+  private buildRecommendationFeedbackPayload(payload: Record<string, unknown>) {
+    return {
+      reviewSnapshotId: typeof payload.reviewSnapshotId === "string" ? payload.reviewSnapshotId : undefined,
+      proposalGroupId: typeof payload.proposalGroupId === "string" ? payload.proposalGroupId : undefined,
+      feedbackType: typeof payload.feedbackType === "string" ? payload.feedbackType : "helpful",
+      note: typeof payload.note === "string" ? payload.note : undefined
+    };
+  }
+
   private async dispatchActionWithinTransaction(
     actionType: string,
     payload: Record<string, unknown>,
     userId: string,
     tx: TransactionClient
   ) {
+    this.policyService.assertActionAllowed(actionType, payload, { packageContext: true });
+
     switch (actionType) {
       case "generate_next_week_plan":
         return this.appStore.generateNextWeekPlan(userId, this.buildGeneratedPlanPayload(payload), tx);
@@ -1243,12 +1334,16 @@ export class AgentStateService {
           throw new ConflictException("The proposal is missing the target memory id.");
         }
         return this.appStore.archiveCoachingMemory(userId, payload.memoryId, typeof payload.reason === "string" ? payload.reason : undefined, tx);
+      case "create_recommendation_feedback":
+        return this.appStore.createRecommendationFeedback(userId, this.buildRecommendationFeedbackPayload(payload), tx);
       default:
         throw new ConflictException(`Action type ${actionType} is not supported inside a transactional coaching package.`);
     }
   }
 
   private async dispatchAction(actionType: string, payload: Record<string, unknown>, userId: string) {
+    this.policyService.assertActionAllowed(actionType, payload);
+
     switch (actionType) {
       case "generate_plan":
         return this.appStore.generatePlan(userId, typeof payload.goal === "string" ? payload.goal : "fat_loss");
@@ -1340,6 +1435,13 @@ export class AgentStateService {
           throw new ConflictException("The proposal is missing the target memory id.");
         }
         return this.appStore.archiveCoachingMemory(userId, payload.memoryId, typeof payload.reason === "string" ? payload.reason : undefined);
+      case "create_recommendation_feedback":
+        return this.appStore.createRecommendationFeedback(userId, this.buildRecommendationFeedbackPayload(payload));
+      case "refresh_coaching_outcome":
+        if (typeof payload.outcomeId !== "string") {
+          throw new ConflictException("The proposal is missing the target outcome id.");
+        }
+        return this.outcomeService.refreshOutcome(payload.outcomeId, userId);
       default:
         throw new ConflictException(`Unsupported action type: ${actionType}`);
     }

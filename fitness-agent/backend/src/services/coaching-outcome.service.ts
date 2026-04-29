@@ -128,6 +128,8 @@ export class CoachingOutcomeService {
       userId: proposalGroup.userId,
       reviewSnapshotId: proposalGroup.reviewSnapshotId,
       proposalGroupId: proposalGroup.id,
+      strategyTemplateId: proposalGroup.strategyTemplateId,
+      strategyVersion: proposalGroup.strategyVersion,
       status: "pending",
       measurementStart: executedAt,
       measurementEnd,
@@ -389,13 +391,13 @@ export class CoachingOutcomeService {
     }
 
     const normalizedScore = clampScore(score);
-    const status = normalizedScore >= 70 ? "positive" : normalizedScore >= 45 ? "mixed" : "negative";
+    const status = normalizedScore >= 70 ? "improved" : normalizedScore >= 45 ? "neutral" : "worsened";
     const summary =
-      status === "positive"
-        ? "Outcome positive: follow-up logs suggest the package was actionable and recovery remained manageable."
-        : status === "mixed"
-          ? "Outcome mixed: follow-up data shows some useful execution signals, but recovery or consistency needs attention."
-          : "Outcome negative: follow-up data suggests the package may have been too hard, poorly timed, or not well matched.";
+      status === "improved"
+        ? "Outcome improved: follow-up logs suggest the package was actionable and recovery remained manageable."
+        : status === "neutral"
+          ? "Outcome neutral: follow-up data shows some useful execution signals, but recovery or consistency needs attention."
+          : "Outcome worsened: follow-up data suggests the package may have been too hard, poorly timed, or not well matched.";
 
     return {
       status,

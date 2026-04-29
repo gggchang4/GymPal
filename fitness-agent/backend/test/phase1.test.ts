@@ -72,6 +72,10 @@ function createService() {
         recommendationTags: [],
         inputSnapshot: {},
         resultSnapshot: {},
+        strategyTemplateId: data.strategyTemplateId ?? null,
+        strategyVersion: data.strategyVersion ?? null,
+        evidence: data.evidence ?? null,
+        uncertaintyFlags: data.uncertaintyFlags ?? [],
         createdAt: now,
         updatedAt: now
       }),
@@ -89,6 +93,9 @@ function createService() {
         summary: data.summary ?? "Apply weekly coaching package.",
         preview: {},
         riskLevel: data.riskLevel ?? "high",
+        strategyTemplateId: data.strategyTemplateId ?? null,
+        strategyVersion: data.strategyVersion ?? null,
+        policyLabels: data.policyLabels ?? [],
         expiresAt: new Date("2099-04-20T16:00:00.000Z"),
         executedAt: null,
         createdAt: now,
@@ -106,6 +113,9 @@ function createService() {
         summary: "Apply weekly coaching package.",
         preview: {},
         riskLevel: "high",
+        strategyTemplateId: null,
+        strategyVersion: null,
+        policyLabels: [],
         expiresAt: new Date("2099-04-20T16:00:00.000Z"),
         executedAt: null,
         createdAt: now,
@@ -123,6 +133,9 @@ function createService() {
         summary: "Apply weekly coaching package.",
         preview: {},
         riskLevel: "high",
+        strategyTemplateId: null,
+        strategyVersion: null,
+        policyLabels: [],
         expiresAt: new Date("2099-04-20T16:00:00.000Z"),
         executedAt: new Date("2099-04-20T13:00:00.000Z"),
         createdAt: now,
@@ -143,7 +156,8 @@ function createService() {
           actionType: String(data.actionType ?? "create_advice_snapshot"),
           entityType: String(data.entityType ?? "advice_snapshot"),
           payload: data.payload ?? {},
-          preview: data.preview ?? {}
+          preview: data.preview ?? {},
+          riskLevel: data.riskLevel ?? "medium"
         }),
       updateMany: async () => ({ count: 1 }),
       update: async () => ({}),
@@ -172,6 +186,7 @@ function createService() {
 
   const appStore = {
     getUser: async (userId?: string) => ({ id: userId ?? "user-1" }),
+    getMemorySummary: async () => ({ activeMemories: [] }),
     getCurrentPlanSnapshot: async () => ({
       plan: {
         id: "plan-1",
@@ -202,11 +217,20 @@ function createService() {
     getOutcomeForProposalGroup: async () => null,
     createPendingOutcomeForExecutedPackage: async () => ({ id: "outcome-1" })
   };
+  const strategyService = {
+    chooseForCoachingReview: async () => ({
+      templateId: "strategy-1",
+      version: "1.0.0",
+      policyLabels: ["low_risk_write"],
+      evidence: { selectedBecause: "test" },
+      uncertaintyFlags: []
+    })
+  };
 
   return {
     prisma,
     appStore,
-    service: new AgentStateService(prisma as never, appStore as never, outcomeService as never)
+    service: new AgentStateService(prisma as never, appStore as never, outcomeService as never, strategyService as never)
   };
 }
 
@@ -344,6 +368,51 @@ test("createCoachingPackage persists the review, group, and proposals in one ser
   assert.equal(result.proposal_group.review_snapshot_id, "review-1");
   assert.equal(result.proposals.length, 1);
   assert.equal(result.proposals[0].proposal_group_id, "group-1");
+});
+
+test("createCoachingPackage derives risk from backend policy instead of trusting agent input", async () => {
+  const { service } = createService();
+
+  const result = await service.createCoachingPackage(
+    "thread-1",
+    {
+      review: {
+        runId: "run-1",
+        type: "weekly_review",
+        title: "Weekly review",
+        summary: "Review summary"
+      },
+      proposalGroup: {
+        runId: "run-1",
+        title: "Weekly package",
+        summary: "Package summary",
+        preview: { completionRate: "70%" },
+        riskLevel: "low"
+      },
+      proposals: [
+        {
+          actionType: "generate_diet_snapshot",
+          entityType: "diet_snapshot",
+          title: "Generate diet snapshot",
+          summary: "Persist a nutrition rewrite.",
+          payload: {
+            totalCalorie: 2200,
+            targetCalorie: 2200,
+            nutritionRatio: { carbohydrate: 45, protein: 30, fat: 25 },
+            meals: [],
+            nutritionDetail: {},
+            agentTips: []
+          },
+          preview: { targetCalorie: 2200 },
+          riskLevel: "low"
+        }
+      ]
+    },
+    "user-1"
+  );
+
+  assert.equal(result.proposal_group.risk_level, "high");
+  assert.equal(result.proposals[0].risk_level, "high");
 });
 
 test("executeProposalGroup applies grouped proposals and marks the review as applied", async () => {

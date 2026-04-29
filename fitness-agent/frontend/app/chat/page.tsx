@@ -11,12 +11,13 @@ import {
   getThreadMessages,
   postMessage,
   rejectProposal,
-  rejectProposalGroup
+  rejectProposalGroup,
+  submitRecommendationFeedback
 } from "@/lib/api";
 import { readAgentThreadId, writeAgentThreadId } from "@/lib/agent-thread";
 import { readAuthAccessToken, subscribeAuthChange } from "@/lib/auth";
 import { appRoutes } from "@/lib/routes";
-import type { AgentMessage } from "@/lib/types";
+import type { AgentMessage, RecommendationFeedbackType } from "@/lib/types";
 
 const initialMessages: AgentMessage[] = [
   {
@@ -274,6 +275,39 @@ export default function ChatPage() {
     }
   }
 
+  async function handleRecommendationFeedback(payload: {
+    reviewSnapshotId?: string | null;
+    proposalGroupId?: string | null;
+    feedbackType: RecommendationFeedbackType;
+  }) {
+    if (hasAuthToken !== true || pendingProposalId) {
+      return;
+    }
+
+    setPendingProposalId(payload.proposalGroupId || payload.reviewSnapshotId || "recommendation-feedback");
+    setStatus("正在保存反馈");
+
+    try {
+      await submitRecommendationFeedback(payload);
+      setStatus("反馈已保存");
+    } catch (error) {
+      setMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: buildErrorMessage(error, "message"),
+          reasoningSummary: "反馈写入失败时，不会影响已有教练包、计划或日志状态。"
+        }
+      ]);
+      setStatus("反馈保存失败");
+    } finally {
+      if (mountedRef.current) {
+        setPendingProposalId(null);
+      }
+    }
+  }
+
   return (
     <div className="page chat-page">
       <section className="chat-surface">
@@ -316,6 +350,7 @@ export default function ChatPage() {
                         onRejectProposalGroup={(proposalGroupId) =>
                           void handleProposalGroupDecision(proposalGroupId, "reject")
                         }
+                        onSubmitRecommendationFeedback={(payload) => void handleRecommendationFeedback(payload)}
                       />
                     ) : null}
                   </div>
