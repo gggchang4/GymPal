@@ -5,8 +5,12 @@ import { resolve } from "node:path";
 import { test } from "node:test";
 import { AppStoreService } from "../src/store/app-store.service";
 import { PrismaService } from "../src/prisma/prisma.service";
+import { AgentProductEventService } from "../src/services/agent-product-event.service";
+import { AgentQualityService } from "../src/services/agent-quality.service";
+import { AgentStateService } from "../src/services/agent-state.service";
 import { AgentWorkItemService } from "../src/services/agent-work-item.service";
 import { CoachingOutcomeService } from "../src/services/coaching-outcome.service";
+import { CoachingStrategyService } from "../src/services/coaching-strategy.service";
 
 function loadBackendEnv() {
   const envPath = resolve(__dirname, "..", ".env");
@@ -40,10 +44,22 @@ const skipWithoutDatabase = process.env.DATABASE_URL
 function createServices() {
   const prisma = new PrismaService();
   const outcomeService = new CoachingOutcomeService(prisma);
+  const strategyService = new CoachingStrategyService(prisma);
   const appStore = new AppStoreService(prisma, outcomeService);
-  const workItems = new AgentWorkItemService(prisma, appStore);
+  const productEvents = new AgentProductEventService(prisma);
+  const qualityService = new AgentQualityService(prisma, appStore);
+  const agentState = new AgentStateService(
+    prisma,
+    appStore,
+    outcomeService,
+    strategyService,
+    undefined,
+    qualityService,
+    productEvents
+  );
+  const workItems = new AgentWorkItemService(prisma, appStore, productEvents, agentState);
 
-  return { prisma, appStore, workItems };
+  return { prisma, appStore, agentState, workItems };
 }
 
 async function cleanupTestUsers(prisma: PrismaService, runId: string) {
@@ -129,6 +145,180 @@ test("phase4 work item refresh dedupes active items and records product events",
     assert.equal(workspace.coachSummary.memorySummary.activeMemories.length, 0);
     assert.ok(Array.isArray(workspace.pendingWorkItems));
     assert.ok(Array.isArray(workspace.recommendedEntryPoints));
+  } finally {
+    await cleanupTestUsers(prisma, runId);
+    await prisma.$disconnect();
+  }
+});
+
+test("phase4 revision work item converts into one latest pending revision package", { skip: skipWithoutDatabase }, async () => {
+  const runId = randomUUID();
+  const { prisma, appStore, agentState, workItems } = createServices();
+  await prisma.$connect();
+
+  try {
+    await cleanupTestUsers(prisma, runId);
+    const owner = await createUser(appStore, runId, "convert-owner");
+    const other = await createUser(appStore, runId, "convert-other");
+    const thread = await agentState.createThread("Phase 4 work item conversion", owner.id);
+    const agentRunId = `phase4-work-item-convert-run-${runId}`;
+    await agentState.createRun(
+      thread.id,
+      {
+        id: agentRunId,
+        status: "completed",
+        risk_level: "medium",
+        steps: []
+      },
+      owner.id
+    );
+
+    const sourcePackage = await agentState.createCoachingPackage(
+      thread.id,
+      {
+        review: {
+          runId: agentRunId,
+          type: "daily_guidance",
+          title: "Work item conversion source review",
+          summary: "A source review that should be revised from a workspace item.",
+          adherenceScore: 68,
+          focusAreas: ["recovery"],
+          recommendationTags: ["daily_guidance"],
+          inputSnapshot: { completionRate: 68, sleepHours: 6.2 },
+          resultSnapshot: { recommendation: "Keep the original advice moderate." },
+          evidence: { completionRate: 68, sleepHours: 6.2 }
+        },
+        proposalGroup: {
+          runId: agentRunId,
+          title: "Work item conversion source package",
+          summary: "Original package waiting for a safer revision.",
+          preview: { summary: "Original package" },
+          riskLevel: "medium"
+        },
+        proposals: [
+          {
+            actionType: "create_advice_snapshot",
+            entityType: "advice_snapshot",
+            title: "Create original advice",
+            summary: "Persist the original advice.",
+            payload: {
+              type: "daily_guidance",
+              priority: "medium",
+              summary: "Keep the original advice moderate.",
+              reasoningTags: ["phase4_work_item_conversion"],
+              actionItems: ["Keep intensity moderate."],
+              riskFlags: []
+            },
+            preview: { summary: "Keep the original advice moderate." },
+            riskLevel: "medium"
+          }
+        ]
+      },
+      owner.id
+    );
+
+    const workItem = await prisma.agentWorkItem.create({
+      data: {
+        userId: owner.id,
+        type: "revision_suggested",
+        status: "pending",
+        priority: "high",
+        source: "feedback",
+        title: "A safer revision is suggested",
+        summary: "Convert this item into a safer pending revision package.",
+        reason: "Recent feedback was negative or safety-related.",
+        payload: { feedbackType: "too_hard" },
+        requestId: `phase4-work-item-convert-${runId}`,
+        relatedThreadId: thread.id,
+        relatedReviewId: sourcePackage.review.id,
+        relatedProposalGroupId: sourcePackage.proposal_group.id,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000)
+      }
+    });
+
+    await assert.rejects(
+      () => workItems.convertWorkItem(workItem.id, other.id),
+      (error: unknown) => error instanceof Error && error.message.includes("Agent work item not found")
+    );
+
+    const converted = await workItems.convertWorkItem(workItem.id, owner.id, {
+      requestId: `phase4-work-item-convert-explicit-${runId}`,
+      revisionReason: "too_hard"
+    });
+    assert.equal(converted.workItem.status, "converted");
+    assert.equal(converted.workItem.converted_entity_type, "agent_proposal_group");
+    assert.equal(converted.conversion.type, "revision");
+    assert.equal(converted.conversion.proposal_group.status, "pending");
+    assert.equal(converted.conversion.proposal_group.risk_level, "low");
+
+    const oldGroup = await prisma.agentProposalGroup.findUniqueOrThrow({
+      where: { id: sourcePackage.proposal_group.id }
+    });
+    assert.equal(oldGroup.status, "superseded");
+
+    await assert.rejects(
+      () => workItems.convertWorkItem(workItem.id, owner.id),
+      (error: unknown) => error instanceof Error && error.message.includes("converted")
+    );
+
+    const lockedWorkItem = await prisma.agentWorkItem.create({
+      data: {
+        userId: owner.id,
+        type: "revision_suggested",
+        status: "processing",
+        priority: "high",
+        source: "feedback",
+        title: "Locked revision item",
+        summary: "This item should not be convertible outside pending or opened states.",
+        reason: "A future worker has locked the item.",
+        payload: { feedbackType: "too_hard" },
+        requestId: `phase4-work-item-locked-${runId}`,
+        relatedThreadId: thread.id,
+        relatedReviewId: sourcePackage.review.id,
+        relatedProposalGroupId: sourcePackage.proposal_group.id,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000)
+      }
+    });
+
+    await assert.rejects(
+      () => workItems.convertWorkItem(lockedWorkItem.id, owner.id),
+      (error: unknown) => error instanceof Error && error.message.includes("processing")
+    );
+
+    const events = await prisma.agentProductEvent.findMany({
+      where: { userId: owner.id },
+      orderBy: { createdAt: "asc" }
+    });
+    assert.ok(events.some((event) => event.eventType === "revision_requested"));
+    assert.ok(events.some((event) => event.eventType === "work_item_converted" && event.entityId === workItem.id));
+
+    const expiredWorkItem = await prisma.agentWorkItem.create({
+      data: {
+        userId: owner.id,
+        type: "revision_suggested",
+        status: "pending",
+        priority: "high",
+        source: "feedback",
+        title: "Expired revision item",
+        summary: "This item should expire before conversion.",
+        reason: "The user waited too long.",
+        payload: { feedbackType: "too_hard" },
+        requestId: `phase4-work-item-expired-${runId}`,
+        relatedThreadId: thread.id,
+        relatedReviewId: sourcePackage.review.id,
+        relatedProposalGroupId: sourcePackage.proposal_group.id,
+        expiresAt: new Date(Date.now() - 1000)
+      }
+    });
+
+    await assert.rejects(
+      () => workItems.convertWorkItem(expiredWorkItem.id, owner.id),
+      (error: unknown) => error instanceof Error && error.message.includes("expired")
+    );
+    const persistedExpiredItem = await prisma.agentWorkItem.findUniqueOrThrow({
+      where: { id: expiredWorkItem.id }
+    });
+    assert.equal(persistedExpiredItem.status, "expired");
   } finally {
     await cleanupTestUsers(prisma, runId);
     await prisma.$disconnect();

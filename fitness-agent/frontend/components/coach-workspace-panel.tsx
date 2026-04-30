@@ -2,7 +2,7 @@
 
 import { startTransition, useState } from "react";
 import { useRouter } from "next/navigation";
-import { dismissAgentWorkItem, openAgentWorkItem, refreshAgentWorkItems } from "@/lib/api";
+import { convertAgentWorkItem, dismissAgentWorkItem, openAgentWorkItem, refreshAgentWorkItems } from "@/lib/api";
 import { readAgentThreadId, writeAgentThreadId } from "@/lib/agent-thread";
 import { appRoutes, type AppRoute } from "@/lib/routes";
 import type { AgentWorkItemSnapshot, WorkspaceSummarySnapshot } from "@/lib/types";
@@ -21,6 +21,11 @@ const priorityLabels: Record<string, string> = {
   high: "High",
   medium: "Medium",
   low: "Low"
+};
+
+type BusyAction = {
+  id: string;
+  action: "open" | "dismiss" | "convert";
 };
 
 function routeForNavigation(route: string): AppRoute {
@@ -53,7 +58,7 @@ function qualityDisplayLabel(status: string) {
 export function CoachWorkspacePanel({ workspace }: { workspace: WorkspaceSummarySnapshot }) {
   const router = useRouter();
   const [items, setItems] = useState<AgentWorkItemSnapshot[]>(workspace.pendingWorkItems);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<BusyAction | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -75,7 +80,7 @@ export function CoachWorkspacePanel({ workspace }: { workspace: WorkspaceSummary
   }
 
   async function handleOpen(item: AgentWorkItemSnapshot) {
-    setBusyId(item.id);
+    setBusyAction({ id: item.id, action: "open" });
     setError("");
 
     try {
@@ -90,15 +95,15 @@ export function CoachWorkspacePanel({ workspace }: { workspace: WorkspaceSummary
       startTransition(() => {
         router.push(routeForNavigation(result.navigation.route));
       });
-      setBusyId(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to open this item.");
-      setBusyId(null);
+    } finally {
+      setBusyAction(null);
     }
   }
 
   async function handleDismiss(item: AgentWorkItemSnapshot) {
-    setBusyId(item.id);
+    setBusyAction({ id: item.id, action: "dismiss" });
     setError("");
     setNotice("");
 
@@ -109,7 +114,33 @@ export function CoachWorkspacePanel({ workspace }: { workspace: WorkspaceSummary
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to dismiss this item.");
     } finally {
-      setBusyId(null);
+      setBusyAction(null);
+    }
+  }
+
+  async function handleConvert(item: AgentWorkItemSnapshot) {
+    setBusyAction({ id: item.id, action: "convert" });
+    setError("");
+    setNotice("");
+
+    try {
+      const result = await convertAgentWorkItem(item.id, {
+        requestId: item.requestId,
+        revisionReason: "dashboard_work_item"
+      });
+      setItems((current) => current.filter((entry) => entry.id !== item.id));
+      const threadId = item.relatedThreadId || result.conversion.proposalGroup?.threadId;
+      if (threadId) {
+        writeAgentThreadId(threadId);
+      }
+      setNotice("Revision package created. It is waiting for confirmation.");
+      startTransition(() => {
+        router.push(appRoutes.chat);
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to convert this item.");
+    } finally {
+      setBusyAction(null);
     }
   }
 
@@ -153,7 +184,7 @@ export function CoachWorkspacePanel({ workspace }: { workspace: WorkspaceSummary
       </div>
 
       <div className="action-row">
-        <button type="button" className="button" onClick={() => void handleRefresh()} disabled={isRefreshing || busyId !== null}>
+        <button type="button" className="button" onClick={() => void handleRefresh()} disabled={isRefreshing || busyAction !== null}>
           {isRefreshing ? "Refreshing..." : "Refresh workspace"}
         </button>
       </div>
@@ -177,17 +208,27 @@ export function CoachWorkspacePanel({ workspace }: { workspace: WorkspaceSummary
                   type="button"
                   className="ghost-button"
                   onClick={() => void handleOpen(item)}
-                  disabled={busyId !== null || item.status === "expired"}
+                  disabled={busyAction !== null || item.status === "expired"}
                 >
-                  {busyId === item.id ? "Opening..." : "Open"}
+                  {busyAction?.id === item.id && busyAction.action === "open" ? "Opening..." : "Open"}
                 </button>
+                {item.type === "revision_suggested" ? (
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => void handleConvert(item)}
+                    disabled={busyAction !== null || item.status === "expired"}
+                  >
+                    {busyAction?.id === item.id && busyAction.action === "convert" ? "Creating..." : "Create revision"}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="ghost-button subtle"
                   onClick={() => void handleDismiss(item)}
-                  disabled={busyId !== null || item.status === "expired"}
+                  disabled={busyAction !== null || item.status === "expired"}
                 >
-                  Dismiss
+                  {busyAction?.id === item.id && busyAction.action === "dismiss" ? "Dismissing..." : "Dismiss"}
                 </button>
               </div>
             </article>

@@ -362,3 +362,13 @@ export class ReviseCoachingReviewDto {
   @IsString()
   sourceProposalGroupId?: string;
 }
+
+export class ConvertAgentWorkItemDto {
+  @IsOptional()
+  @IsString()
+  requestId?: string;
+
+  @IsOptional()
+  @IsString()
+  revisionReason?: string;
+}

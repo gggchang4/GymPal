@@ -299,6 +299,15 @@ export interface WorkspaceSummarySnapshot {
   }>;
 }
 
+export interface AgentWorkItemConversionSnapshot {
+  type: "revision" | string;
+  requestId?: string | null;
+  review?: CoachingReviewSnapshot;
+  proposalGroup?: AgentProposalGroup;
+  qualityCheck?: AgentQualityCheckSnapshot;
+  supersededProposalGroupIds?: string[];
+}
+
 export interface CreateThreadResponse {
   threadId: string;
 }

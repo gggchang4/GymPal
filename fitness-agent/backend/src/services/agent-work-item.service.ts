@@ -1,18 +1,18 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import { Prisma } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { AppStoreService, CoachSummaryRecord } from "../store/app-store.service";
 import { AgentProductEventService } from "./agent-product-event.service";
+import { AgentStateService } from "./agent-state.service";
 
 const activeStatuses = ["pending", "opened"];
-const finalStatuses = ["dismissed", "converted", "expired"];
 const dismissCooldownMs = 24 * 60 * 60 * 1000;
 const priorityRank: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
-type WorkItemStatus = "pending" | "opened" | "dismissed" | "converted" | "expired";
 type WorkItemPriority = "low" | "medium" | "high";
 type WorkItemSource = "dashboard_refresh" | "scheduled_check" | "chat" | "outcome" | "feedback";
+type TransactionClient = Prisma.TransactionClient | PrismaClient;
 
 interface WorkItemCandidate {
   type: string;
@@ -82,7 +82,8 @@ export class AgentWorkItemService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly appStore: AppStoreService,
-    private readonly productEvents: AgentProductEventService = new AgentProductEventService(prisma)
+    private readonly productEvents: AgentProductEventService = new AgentProductEventService(prisma),
+    @Optional() private readonly agentState?: AgentStateService
   ) {}
 
   private async getActor(userId?: string) {
@@ -303,7 +304,7 @@ export class AgentWorkItemService {
   async openWorkItem(workItemId: string, userId?: string) {
     const actor = await this.getActor(userId);
     const item = await this.getWorkItemForActor(workItemId, actor.id);
-    this.assertActionable(item.status as WorkItemStatus, "open");
+    this.assertActionable(item.status, "open");
     await this.assertNotExpired(item);
 
     const updated = item.status === "opened"
@@ -331,7 +332,7 @@ export class AgentWorkItemService {
   async dismissWorkItem(workItemId: string, userId?: string, options?: { reason?: string; requestId?: string }) {
     const actor = await this.getActor(userId);
     const item = await this.getWorkItemForActor(workItemId, actor.id);
-    this.assertActionable(item.status as WorkItemStatus, "dismiss");
+    this.assertActionable(item.status, "dismiss");
     await this.assertNotExpired(item);
 
     const updated = await this.prisma.agentWorkItem.update({
@@ -354,6 +355,91 @@ export class AgentWorkItemService {
     return this.mapWorkItem(updated);
   }
 
+  async convertWorkItem(workItemId: string, userId?: string, options?: { requestId?: string; revisionReason?: string }) {
+    const actor = await this.getActor(userId);
+    if (!this.agentState) {
+      throw new ConflictException("Work item conversion is not available in this runtime.");
+    }
+    const agentState = this.agentState;
+
+    const conversion = await this.prisma.$transaction(async (tx) => {
+      await this.lockWorkItem(tx, workItemId);
+      const item = await this.getWorkItemForActorInTx(tx, workItemId, actor.id);
+      this.assertActionable(item.status, "convert");
+      if (await this.expireIfNeededInTx(tx, item)) {
+        return { expired: true as const };
+      }
+
+      if (item.type !== "revision_suggested") {
+        throw new ConflictException(`Work item type ${item.type} cannot be converted yet.`);
+      }
+
+      const reviewId = await this.resolveRevisionReviewId(tx, item, actor.id);
+      const requestId = options?.requestId?.trim() || item.requestId || randomUUID();
+      const revision = await agentState.reviseCoachingReview(
+        reviewId,
+        {
+          requestId,
+          revisionReason: options?.revisionReason?.trim() || "work_item_revision",
+          sourceProposalGroupId: item.relatedProposalGroupId ?? undefined
+        },
+        actor.id,
+        tx
+      );
+
+      const updated = await tx.agentWorkItem.update({
+        where: { id: item.id },
+        data: {
+          status: "converted",
+          convertedEntityType: "agent_proposal_group",
+          convertedEntityId: revision.proposal_group.id
+        }
+      });
+
+      await this.productEvents.record(
+        actor.id,
+        {
+          eventType: "work_item_converted",
+          source: updated.source,
+          entityType: "agent_work_item",
+          entityId: updated.id,
+          requestId,
+          payload: {
+            type: updated.type,
+            convertedEntityType: "agent_proposal_group",
+            convertedEntityId: revision.proposal_group.id,
+            sourceReviewId: revision.source_review.id,
+            sourceProposalGroupId: revision.source_proposal_group?.id ?? null
+          }
+        },
+        tx
+      );
+
+      return {
+        expired: false as const,
+        workItem: this.mapWorkItem(updated),
+        conversion: {
+          type: "revision",
+          request_id: requestId,
+          review: revision.review,
+          proposal_group: revision.proposal_group,
+          proposals: revision.proposals,
+          quality_check: revision.quality_check,
+          superseded_proposal_group_ids: revision.superseded_proposal_group_ids
+        }
+      };
+    });
+
+    if (conversion.expired) {
+      throw new ConflictException("This work item has expired. Refresh the workspace and try again.");
+    }
+
+    return {
+      workItem: conversion.workItem,
+      conversion: conversion.conversion
+    };
+  }
+
   private normalizeSource(source?: string): WorkItemSource {
     if (source === "scheduled_check" || source === "chat" || source === "outcome" || source === "feedback") {
       return source;
@@ -373,8 +459,20 @@ export class AgentWorkItemService {
     return item;
   }
 
-  private assertActionable(status: WorkItemStatus, action: "open" | "dismiss") {
-    if (finalStatuses.includes(status)) {
+  private async getWorkItemForActorInTx(client: TransactionClient, workItemId: string, userId: string) {
+    const item = await client.agentWorkItem.findFirst({
+      where: { id: workItemId, userId }
+    });
+
+    if (!item) {
+      throw new NotFoundException("Agent work item not found.");
+    }
+
+    return item;
+  }
+
+  private assertActionable(status: string, action: "open" | "dismiss" | "convert") {
+    if (!activeStatuses.includes(status)) {
       throw new ConflictException(`This work item is ${status} and cannot be ${action}ed.`);
     }
   }
@@ -389,6 +487,52 @@ export class AgentWorkItemService {
       data: { status: "expired" }
     });
     throw new ConflictException("This work item has expired. Refresh the workspace and try again.");
+  }
+
+  private async expireIfNeededInTx(client: TransactionClient, item: { id: string; expiresAt: Date | null }) {
+    if (!item.expiresAt || item.expiresAt.getTime() >= Date.now()) {
+      return false;
+    }
+
+    await client.agentWorkItem.update({
+      where: { id: item.id },
+      data: { status: "expired" }
+    });
+    return true;
+  }
+
+  private async lockWorkItem(client: TransactionClient, workItemId: string) {
+    const rows = await client.$queryRaw<Array<{ id: string }>>(
+      Prisma.sql`SELECT id FROM "AgentWorkItem" WHERE id = ${workItemId} FOR UPDATE`
+    );
+    if (rows.length === 0) {
+      throw new NotFoundException("Agent work item not found.");
+    }
+  }
+
+  private async resolveRevisionReviewId(
+    client: TransactionClient,
+    item: { relatedReviewId: string | null; relatedProposalGroupId: string | null },
+    userId: string
+  ) {
+    if (item.relatedReviewId) {
+      return item.relatedReviewId;
+    }
+
+    if (!item.relatedProposalGroupId) {
+      throw new ConflictException("This revision work item is missing a related review or proposal group.");
+    }
+
+    const proposalGroup = await client.agentProposalGroup.findFirst({
+      where: { id: item.relatedProposalGroupId, userId },
+      select: { reviewSnapshotId: true }
+    });
+
+    if (!proposalGroup?.reviewSnapshotId) {
+      throw new ConflictException("This revision work item is not tied to a review snapshot.");
+    }
+
+    return proposalGroup.reviewSnapshotId;
   }
 
   private async expireStaleWorkItems(userId: string) {

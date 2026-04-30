@@ -802,20 +802,34 @@ export class AgentStateService {
     };
   }
 
-  async reviseCoachingReview(reviewId: string, payload: ReviseCoachingReviewDto, userId?: string) {
-    const { actor, review } = await this.getReviewForActor(reviewId, userId);
+  async reviseCoachingReview(reviewId: string, payload: ReviseCoachingReviewDto, userId?: string, client?: TransactionClient) {
+    const db = client ?? this.prisma;
+    const actor = await this.getActor(userId);
+    const review = await db.coachingReviewSnapshot.findFirst({
+      where: { id: reviewId, userId: actor.id }
+    });
+
+    if (!review) {
+      throw new NotFoundException("Coaching review snapshot not found.");
+    }
+
     const requestId = payload.requestId?.trim() || randomUUID();
     const revisionReason = payload.revisionReason?.trim() || payload.reason?.trim() || "manual_revision";
 
     const sourceGroup = payload.sourceProposalGroupId
-      ? (
-          await this.getProposalGroupForActor(payload.sourceProposalGroupId, actor.id)
-        ).proposalGroup
-      : await this.prisma.agentProposalGroup.findFirst({
+      ? await db.agentProposalGroup.findFirst({
+          where: { id: payload.sourceProposalGroupId, userId: actor.id },
+          include: proposalGroupExecutionInclude
+        })
+      : await db.agentProposalGroup.findFirst({
           where: { userId: actor.id, reviewSnapshotId: review.id },
           include: proposalGroupExecutionInclude,
           orderBy: { createdAt: "desc" }
         });
+
+    if (payload.sourceProposalGroupId && !sourceGroup) {
+      throw new NotFoundException("Agent proposal group not found.");
+    }
 
     if (payload.sourceProposalGroupId && sourceGroup) {
       const sourceGroupReviewInput = readJsonObject(sourceGroup.reviewSnapshot?.inputSnapshot);
@@ -835,7 +849,13 @@ export class AgentStateService {
     if (!runId) {
       throw new ConflictException("This coaching review is not tied to an agent run and cannot be revised.");
     }
-    await this.getRunForActor(runId, actor.id);
+    const run = await db.agentRun.findFirst({
+      where: { id: runId, thread: { userId: actor.id } },
+      select: { id: true }
+    });
+    if (!run) {
+      throw new NotFoundException("Agent run not found.");
+    }
 
     const revisionDraft = this.buildRevisionPackageDraft({
       review,
@@ -845,7 +865,7 @@ export class AgentStateService {
       revisionReason
     });
 
-    const created = await this.prisma.$transaction(async (tx) => {
+    const createRevision = async (tx: TransactionClient) => {
       await this.lockRevisionSource(tx, review.id);
 
       const groupsToSupersede = await this.findSupersedableRevisionGroups(tx, review, sourceGroup?.id);
@@ -977,7 +997,9 @@ export class AgentStateService {
         qualityCheck,
         supersededGroupIds
       };
-    });
+    };
+
+    const created = client ? await createRevision(client) : await this.prisma.$transaction(createRevision);
 
     return {
       request_id: requestId,

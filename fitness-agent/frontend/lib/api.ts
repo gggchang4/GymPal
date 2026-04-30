@@ -5,6 +5,7 @@ import type {
   AgentProposalGroup,
   AgentProductEventSnapshot,
   AgentQualityCheckSnapshot,
+  AgentWorkItemConversionSnapshot,
   AgentWorkItemSnapshot,
   BodyMetricLog,
   CoachSummarySnapshot,
@@ -171,6 +172,15 @@ interface RawAgentQualityCheck {
   passed_policy_labels?: string[];
   evidence?: Record<string, unknown>;
   created_at: string;
+}
+
+interface RawAgentWorkItemConversion {
+  type: string;
+  request_id?: string | null;
+  review?: RawCoachingReviewSnapshot;
+  proposal_group?: RawAgentProposalGroup;
+  quality_check?: RawAgentQualityCheck;
+  superseded_proposal_group_ids?: string[];
 }
 
 interface RawUserSnapshot {
@@ -479,6 +489,17 @@ function mapAgentQualityCheck(check: RawAgentQualityCheck): AgentQualityCheckSna
   };
 }
 
+function mapAgentWorkItemConversion(conversion: RawAgentWorkItemConversion): AgentWorkItemConversionSnapshot {
+  return {
+    type: conversion.type,
+    requestId: conversion.request_id ?? null,
+    review: conversion.review ? mapCoachingReview(conversion.review) : undefined,
+    proposalGroup: conversion.proposal_group ? mapProposalGroup(conversion.proposal_group) : undefined,
+    qualityCheck: conversion.quality_check ? mapAgentQualityCheck(conversion.quality_check) : undefined,
+    supersededProposalGroupIds: conversion.superseded_proposal_group_ids ?? []
+  };
+}
+
 function mapAdviceSnapshot(snapshot: RawAdviceSnapshot): AdviceSnapshot {
   return {
     id: snapshot.id,
@@ -733,6 +754,31 @@ export async function dismissAgentWorkItem(workItemId: string, reason?: string):
     body: JSON.stringify({ reason })
   });
   return mapAgentWorkItem(result);
+}
+
+export async function convertAgentWorkItem(
+  workItemId: string,
+  payload?: { requestId?: string | null; revisionReason?: string | null }
+): Promise<{
+  workItem: AgentWorkItemSnapshot;
+  conversion: AgentWorkItemConversionSnapshot;
+}> {
+  const result = await requestJson<{
+    workItem: RawAgentWorkItem;
+    conversion: RawAgentWorkItemConversion;
+  }>(`${backendBaseUrl}/agent/work-items/${workItemId}/convert`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      requestId: payload?.requestId ?? undefined,
+      revisionReason: payload?.revisionReason ?? undefined
+    })
+  });
+
+  return {
+    workItem: mapAgentWorkItem(result.workItem),
+    conversion: mapAgentWorkItemConversion(result.conversion)
+  };
 }
 
 export async function getQualityChecksForRun(runId: string, authToken?: string): Promise<AgentQualityCheckSnapshot[]> {

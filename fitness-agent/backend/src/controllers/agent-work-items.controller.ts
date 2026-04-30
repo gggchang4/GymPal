@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
 import { CurrentUser } from "../auth/auth.decorators";
 import type { AuthTokenClaims } from "../auth/auth-token.service";
-import { DismissAgentWorkItemDto, RefreshAgentWorkItemsDto } from "../dtos/agent.dto";
+import { ConvertAgentWorkItemDto, DismissAgentWorkItemDto, RefreshAgentWorkItemsDto } from "../dtos/agent.dto";
 import { AgentWorkItemService } from "../services/agent-work-item.service";
 
 @Controller("agent/work-items")
@@ -24,6 +24,18 @@ export class AgentWorkItemsController {
   @Post(":id/open")
   async openWorkItem(@Param("id") id: string, @CurrentUser() user: AuthTokenClaims) {
     return this.workItems.openWorkItem(id, user.sub);
+  }
+
+  @Post(":id/convert")
+  async convertWorkItem(
+    @Param("id") id: string,
+    @Body() body: ConvertAgentWorkItemDto,
+    @CurrentUser() user: AuthTokenClaims
+  ) {
+    return this.workItems.convertWorkItem(id, user.sub, {
+      requestId: body.requestId,
+      revisionReason: body.revisionReason
+    });
   }
 
   @Post(":id/dismiss")
