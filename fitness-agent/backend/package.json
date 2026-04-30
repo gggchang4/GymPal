@@ -17,6 +17,7 @@
     "test:phase3:policy": "node -r ts-node/register .\\test\\phase3-policy.test.ts",
     "test:phase4:work-items": "node -r ts-node/register .\\test\\phase4-work-items.test.ts",
     "test:phase4:quality": "node -r ts-node/register .\\test\\phase4-quality.test.ts",
+    "test:phase4:revision": "node -r ts-node/register .\\test\\phase4-revision.test.ts",
     "test:phase4:product-events": "node -r ts-node/register .\\test\\phase4-product-events.test.ts",
     "lint": "eslint \"src/**/*.ts\"",
     "prisma:generate": "prisma generate",

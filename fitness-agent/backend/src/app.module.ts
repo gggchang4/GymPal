@@ -8,6 +8,7 @@ import { AuthController } from "./controllers/auth.controller";
 import { AgentFeedbackController } from "./controllers/agent-feedback.controller";
 import { AgentContextController } from "./controllers/agent-context.controller";
 import { AgentCommandsController } from "./controllers/agent-commands.controller";
+import { AgentReviewsController } from "./controllers/agent-reviews.controller";
 import { AgentStateController } from "./controllers/agent-state.controller";
 import { AgentWorkItemsController } from "./controllers/agent-work-items.controller";
 import { AgentQualityController } from "./controllers/agent-quality.controller";
@@ -35,6 +36,7 @@ import { AgentProductEventService } from "./services/agent-product-event.service
     AgentContextController,
     AgentWorkItemsController,
     AgentQualityController,
+    AgentReviewsController,
     AgentStateController,
     AgentCommandsController,
     DashboardController,

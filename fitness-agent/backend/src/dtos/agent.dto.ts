@@ -344,3 +344,21 @@ export class DismissAgentWorkItemDto {
   @IsString()
   requestId?: string;
 }
+
+export class ReviseCoachingReviewDto {
+  @IsOptional()
+  @IsString()
+  requestId?: string;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+
+  @IsOptional()
+  @IsString()
+  revisionReason?: string;
+
+  @IsOptional()
+  @IsString()
+  sourceProposalGroupId?: string;
+}
