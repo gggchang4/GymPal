@@ -7,8 +7,8 @@ import { NotFoundException } from "@nestjs/common";
 import { AppStoreService } from "../src/store/app-store.service";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { AgentStateService } from "../src/services/agent-state.service";
-import { CoachingOutcomeService } from "../src/services/coaching-outcome.service";
-import { CoachingStrategyService } from "../src/services/coaching-strategy.service";
+import { createAgentTestServices } from "./helpers/agent-services";
+import { databaseTest } from "./helpers/database";
 
 function loadBackendEnv() {
   const envPath = resolve(__dirname, "..", ".env");
@@ -39,13 +39,7 @@ const databaseUrl = process.env.DATABASE_URL;
 const skipWithoutDatabase = databaseUrl ? false : "Set backend/.env DATABASE_URL to run real database Phase 2 e2e tests.";
 
 function createServices() {
-  const prisma = new PrismaService();
-  const outcomeService = new CoachingOutcomeService(prisma);
-  const strategyService = new CoachingStrategyService(prisma);
-  const appStore = new AppStoreService(prisma, outcomeService);
-  const agentState = new AgentStateService(prisma, appStore, outcomeService, strategyService);
-
-  return { prisma, appStore, agentState };
+  return createAgentTestServices();
 }
 
 async function cleanupTestUsers(prisma: PrismaService, runId: string) {
@@ -79,9 +73,8 @@ async function createThreadAndRun(agentState: AgentStateService, userId: string)
   return { threadId: thread.id, runId };
 }
 
-test(
+databaseTest(
   "phase2 coaching package rolls back business writes when one grouped action fails",
-  { skip: skipWithoutDatabase },
   async () => {
     const runId = randomUUID();
     const { prisma, appStore, agentState } = createServices();
@@ -215,7 +208,7 @@ test(
   }
 );
 
-test("phase2 review and package state is isolated between users", { skip: skipWithoutDatabase }, async () => {
+databaseTest("phase2 review and package state is isolated between users", async () => {
   const runId = randomUUID();
   const { prisma, appStore, agentState } = createServices();
   await prisma.$connect();

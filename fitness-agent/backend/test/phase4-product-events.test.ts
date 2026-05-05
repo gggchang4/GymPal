@@ -9,9 +9,9 @@ import { PrismaService } from "../src/prisma/prisma.service";
 import { AgentProductEventService } from "../src/services/agent-product-event.service";
 import { AgentQualityService } from "../src/services/agent-quality.service";
 import { AgentStateService } from "../src/services/agent-state.service";
-import { CoachingOutcomeService } from "../src/services/coaching-outcome.service";
-import { CoachingStrategyService } from "../src/services/coaching-strategy.service";
 import { AppStoreService } from "../src/store/app-store.service";
+import { createAgentTestServices } from "./helpers/agent-services";
+import { databaseTest } from "./helpers/database";
 
 function loadBackendEnv() {
   const envPath = resolve(__dirname, "..", ".env");
@@ -43,21 +43,7 @@ const skipWithoutDatabase = process.env.DATABASE_URL
   : "Set backend/.env DATABASE_URL to run real database Phase 4 product event tests.";
 
 function createServices() {
-  const prisma = new PrismaService();
-  const outcomeService = new CoachingOutcomeService(prisma);
-  const strategyService = new CoachingStrategyService(prisma);
-  const appStore = new AppStoreService(prisma, outcomeService);
-  const productEvents = new AgentProductEventService(prisma);
-  const qualityService = new AgentQualityService(prisma, appStore);
-  const agentState = new AgentStateService(
-    prisma,
-    appStore,
-    outcomeService,
-    strategyService,
-    undefined,
-    qualityService,
-    productEvents
-  );
+  const { prisma, appStore, agentState, productEvents } = createAgentTestServices();
   const feedbackController = new AgentFeedbackController(appStore, prisma, productEvents);
 
   return { prisma, appStore, agentState, feedbackController };
@@ -140,7 +126,7 @@ async function createAdvicePackage(agentState: AgentStateService, threadId: stri
   );
 }
 
-test("phase4 records package and feedback product events", { skip: skipWithoutDatabase }, async () => {
+databaseTest("phase4 records package and feedback product events", async () => {
   const runId = randomUUID();
   const { prisma, appStore, agentState, feedbackController } = createServices();
   await prisma.$connect();

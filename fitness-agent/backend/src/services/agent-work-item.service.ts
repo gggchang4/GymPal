@@ -5,8 +5,8 @@ import { PrismaService } from "../prisma/prisma.service";
 import { AppStoreService, CoachSummaryRecord } from "../store/app-store.service";
 import { AgentProductEventService } from "./agent-product-event.service";
 import { AgentStateService } from "./agent-state.service";
+import { activeWorkItemStatuses, isActiveWorkItemStatus, workItemStatuses } from "./agent-status";
 
-const activeStatuses = ["pending", "opened"];
 const dismissCooldownMs = 24 * 60 * 60 * 1000;
 const priorityRank: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
@@ -139,7 +139,7 @@ export class AgentWorkItemService {
     const items = await this.prisma.agentWorkItem.findMany({
       where: {
         userId: actor.id,
-        status: includeFinal ? undefined : { in: activeStatuses }
+        status: includeFinal ? undefined : { in: [...activeWorkItemStatuses] }
       },
       orderBy: { createdAt: "desc" },
       take: includeFinal ? 100 : 50
@@ -231,7 +231,7 @@ export class AgentWorkItemService {
         where: {
           userId: actor.id,
           type: candidate.type,
-          status: { in: activeStatuses },
+          status: { in: [...activeWorkItemStatuses] },
           ...relatedWhere(candidate)
         }
       });
@@ -258,7 +258,7 @@ export class AgentWorkItemService {
           data: {
             userId: actor.id,
             type: candidate.type,
-            status: "pending",
+            status: workItemStatuses.pending,
             priority: candidate.priority,
             source: candidate.source,
             title: candidate.title,
@@ -303,24 +303,35 @@ export class AgentWorkItemService {
 
   async openWorkItem(workItemId: string, userId?: string) {
     const actor = await this.getActor(userId);
-    const item = await this.getWorkItemForActor(workItemId, actor.id);
-    this.assertActionable(item.status, "open");
-    await this.assertNotExpired(item);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await this.lockWorkItem(tx, workItemId);
+      const item = await this.getWorkItemForActorInTx(tx, workItemId, actor.id);
+      this.assertActionable(item.status, "open");
+      if (await this.expireIfNeededInTx(tx, item)) {
+        throw new ConflictException("This work item has expired. Refresh the workspace and try again.");
+      }
 
-    const updated = item.status === "opened"
-      ? item
-      : await this.prisma.agentWorkItem.update({
-          where: { id: item.id },
-          data: { status: "opened" }
-        });
+      const nextItem = item.status === workItemStatuses.opened
+        ? item
+        : await tx.agentWorkItem.update({
+            where: { id: item.id },
+            data: { status: workItemStatuses.opened }
+          });
 
-    await this.productEvents.record(actor.id, {
-      eventType: "work_item_opened",
-      source: updated.source,
-      entityType: "agent_work_item",
-      entityId: updated.id,
-      requestId: updated.requestId,
-      payload: { type: updated.type, previousStatus: item.status }
+      await this.productEvents.record(
+        actor.id,
+        {
+          eventType: "work_item_opened",
+          source: nextItem.source,
+          entityType: "agent_work_item",
+          entityId: nextItem.id,
+          requestId: nextItem.requestId,
+          payload: { type: nextItem.type, previousStatus: item.status }
+        },
+        tx
+      );
+
+      return nextItem;
     });
 
     return {
@@ -331,25 +342,36 @@ export class AgentWorkItemService {
 
   async dismissWorkItem(workItemId: string, userId?: string, options?: { reason?: string; requestId?: string }) {
     const actor = await this.getActor(userId);
-    const item = await this.getWorkItemForActor(workItemId, actor.id);
-    this.assertActionable(item.status, "dismiss");
-    await this.assertNotExpired(item);
-
-    const updated = await this.prisma.agentWorkItem.update({
-      where: { id: item.id },
-      data: { status: "dismissed" }
-    });
-
-    await this.productEvents.record(actor.id, {
-      eventType: "work_item_dismissed",
-      source: updated.source,
-      entityType: "agent_work_item",
-      entityId: updated.id,
-      requestId: options?.requestId ?? updated.requestId,
-      payload: {
-        type: updated.type,
-        reason: options?.reason?.trim() || "user_dismissed"
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await this.lockWorkItem(tx, workItemId);
+      const item = await this.getWorkItemForActorInTx(tx, workItemId, actor.id);
+      this.assertActionable(item.status, "dismiss");
+      if (await this.expireIfNeededInTx(tx, item)) {
+        throw new ConflictException("This work item has expired. Refresh the workspace and try again.");
       }
+
+      const nextItem = await tx.agentWorkItem.update({
+        where: { id: item.id },
+        data: { status: workItemStatuses.dismissed }
+      });
+
+      await this.productEvents.record(
+        actor.id,
+        {
+          eventType: "work_item_dismissed",
+          source: nextItem.source,
+          entityType: "agent_work_item",
+          entityId: nextItem.id,
+          requestId: options?.requestId ?? nextItem.requestId,
+          payload: {
+            type: nextItem.type,
+            reason: options?.reason?.trim() || "user_dismissed"
+          }
+        },
+        tx
+      );
+
+      return nextItem;
     });
 
     return this.mapWorkItem(updated);
@@ -390,7 +412,7 @@ export class AgentWorkItemService {
       const updated = await tx.agentWorkItem.update({
         where: { id: item.id },
         data: {
-          status: "converted",
+          status: workItemStatuses.converted,
           convertedEntityType: "agent_proposal_group",
           convertedEntityId: revision.proposal_group.id
         }
@@ -472,7 +494,7 @@ export class AgentWorkItemService {
   }
 
   private assertActionable(status: string, action: "open" | "dismiss" | "convert") {
-    if (!activeStatuses.includes(status)) {
+    if (!isActiveWorkItemStatus(status)) {
       throw new ConflictException(`This work item is ${status} and cannot be ${action}ed.`);
     }
   }
@@ -484,7 +506,7 @@ export class AgentWorkItemService {
 
     await this.prisma.agentWorkItem.update({
       where: { id: item.id },
-      data: { status: "expired" }
+      data: { status: workItemStatuses.expired }
     });
     throw new ConflictException("This work item has expired. Refresh the workspace and try again.");
   }
@@ -496,7 +518,7 @@ export class AgentWorkItemService {
 
     await client.agentWorkItem.update({
       where: { id: item.id },
-      data: { status: "expired" }
+      data: { status: workItemStatuses.expired }
     });
     return true;
   }
@@ -539,7 +561,7 @@ export class AgentWorkItemService {
     const staleItems = await this.prisma.agentWorkItem.findMany({
       where: {
         userId,
-        status: { in: activeStatuses },
+        status: { in: [...activeWorkItemStatuses] },
         expiresAt: { lt: new Date() }
       }
     });
@@ -550,7 +572,7 @@ export class AgentWorkItemService {
 
     await this.prisma.agentWorkItem.updateMany({
       where: { id: { in: staleItems.map((item) => item.id) } },
-      data: { status: "expired" }
+      data: { status: workItemStatuses.expired }
     });
 
     return staleItems.map((item) => ({
@@ -565,7 +587,7 @@ export class AgentWorkItemService {
       where: {
         userId,
         type: candidate.type,
-        status: "dismissed",
+        status: workItemStatuses.dismissed,
         updatedAt: { gt: new Date(Date.now() - dismissCooldownMs) },
         ...relatedWhere(candidate)
       },

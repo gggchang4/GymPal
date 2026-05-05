@@ -6,8 +6,8 @@ import { test } from "node:test";
 import { AppStoreService } from "../src/store/app-store.service";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { AgentStateService } from "../src/services/agent-state.service";
-import { CoachingOutcomeService } from "../src/services/coaching-outcome.service";
-import { CoachingStrategyService } from "../src/services/coaching-strategy.service";
+import { createAgentTestServices } from "./helpers/agent-services";
+import { databaseTest } from "./helpers/database";
 
 function loadBackendEnv() {
   const envPath = resolve(__dirname, "..", ".env");
@@ -39,13 +39,7 @@ const skipWithoutDatabase = process.env.DATABASE_URL
   : "Set backend/.env DATABASE_URL to run real database Phase 3 outcome tests.";
 
 function createServices() {
-  const prisma = new PrismaService();
-  const outcomeService = new CoachingOutcomeService(prisma);
-  const strategyService = new CoachingStrategyService(prisma);
-  const appStore = new AppStoreService(prisma, outcomeService);
-  const agentState = new AgentStateService(prisma, appStore, outcomeService, strategyService);
-
-  return { prisma, appStore, agentState, outcomeService, strategyService };
+  return createAgentTestServices();
 }
 
 async function cleanupTestUsers(prisma: PrismaService, runId: string) {
@@ -79,7 +73,7 @@ async function createThreadAndRun(agentState: AgentStateService, userId: string)
   return { threadId: thread.id, runId };
 }
 
-test("phase3 coaching package execution creates one pending outcome and exposes it in coach summary", { skip: skipWithoutDatabase }, async () => {
+databaseTest("phase3 coaching package execution creates one pending outcome and exposes it in coach summary", async () => {
   const runId = randomUUID();
   const { prisma, appStore, agentState, outcomeService } = createServices();
   await prisma.$connect();
@@ -234,7 +228,7 @@ test("phase3 coaching package execution creates one pending outcome and exposes 
   }
 });
 
-test("phase3 due outcome becomes inconclusive when follow-up data is insufficient", { skip: skipWithoutDatabase }, async () => {
+databaseTest("phase3 due outcome becomes inconclusive when follow-up data is insufficient", async () => {
   const runId = randomUUID();
   const { prisma, appStore, outcomeService } = createServices();
   await prisma.$connect();

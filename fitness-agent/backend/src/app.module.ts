@@ -26,6 +26,7 @@ import { AgentPolicyService } from "./services/agent-policy.service";
 import { AgentWorkItemService } from "./services/agent-work-item.service";
 import { AgentQualityService } from "./services/agent-quality.service";
 import { AgentProductEventService } from "./services/agent-product-event.service";
+import { AgentActionExecutorService } from "./services/agent-action-executor.service";
 
 @Module({
   controllers: [
@@ -55,6 +56,7 @@ import { AgentProductEventService } from "./services/agent-product-event.service
     AgentWorkItemService,
     AgentQualityService,
     AgentProductEventService,
+    AgentActionExecutorService,
     AuthTokenService,
     {
       provide: APP_GUARD,
