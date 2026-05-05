@@ -2,6 +2,10 @@ import * as assert from "node:assert/strict";
 import { test } from "node:test";
 import { ConflictException } from "@nestjs/common";
 import { AgentStateService } from "../src/services/agent-state.service";
+import { AgentPolicyService } from "../src/services/agent-policy.service";
+import { AgentQualityService } from "../src/services/agent-quality.service";
+import { AgentProductEventService } from "../src/services/agent-product-event.service";
+import { AgentActionExecutorService } from "../src/services/agent-action-executor.service";
 import { getProposalActionState } from "../../frontend/lib/proposal-state";
 
 function makeProposal(overrides: Record<string, unknown> = {}) {
@@ -207,6 +211,7 @@ function createService() {
         createdAt: now
       })
     },
+    $queryRaw: async () => [{ id: "group-1" }],
     $transaction: async (input: unknown) => {
       if (typeof input === "function") {
         return input(prisma);
@@ -258,11 +263,25 @@ function createService() {
       uncertaintyFlags: []
     })
   };
+  const policyService = new AgentPolicyService();
+  const qualityService = new AgentQualityService(prisma as never, appStore as never, policyService);
+  const productEvents = new AgentProductEventService(prisma as never);
+  const actionExecutor = new AgentActionExecutorService(appStore as never, outcomeService as never, policyService);
 
   return {
     prisma,
     appStore,
-    service: new AgentStateService(prisma as never, appStore as never, outcomeService as never, strategyService as never)
+    actionExecutor,
+    service: new AgentStateService(
+      prisma as never,
+      appStore as never,
+      outcomeService as never,
+      strategyService as never,
+      policyService,
+      qualityService,
+      productEvents,
+      actionExecutor
+    )
   };
 }
 
@@ -448,47 +467,48 @@ test("createCoachingPackage derives risk from backend policy instead of trusting
 });
 
 test("executeProposalGroup applies grouped proposals and marks the review as applied", async () => {
-  const { service, prisma } = createService();
+  const { service, prisma, actionExecutor } = createService();
   const updates: string[] = [];
 
-  (service as any).getProposalGroupForActor = async () => ({
-    actor: { id: "user-1" },
-    proposalGroup: {
-      id: "group-1",
-      threadId: "thread-1",
-      runId: "run-1",
-      userId: "user-1",
-      reviewSnapshotId: "review-1",
-      status: "pending",
-      title: "Weekly package",
-      summary: "Apply weekly coaching package.",
-      preview: {},
-      riskLevel: "high",
-      expiresAt: new Date("2099-04-20T16:00:00.000Z"),
-      executedAt: null,
-      createdAt: new Date("2099-04-20T12:00:00.000Z"),
-      updatedAt: new Date("2099-04-20T12:00:00.000Z"),
-      proposals: [
-        makeProposal({
-          id: "proposal-a",
-          proposalGroupId: "group-1",
-          status: "pending",
-          actionType: "create_advice_snapshot",
-          payload: { summary: "Advice" }
-        }),
-        makeProposal({
-          id: "proposal-b",
-          proposalGroupId: "group-1",
-          status: "pending",
-          actionType: "generate_diet_snapshot",
-          payload: { totalCalorie: 2000, targetCalorie: 2000, meals: [], nutritionDetail: {}, agentTips: [] }
-        })
-      ]
-    }
+  (prisma.agentProposalGroup as any).findFirst = async () => ({
+    id: "group-1",
+    threadId: "thread-1",
+    runId: "run-1",
+    userId: "user-1",
+    reviewSnapshotId: "review-1",
+    status: "pending",
+    title: "Weekly package",
+    summary: "Apply weekly coaching package.",
+    preview: {},
+    riskLevel: "high",
+    strategyTemplateId: null,
+    strategyVersion: null,
+    policyLabels: [],
+    expiresAt: new Date("2099-04-20T16:00:00.000Z"),
+    executedAt: null,
+    createdAt: new Date("2099-04-20T12:00:00.000Z"),
+    updatedAt: new Date("2099-04-20T12:00:00.000Z"),
+    reviewSnapshot: null,
+    proposals: [
+      makeProposal({
+        id: "proposal-a",
+        proposalGroupId: "group-1",
+        status: "pending",
+        actionType: "create_advice_snapshot",
+        payload: { summary: "Advice" }
+      }),
+      makeProposal({
+        id: "proposal-b",
+        proposalGroupId: "group-1",
+        status: "pending",
+        actionType: "generate_diet_snapshot",
+        payload: { totalCalorie: 2000, targetCalorie: 2000, meals: [], nutritionDetail: {}, agentTips: [] }
+      })
+    ]
   });
 
   (service as any).assertProposalFresh = async () => undefined;
-  (service as any).dispatchActionWithinTransaction = async (actionType: string) => ({ ok: true, actionType });
+  (actionExecutor as any).executePackageAction = async (actionType: string) => ({ ok: true, actionType });
   prisma.agentProposalGroup.updateMany = async () => {
     updates.push("group:approved");
     return { count: 1 };
@@ -533,28 +553,29 @@ test("executeProposalGroup applies grouped proposals and marks the review as app
 test("executeProposalGroup returns an existing idempotent package execution", async () => {
   const { service, prisma } = createService();
 
-  (service as any).getProposalGroupForActor = async () => ({
-    actor: { id: "user-1" },
-    proposalGroup: {
-      id: "group-1",
-      threadId: "thread-1",
-      runId: "run-1",
-      userId: "user-1",
-      reviewSnapshotId: "review-1",
-      status: "executed",
-      title: "Weekly package",
-      summary: "Apply weekly coaching package.",
-      preview: {},
-      riskLevel: "high",
-      expiresAt: new Date("2099-04-20T16:00:00.000Z"),
-      executedAt: new Date("2099-04-20T13:00:00.000Z"),
-      createdAt: new Date("2099-04-20T12:00:00.000Z"),
-      updatedAt: new Date("2099-04-20T13:00:00.000Z"),
-      proposals: [
-        makeProposal({ id: "proposal-a", proposalGroupId: "group-1", actionType: "create_advice_snapshot" }),
-        makeProposal({ id: "proposal-b", proposalGroupId: "group-1", actionType: "generate_diet_snapshot" })
-      ]
-    }
+  (prisma.agentProposalGroup as any).findFirst = async () => ({
+    id: "group-1",
+    threadId: "thread-1",
+    runId: "run-1",
+    userId: "user-1",
+    reviewSnapshotId: "review-1",
+    status: "executed",
+    title: "Weekly package",
+    summary: "Apply weekly coaching package.",
+    preview: {},
+    riskLevel: "high",
+    strategyTemplateId: null,
+    strategyVersion: null,
+    policyLabels: [],
+    expiresAt: new Date("2099-04-20T16:00:00.000Z"),
+    executedAt: new Date("2099-04-20T13:00:00.000Z"),
+    createdAt: new Date("2099-04-20T12:00:00.000Z"),
+    updatedAt: new Date("2099-04-20T13:00:00.000Z"),
+    reviewSnapshot: null,
+    proposals: [
+      makeProposal({ id: "proposal-a", proposalGroupId: "group-1", actionType: "create_advice_snapshot" }),
+      makeProposal({ id: "proposal-b", proposalGroupId: "group-1", actionType: "generate_diet_snapshot" })
+    ]
   });
 
   (prisma.agentActionProposal as any).count = async () => 2;

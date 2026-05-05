@@ -240,6 +240,8 @@ class ToolGateway:
             "create_coaching_memory": "create-memory",
             "update_coaching_memory": "update-memory",
             "archive_coaching_memory": "archive-memory",
+            "create_recommendation_feedback": "create-recommendation-feedback",
+            "refresh_coaching_outcome": "refresh-coaching-outcome",
         }
 
         endpoint = endpoint_by_action.get(action_type)

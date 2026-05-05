@@ -1,62 +1,14 @@
 import * as assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { test } from "node:test";
 import { NotFoundException } from "@nestjs/common";
 import { AppStoreService } from "../src/store/app-store.service";
 import { PrismaService } from "../src/prisma/prisma.service";
 import { AgentStateService } from "../src/services/agent-state.service";
-import { CoachingOutcomeService } from "../src/services/coaching-outcome.service";
-import { CoachingStrategyService } from "../src/services/coaching-strategy.service";
-
-function loadBackendEnv() {
-  const envPath = resolve(__dirname, "..", ".env");
-  if (!existsSync(envPath)) {
-    return;
-  }
-
-  for (const line of readFileSync(envPath, "utf8").split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) {
-      continue;
-    }
-
-    const separatorIndex = trimmed.indexOf("=");
-    if (separatorIndex <= 0) {
-      continue;
-    }
-
-    const key = trimmed.slice(0, separatorIndex).trim();
-    const value = trimmed.slice(separatorIndex + 1).trim().replace(/^["']|["']$/g, "");
-    process.env[key] ??= value;
-  }
-}
-
-loadBackendEnv();
-
-const skipWithoutDatabase = process.env.DATABASE_URL
-  ? false
-  : "Set backend/.env DATABASE_URL to run real database Phase 3 memory tests.";
+import { cleanupTestUsers, databaseTest } from "./helpers/database";
+import { createAgentTestServices } from "./helpers/agent-services";
 
 function createServices() {
-  const prisma = new PrismaService();
-  const outcomeService = new CoachingOutcomeService(prisma);
-  const strategyService = new CoachingStrategyService(prisma);
-  const appStore = new AppStoreService(prisma, outcomeService);
-  const agentState = new AgentStateService(prisma, appStore, outcomeService, strategyService);
-
-  return { prisma, appStore, agentState };
-}
-
-async function cleanupTestUsers(prisma: PrismaService, runId: string) {
-  await prisma.user.deleteMany({
-    where: {
-      email: {
-        contains: runId
-      }
-    }
-  });
+  return createAgentTestServices();
 }
 
 async function createUser(appStore: AppStoreService, runId: string, label: string) {
@@ -117,7 +69,7 @@ async function createMemoryProposal(agentState: AgentStateService, threadId: str
   return proposal;
 }
 
-test("phase3 memory proposal writes memory and event only after confirmation", { skip: skipWithoutDatabase }, async () => {
+databaseTest("phase3 memory proposal writes memory and event only after confirmation", async () => {
   const runId = randomUUID();
   const { prisma, appStore, agentState } = createServices();
   await prisma.$connect();
@@ -145,7 +97,7 @@ test("phase3 memory proposal writes memory and event only after confirmation", {
   }
 });
 
-test("phase3 rejected memory proposal does not write long-lived memory", { skip: skipWithoutDatabase }, async () => {
+databaseTest("phase3 rejected memory proposal does not write long-lived memory", async () => {
   const runId = randomUUID();
   const { prisma, appStore, agentState } = createServices();
   await prisma.$connect();
@@ -167,7 +119,7 @@ test("phase3 rejected memory proposal does not write long-lived memory", { skip:
   }
 });
 
-test("phase3 partial memory updates do not overwrite stable fields", { skip: skipWithoutDatabase }, async () => {
+databaseTest("phase3 partial memory updates do not overwrite stable fields", async () => {
   const runId = randomUUID();
   const { prisma, appStore } = createServices();
   await prisma.$connect();
@@ -203,7 +155,7 @@ test("phase3 partial memory updates do not overwrite stable fields", { skip: ski
   }
 });
 
-test("phase3 memory confidence falls back when proposal payload is malformed", { skip: skipWithoutDatabase }, async () => {
+databaseTest("phase3 memory confidence falls back when proposal payload is malformed", async () => {
   const runId = randomUUID();
   const { prisma, appStore } = createServices();
   await prisma.$connect();
@@ -237,7 +189,7 @@ test("phase3 memory confidence falls back when proposal payload is malformed", {
   }
 });
 
-test("phase3 memories are isolated by account and can be archived by owner only", { skip: skipWithoutDatabase }, async () => {
+databaseTest("phase3 memories are isolated by account and can be archived by owner only", async () => {
   const runId = randomUUID();
   const { prisma, appStore, agentState } = createServices();
   await prisma.$connect();

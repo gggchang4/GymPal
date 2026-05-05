@@ -17,6 +17,13 @@ import { CoachingStrategyService } from "./coaching-strategy.service";
 import { AgentPolicyService } from "./agent-policy.service";
 import { AgentQualityService } from "./agent-quality.service";
 import { AgentProductEventService } from "./agent-product-event.service";
+import { AgentActionExecutorService } from "./agent-action-executor.service";
+import {
+  executableProposalStatuses,
+  isTerminalProposalStatus,
+  proposalGroupStatuses,
+  proposalStatuses
+} from "./agent-status";
 
 type TransactionClient = Prisma.TransactionClient | PrismaClient;
 const proposalGroupExecutionInclude = Prisma.validator<Prisma.AgentProposalGroupInclude>()({
@@ -43,17 +50,6 @@ function asJson(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
 }
 
-function normalizeArray(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .filter((item): item is string => typeof item === "string")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 function readJsonObject(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
@@ -65,9 +61,10 @@ export class AgentStateService {
     private readonly appStore: AppStoreService,
     private readonly outcomeService: CoachingOutcomeService,
     private readonly strategyService: CoachingStrategyService,
-    private readonly policyService: AgentPolicyService = new AgentPolicyService(),
-    private readonly qualityService: AgentQualityService = new AgentQualityService(prisma, appStore, policyService),
-    private readonly productEvents: AgentProductEventService = new AgentProductEventService(prisma)
+    private readonly policyService: AgentPolicyService,
+    private readonly qualityService: AgentQualityService,
+    private readonly productEvents: AgentProductEventService,
+    private readonly actionExecutor: AgentActionExecutorService
   ) {}
 
   private async getActor(userId?: string) {
@@ -621,6 +618,10 @@ export class AgentStateService {
       });
 
       if (preliminaryQualityDraft.status === "blocked") {
+        await tx.coachingReviewSnapshot.update({
+          where: { id: review.id },
+          data: { status: "quality_blocked" }
+        });
         const qualityCheck = await this.qualityService.createQualityCheck(preliminaryQualityDraft, tx);
         await this.productEvents.record(
           actor.id,
@@ -632,9 +633,8 @@ export class AgentStateService {
             payload: {
               runId: payload.proposalGroup.runId,
               scope: qualityCheck.scope,
-              score: qualityCheck.score,
-              blockedReasons: qualityCheck.blocked_reasons,
-              downgradeReasons: qualityCheck.downgrade_reasons
+              status: qualityCheck.status,
+              blockedReasons: qualityCheck.blocked_reasons
             }
           },
           tx
@@ -642,7 +642,10 @@ export class AgentStateService {
 
         return {
           status: "blocked" as const,
-          review,
+          review: {
+            ...review,
+            status: "quality_blocked"
+          },
           qualityCheck
         };
       }
@@ -1184,7 +1187,7 @@ export class AgentStateService {
 
   async rejectProposalGroup(proposalGroupId: string, userId?: string) {
     const { proposalGroup } = await this.getProposalGroupForActor(proposalGroupId, userId);
-    if (!["pending", "approved"].includes(proposalGroup.status)) {
+    if (!executableProposalStatuses.includes(proposalGroup.status as (typeof executableProposalStatuses)[number])) {
       throw new ConflictException(`This coaching package can no longer be rejected. Current status: ${proposalGroup.status}.`);
     }
 
@@ -1197,7 +1200,7 @@ export class AgentStateService {
       await tx.agentActionProposal.updateMany({
         where: {
           proposalGroupId: proposalGroup.id,
-          status: { in: ["pending", "approved"] }
+          status: { in: [...executableProposalStatuses] }
         },
         data: { status: "rejected" }
       });
@@ -1241,7 +1244,7 @@ export class AgentStateService {
       throw new ConflictException("This proposal has already been executed.");
     }
 
-    if (["rejected", "expired", "failed", "superseded", "stale"].includes(proposal.status)) {
+    if (isTerminalProposalStatus(proposal.status)) {
       throw new ConflictException(`This proposal can no longer be confirmed. Current status: ${proposal.status}.`);
     }
 
@@ -1343,84 +1346,104 @@ export class AgentStateService {
   }
 
   async executeProposalGroup(proposalGroupId: string, idempotencyKey: string, userId?: string) {
-    const { actor, proposalGroup } = await this.getProposalGroupForActor(proposalGroupId, userId);
-    const existingExecution = await this.getExistingProposalGroupExecution(proposalGroup.id, idempotencyKey);
+    const actor = await this.getActor(userId);
+    const existingExecution = await this.getExistingProposalGroupExecution(proposalGroupId, idempotencyKey);
 
     if (existingExecution) {
       return existingExecution;
     }
 
-    if (proposalGroup.status === "executed") {
-      throw new ConflictException("This coaching package has already been executed.");
-    }
-
-    if (["rejected", "expired", "failed", "superseded", "stale"].includes(proposalGroup.status)) {
-      throw new ConflictException(`This coaching package can no longer be confirmed. Current status: ${proposalGroup.status}.`);
-    }
-
-    if (proposalGroup.expiresAt && proposalGroup.expiresAt.getTime() < Date.now()) {
-      await this.prisma.$transaction(async (tx) => {
-        await tx.agentProposalGroup.update({
-          where: { id: proposalGroup.id },
-          data: { status: "expired" }
-        });
-
-        await tx.agentActionProposal.updateMany({
-          where: {
-            proposalGroupId: proposalGroup.id,
-            status: { in: ["pending", "approved"] }
-          },
-          data: { status: "expired" }
-        });
-
-        if (proposalGroup.reviewSnapshotId) {
-          await tx.coachingReviewSnapshot.update({
-            where: { id: proposalGroup.reviewSnapshotId },
-            data: { status: "expired" }
-          });
-        }
-      });
-      throw new ConflictException("This coaching package has expired. Please regenerate it.");
-    }
-
-    if (!proposalGroup.proposals.length) {
-      throw new ConflictException("This coaching package does not contain executable proposals.");
-    }
-
-    for (const proposal of proposalGroup.proposals) {
-      await this.assertProposalFresh(proposal.id, actor.id);
-    }
-
-    const lockedGroup = await this.prisma.agentProposalGroup.updateMany({
-      where: { id: proposalGroup.id, status: "pending" },
-      data: { status: "approved" }
-    });
-
-    if (lockedGroup.count !== 1) {
-      const resumedExecution = await this.getExistingProposalGroupExecution(proposalGroup.id, idempotencyKey);
-      if (resumedExecution) {
-        return resumedExecution;
-      }
-
-      const latest = await this.prisma.agentProposalGroup.findUniqueOrThrow({ where: { id: proposalGroup.id } });
-      throw new ConflictException(`This coaching package cannot be confirmed. Current status: ${latest.status}.`);
-    }
-
+    let shouldMarkFailed = false;
+    let lockedProposalGroupId: string | null = null;
     try {
       const result = await this.prisma.$transaction(async (tx) => {
+        const lockedRows = await tx.$queryRaw<Array<{ id: string }>>(
+          Prisma.sql`SELECT id FROM "AgentProposalGroup" WHERE id = ${proposalGroupId} AND "userId" = ${actor.id} FOR UPDATE`
+        );
+
+        if (lockedRows.length === 0) {
+          throw new NotFoundException("Agent proposal group not found.");
+        }
+
+        const proposalGroup = await tx.agentProposalGroup.findFirst({
+          where: { id: proposalGroupId, userId: actor.id },
+          include: proposalGroupExecutionInclude
+        });
+
+        if (!proposalGroup) {
+          throw new NotFoundException("Agent proposal group not found.");
+        }
+
+        lockedProposalGroupId = proposalGroup.id;
+
+        if (proposalGroup.status === proposalGroupStatuses.executed) {
+          const resumedExecution = await this.getExistingProposalGroupExecution(proposalGroup.id, idempotencyKey);
+          if (resumedExecution) {
+            return resumedExecution;
+          }
+          throw new ConflictException("This coaching package has already been executed.");
+        }
+
+        if (isTerminalProposalStatus(proposalGroup.status)) {
+          throw new ConflictException(`This coaching package can no longer be confirmed. Current status: ${proposalGroup.status}.`);
+        }
+
+        if (!executableProposalStatuses.includes(proposalGroup.status as (typeof executableProposalStatuses)[number])) {
+          throw new ConflictException(`This coaching package cannot be confirmed. Current status: ${proposalGroup.status}.`);
+        }
+
+        if (proposalGroup.expiresAt && proposalGroup.expiresAt.getTime() < Date.now()) {
+          await tx.agentProposalGroup.update({
+            where: { id: proposalGroup.id },
+            data: { status: proposalGroupStatuses.expired }
+          });
+
+          await tx.agentActionProposal.updateMany({
+            where: {
+              proposalGroupId: proposalGroup.id,
+              status: { in: [...executableProposalStatuses] }
+            },
+            data: { status: proposalStatuses.expired }
+          });
+
+          if (proposalGroup.reviewSnapshotId) {
+            await tx.coachingReviewSnapshot.update({
+              where: { id: proposalGroup.reviewSnapshotId },
+              data: { status: "expired" }
+            });
+          }
+          throw new ConflictException("This coaching package has expired. Please regenerate it.");
+        }
+
+        if (!proposalGroup.proposals.length) {
+          throw new ConflictException("This coaching package does not contain executable proposals.");
+        }
+
+        for (const proposal of proposalGroup.proposals) {
+          await this.assertProposalFresh(proposal.id, actor.id);
+        }
+
+        if (proposalGroup.status === proposalGroupStatuses.pending) {
+          await tx.agentProposalGroup.update({
+            where: { id: proposalGroup.id },
+            data: { status: proposalGroupStatuses.approved }
+          });
+        }
+
+        shouldMarkFailed = true;
         const executedAt = new Date();
         const actionResults: Array<{ proposalId: string; actionType: string; result: unknown }> = [];
 
         for (const proposal of proposalGroup.proposals) {
-          if (proposal.status === "executed") {
+          if (proposal.status === proposalStatuses.executed) {
             throw new ConflictException(`Proposal ${proposal.id} has already been executed.`);
           }
 
-          if (!["pending", "approved"].includes(proposal.status)) {
+          if (!executableProposalStatuses.includes(proposal.status as (typeof executableProposalStatuses)[number])) {
             throw new ConflictException(`Proposal ${proposal.id} cannot be executed in status ${proposal.status}.`);
           }
 
-          const resultPayload = await this.dispatchActionWithinTransaction(
+          const resultPayload = await this.actionExecutor.executePackageAction(
             proposal.actionType,
             proposal.payload as Record<string, unknown>,
             actor.id,
@@ -1441,7 +1464,7 @@ export class AgentStateService {
           await tx.agentActionProposal.update({
             where: { id: proposal.id },
             data: {
-              status: "executed",
+              status: proposalStatuses.executed,
               executedAt
             }
           });
@@ -1456,7 +1479,7 @@ export class AgentStateService {
         await tx.agentProposalGroup.update({
           where: { id: proposalGroup.id },
           data: {
-            status: "executed",
+            status: proposalGroupStatuses.executed,
             executedAt
           }
         });
@@ -1504,27 +1527,39 @@ export class AgentStateService {
 
       return result;
     } catch (error) {
-      await this.prisma.$transaction(async (tx) => {
-        await tx.agentProposalGroup.update({
-          where: { id: proposalGroup.id },
-          data: { status: "failed" }
-        });
-
-        await tx.agentActionProposal.updateMany({
-          where: {
-            proposalGroupId: proposalGroup.id,
-            status: { in: ["pending", "approved"] }
-          },
-          data: { status: "failed" }
-        });
-
-        if (proposalGroup.reviewSnapshotId) {
-          await tx.coachingReviewSnapshot.update({
-            where: { id: proposalGroup.reviewSnapshotId },
-            data: { status: "failed" }
+      const failedProposalGroupId = lockedProposalGroupId;
+      if (shouldMarkFailed && failedProposalGroupId) {
+        await this.prisma.$transaction(async (tx) => {
+          const latest = await tx.agentProposalGroup.findFirst({
+            where: { id: failedProposalGroupId, userId: actor.id },
+            select: { id: true, reviewSnapshotId: true }
           });
-        }
-      });
+
+          if (!latest) {
+            return;
+          }
+
+          await tx.agentProposalGroup.update({
+            where: { id: latest.id },
+            data: { status: proposalGroupStatuses.failed }
+          });
+
+          await tx.agentActionProposal.updateMany({
+            where: {
+              proposalGroupId: latest.id,
+              status: { in: [...executableProposalStatuses] }
+            },
+            data: { status: proposalStatuses.failed }
+          });
+
+          if (latest.reviewSnapshotId) {
+            await tx.coachingReviewSnapshot.update({
+              where: { id: latest.reviewSnapshotId },
+              data: { status: "failed" }
+            });
+          }
+        });
+      }
 
       throw error;
     }
@@ -1590,7 +1625,7 @@ export class AgentStateService {
     const payload = proposal.payload as Record<string, unknown>;
 
     try {
-      const result = await this.dispatchAction(proposal.actionType, payload, actorId);
+      const result = await this.actionExecutor.executeSingle(proposal.actionType, payload, actorId);
       await this.prisma.$transaction(async (tx) => {
         await tx.agentActionExecution.create({
           data: {
@@ -1692,237 +1727,4 @@ export class AgentStateService {
     }
   }
 
-  private buildGeneratedPlanPayload(payload: Record<string, unknown>) {
-    const rawDays = Array.isArray(payload.days) ? payload.days : [];
-    return {
-      title: typeof payload.title === "string" ? payload.title : "下周教练计划",
-      goal: typeof payload.goal === "string" ? payload.goal : "maintenance",
-      weekOf: typeof payload.weekOf === "string" ? payload.weekOf : undefined,
-      days: rawDays.map((day, index) => {
-        const item = typeof day === "object" && day ? (day as Record<string, unknown>) : {};
-        return {
-          dayLabel: typeof item.dayLabel === "string" ? item.dayLabel : `训练日 ${index + 1}`,
-          focus: typeof item.focus === "string" ? item.focus : "训练安排待补充",
-          duration: typeof item.duration === "string" ? item.duration : "45 分钟",
-          exercises: normalizeArray(item.exercises),
-          recoveryTip: typeof item.recoveryTip === "string" ? item.recoveryTip : "优先保证恢复质量。",
-          isCompleted: false,
-          sortOrder: typeof item.sortOrder === "number" ? item.sortOrder : index
-        };
-      })
-    };
-  }
-
-  private buildGeneratedDietPayload(payload: Record<string, unknown>) {
-    const nutritionRatio = typeof payload.nutritionRatio === "object" && payload.nutritionRatio
-      ? (payload.nutritionRatio as Record<string, unknown>)
-      : { carbohydrate: 45, protein: 30, fat: 25 };
-    const nutritionDetail =
-      typeof payload.nutritionDetail === "object" && payload.nutritionDetail
-        ? (payload.nutritionDetail as Record<string, unknown>)
-        : {};
-
-    return {
-      date: typeof payload.date === "string" ? payload.date : undefined,
-      userGoal: typeof payload.userGoal === "string" ? payload.userGoal : "maintenance",
-      totalCalorie: Number(payload.totalCalorie ?? payload.targetCalorie ?? 2000),
-      targetCalorie: Number(payload.targetCalorie ?? payload.totalCalorie ?? 2000),
-      nutritionRatio: {
-        carbohydrate: Number(nutritionRatio.carbohydrate ?? 45),
-        protein: Number(nutritionRatio.protein ?? 30),
-        fat: Number(nutritionRatio.fat ?? 25)
-      },
-      nutritionDetail,
-      meals:
-        Array.isArray(payload.meals) ? payload.meals.filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null) : [],
-      agentTips: normalizeArray(payload.agentTips)
-    };
-  }
-
-  private buildGeneratedAdvicePayload(payload: Record<string, unknown>) {
-    return {
-      type: typeof payload.type === "string" ? payload.type : "weekly_coaching",
-      priority: typeof payload.priority === "string" ? payload.priority : "medium",
-      summary: typeof payload.summary === "string" ? payload.summary : "根据近期数据生成了一条教练建议。",
-      reasoningTags: normalizeArray(payload.reasoningTags),
-      actionItems: normalizeArray(payload.actionItems),
-      riskFlags: normalizeArray(payload.riskFlags)
-    };
-  }
-
-  private buildCoachingMemoryPayload(payload: Record<string, unknown>) {
-    const value = typeof payload.value === "object" && payload.value ? (payload.value as Record<string, unknown>) : {};
-    return {
-      memoryType: typeof payload.memoryType === "string" ? payload.memoryType : "behavior_pattern",
-      title: typeof payload.title === "string" ? payload.title : "教练记忆",
-      summary: typeof payload.summary === "string" ? payload.summary : "用户确认了一条长期教练记忆。",
-      value,
-      confidence: Number(payload.confidence ?? 60),
-      sourceType: typeof payload.sourceType === "string" ? payload.sourceType : "chat",
-      sourceId: typeof payload.sourceId === "string" ? payload.sourceId : undefined,
-      reason: typeof payload.reason === "string" ? payload.reason : undefined
-    };
-  }
-
-  private buildPartialCoachingMemoryPayload(payload: Record<string, unknown>) {
-    return {
-      memoryType: typeof payload.memoryType === "string" ? payload.memoryType : undefined,
-      title: typeof payload.title === "string" ? payload.title : undefined,
-      summary: typeof payload.summary === "string" ? payload.summary : undefined,
-      value: typeof payload.value === "object" && payload.value ? (payload.value as Record<string, unknown>) : undefined,
-      confidence: payload.confidence === undefined ? undefined : Number(payload.confidence),
-      sourceType: typeof payload.sourceType === "string" ? payload.sourceType : undefined,
-      sourceId: typeof payload.sourceId === "string" ? payload.sourceId : undefined,
-      reason: typeof payload.reason === "string" ? payload.reason : undefined
-    };
-  }
-
-  private buildRecommendationFeedbackPayload(payload: Record<string, unknown>) {
-    return {
-      reviewSnapshotId: typeof payload.reviewSnapshotId === "string" ? payload.reviewSnapshotId : undefined,
-      proposalGroupId: typeof payload.proposalGroupId === "string" ? payload.proposalGroupId : undefined,
-      feedbackType: typeof payload.feedbackType === "string" ? payload.feedbackType : "helpful",
-      note: typeof payload.note === "string" ? payload.note : undefined
-    };
-  }
-
-  private async dispatchActionWithinTransaction(
-    actionType: string,
-    payload: Record<string, unknown>,
-    userId: string,
-    tx: TransactionClient
-  ) {
-    this.policyService.assertActionAllowed(actionType, payload, { packageContext: true });
-
-    switch (actionType) {
-      case "generate_next_week_plan":
-        return this.appStore.generateNextWeekPlan(userId, this.buildGeneratedPlanPayload(payload), tx);
-      case "generate_diet_snapshot":
-        return this.appStore.createGeneratedDietRecommendation(userId, this.buildGeneratedDietPayload(payload), tx);
-      case "create_advice_snapshot":
-        return this.appStore.createGeneratedAdviceSnapshot(userId, this.buildGeneratedAdvicePayload(payload), tx);
-      case "create_coaching_memory":
-        return this.appStore.createCoachingMemory(userId, this.buildCoachingMemoryPayload(payload), tx);
-      case "update_coaching_memory":
-        if (typeof payload.memoryId !== "string") {
-          throw new ConflictException("The proposal is missing the target memory id.");
-        }
-        return this.appStore.updateCoachingMemory(userId, payload.memoryId, this.buildPartialCoachingMemoryPayload(payload), tx);
-      case "archive_coaching_memory":
-        if (typeof payload.memoryId !== "string") {
-          throw new ConflictException("The proposal is missing the target memory id.");
-        }
-        return this.appStore.archiveCoachingMemory(userId, payload.memoryId, typeof payload.reason === "string" ? payload.reason : undefined, tx);
-      case "create_recommendation_feedback":
-        return this.appStore.createRecommendationFeedback(userId, this.buildRecommendationFeedbackPayload(payload), tx);
-      default:
-        throw new ConflictException(`Action type ${actionType} is not supported inside a transactional coaching package.`);
-    }
-  }
-
-  private async dispatchAction(actionType: string, payload: Record<string, unknown>, userId: string) {
-    this.policyService.assertActionAllowed(actionType, payload);
-
-    switch (actionType) {
-      case "generate_plan":
-        return this.appStore.generatePlan(userId, typeof payload.goal === "string" ? payload.goal : "fat_loss");
-      case "adjust_plan":
-        return this.appStore.adjustPlan(userId, typeof payload.note === "string" ? payload.note : "Adjusted via agent");
-      case "create_plan_day":
-        return this.appStore.createCurrentPlanDay(
-          {
-            dayLabel: typeof payload.dayLabel === "string" ? payload.dayLabel : "New day",
-            focus: typeof payload.focus === "string" ? payload.focus : "Planned session",
-            duration: typeof payload.duration === "string" ? payload.duration : "45 min",
-            exercises: normalizeArray(payload.exercises),
-            recoveryTip: typeof payload.recoveryTip === "string" ? payload.recoveryTip : "Focus on recovery."
-          },
-          userId
-        );
-      case "update_plan_day":
-        if (typeof payload.dayId !== "string") {
-          throw new ConflictException("The proposal is missing the target day id.");
-        }
-        return this.appStore.updateCurrentPlanDay(
-          payload.dayId,
-          {
-            dayLabel: typeof payload.dayLabel === "string" ? payload.dayLabel : undefined,
-            focus: typeof payload.focus === "string" ? payload.focus : undefined,
-            duration: typeof payload.duration === "string" ? payload.duration : undefined,
-            exercises: Array.isArray(payload.exercises) ? normalizeArray(payload.exercises) : undefined,
-            recoveryTip: typeof payload.recoveryTip === "string" ? payload.recoveryTip : undefined,
-            isCompleted: typeof payload.isCompleted === "boolean" ? payload.isCompleted : undefined
-          },
-          userId
-        );
-      case "delete_plan_day":
-        if (typeof payload.dayId !== "string") {
-          throw new ConflictException("The proposal is missing the target day id.");
-        }
-        return this.appStore.deleteCurrentPlanDay(payload.dayId, userId);
-      case "complete_plan_day":
-        if (typeof payload.dayId === "string") {
-          return this.appStore.updateCurrentPlanDay(payload.dayId, { isCompleted: payload.isCompleted !== false }, userId);
-        }
-        if (typeof payload.dayLabel === "string") {
-          return this.appStore.completeSession(userId, payload.dayLabel);
-        }
-        throw new ConflictException("The proposal is missing the target day id or label.");
-      case "create_body_metric":
-        return this.appStore.addBodyMetric({
-          userId,
-          weightKg: Number(payload.weightKg ?? 0),
-          bodyFatPct: payload.bodyFatPct === undefined ? undefined : Number(payload.bodyFatPct),
-          waistCm: payload.waistCm === undefined ? undefined : Number(payload.waistCm)
-        });
-      case "create_daily_checkin":
-        return this.appStore.addDailyCheckin({
-          userId,
-          sleepHours: Number(payload.sleepHours ?? 0),
-          waterMl: Number(payload.waterMl ?? 0),
-          steps: Number(payload.steps ?? 0),
-          energyLevel: typeof payload.energyLevel === "string" ? payload.energyLevel : undefined,
-          fatigueLevel: typeof payload.fatigueLevel === "string" ? payload.fatigueLevel : undefined,
-          hungerLevel: typeof payload.hungerLevel === "string" ? payload.hungerLevel : undefined
-        });
-      case "create_workout_log":
-        return this.appStore.addWorkoutLog({
-          userId,
-          workoutType: typeof payload.workoutType === "string" ? payload.workoutType : "general_workout",
-          durationMin: Number(payload.durationMin ?? 0),
-          intensity: typeof payload.intensity === "string" ? payload.intensity : "moderate",
-          exerciseNote: typeof payload.exerciseNote === "string" ? payload.exerciseNote : undefined,
-          completion: typeof payload.completion === "string" ? payload.completion : undefined,
-          painFeedback: typeof payload.painFeedback === "string" ? payload.painFeedback : undefined,
-          fatigueAfter: typeof payload.fatigueAfter === "string" ? payload.fatigueAfter : undefined
-        });
-      case "generate_next_week_plan":
-        return this.appStore.generateNextWeekPlan(userId, this.buildGeneratedPlanPayload(payload));
-      case "generate_diet_snapshot":
-        return this.appStore.createGeneratedDietRecommendation(userId, this.buildGeneratedDietPayload(payload));
-      case "create_advice_snapshot":
-        return this.appStore.createGeneratedAdviceSnapshot(userId, this.buildGeneratedAdvicePayload(payload));
-      case "create_coaching_memory":
-        return this.appStore.createCoachingMemory(userId, this.buildCoachingMemoryPayload(payload));
-      case "update_coaching_memory":
-        if (typeof payload.memoryId !== "string") {
-          throw new ConflictException("The proposal is missing the target memory id.");
-        }
-        return this.appStore.updateCoachingMemory(userId, payload.memoryId, this.buildPartialCoachingMemoryPayload(payload));
-      case "archive_coaching_memory":
-        if (typeof payload.memoryId !== "string") {
-          throw new ConflictException("The proposal is missing the target memory id.");
-        }
-        return this.appStore.archiveCoachingMemory(userId, payload.memoryId, typeof payload.reason === "string" ? payload.reason : undefined);
-      case "create_recommendation_feedback":
-        return this.appStore.createRecommendationFeedback(userId, this.buildRecommendationFeedbackPayload(payload));
-      case "refresh_coaching_outcome":
-        if (typeof payload.outcomeId !== "string") {
-          throw new ConflictException("The proposal is missing the target outcome id.");
-        }
-        return this.outcomeService.refreshOutcome(payload.outcomeId, userId);
-      default:
-        throw new ConflictException(`Unsupported action type: ${actionType}`);
-    }
-  }
 }

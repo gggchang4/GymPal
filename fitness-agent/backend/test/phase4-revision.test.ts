@@ -7,9 +7,9 @@ import { PrismaService } from "../src/prisma/prisma.service";
 import { AgentProductEventService } from "../src/services/agent-product-event.service";
 import { AgentQualityService } from "../src/services/agent-quality.service";
 import { AgentStateService } from "../src/services/agent-state.service";
-import { CoachingOutcomeService } from "../src/services/coaching-outcome.service";
-import { CoachingStrategyService } from "../src/services/coaching-strategy.service";
 import { AppStoreService } from "../src/store/app-store.service";
+import { createAgentTestServices } from "./helpers/agent-services";
+import { databaseTest } from "./helpers/database";
 
 function loadBackendEnv() {
   const envPath = resolve(__dirname, "..", ".env");
@@ -41,23 +41,7 @@ const skipWithoutDatabase = process.env.DATABASE_URL
   : "Set backend/.env DATABASE_URL to run real database Phase 4 revision tests.";
 
 function createServices() {
-  const prisma = new PrismaService();
-  const outcomeService = new CoachingOutcomeService(prisma);
-  const strategyService = new CoachingStrategyService(prisma);
-  const appStore = new AppStoreService(prisma, outcomeService);
-  const productEvents = new AgentProductEventService(prisma);
-  const qualityService = new AgentQualityService(prisma, appStore);
-  const agentState = new AgentStateService(
-    prisma,
-    appStore,
-    outcomeService,
-    strategyService,
-    undefined,
-    qualityService,
-    productEvents
-  );
-
-  return { prisma, appStore, agentState };
+  return createAgentTestServices();
 }
 
 async function cleanupTestUsers(prisma: PrismaService, runId: string) {
@@ -141,7 +125,7 @@ function jsonObject(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-test("phase4 revision creates a new pending package and supersedes older executable packages", { skip: skipWithoutDatabase }, async () => {
+databaseTest("phase4 revision creates a new pending package and supersedes older executable packages", async () => {
   const runId = randomUUID();
   const { prisma, appStore, agentState } = createServices();
   await prisma.$connect();
