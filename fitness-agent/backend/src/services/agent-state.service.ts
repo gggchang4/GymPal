@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
 import {
@@ -8,6 +8,7 @@ import {
   CreateCoachingPackageDto,
   CreateCoachingReviewSnapshotDto,
   CreateAgentRunDto,
+  CreateToolInvocationLogDto,
   ReviseCoachingReviewDto
 } from "../dtos/agent.dto";
 import { AppStoreService } from "../store/app-store.service";
@@ -467,6 +468,17 @@ export class AgentStateService {
     });
   }
 
+  async getThread(threadId: string, userId?: string) {
+    const { thread } = await this.getThreadForActor(threadId, userId);
+    return {
+      id: thread.id,
+      title: thread.title,
+      summary: thread.summary,
+      created_at: thread.createdAt.toISOString(),
+      updated_at: thread.updatedAt.toISOString()
+    };
+  }
+
   async listMessages(threadId: string, userId?: string) {
     const { thread } = await this.getThreadForActor(threadId, userId);
     const messages = await this.prisma.agentMessage.findMany({
@@ -475,6 +487,41 @@ export class AgentStateService {
     });
 
     return messages.map((message) => this.mapMessage(message));
+  }
+
+  async createToolInvocationLog(payload: CreateToolInvocationLogDto, userId?: string) {
+    const threadId = payload.requestData.thread_id;
+    const runId = payload.requestData.run_id;
+    const plannerStep = payload.requestData.planner_step;
+    if (typeof threadId !== "string" || !threadId.trim()) {
+      throw new BadRequestException("requestData.thread_id is required.");
+    }
+    if (typeof runId !== "string" || !runId.trim()) {
+      throw new BadRequestException("requestData.run_id is required.");
+    }
+    if (plannerStep === undefined || plannerStep === null || plannerStep === "") {
+      throw new BadRequestException("requestData.planner_step is required.");
+    }
+
+    await this.getThreadForActor(threadId, userId);
+
+    const log = await this.prisma.toolInvocationLog.create({
+      data: {
+        toolName: payload.toolName,
+        status: payload.status,
+        requestData: asJson(payload.requestData),
+        responseData: asJson(payload.responseData)
+      }
+    });
+
+    return {
+      id: log.id,
+      tool_name: log.toolName,
+      status: log.status,
+      request_data: log.requestData,
+      response_data: log.responseData,
+      created_at: log.createdAt.toISOString()
+    };
   }
 
   async getThreadMemoryState(threadId: string, userId?: string) {

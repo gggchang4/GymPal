@@ -66,7 +66,17 @@ class MessageRecord(BaseModel):
 
 class RunStep(BaseModel):
     id: str
-    step_type: Literal["thinking_summary", "tool_call_started", "tool_call_completed", "card_render", "final_message"]
+    step_type: Literal[
+        "thinking_summary",
+        "llm_call",
+        "intent_classification",
+        "planner_decision",
+        "degraded_mode",
+        "tool_call_started",
+        "tool_call_completed",
+        "card_render",
+        "final_message",
+    ]
     title: str
     payload: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -114,6 +124,10 @@ class PostMessageResponse(BaseModel):
     tool_events: list[ToolEvent] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)
     risk_level: Literal["low", "medium", "high"] = "low"
+    degraded_mode: bool = False
+    degraded_reason: str | None = None
+    intent: str | None = None
+    intent_confidence: float | None = None
 
 
 class ActionProposal(BaseModel):

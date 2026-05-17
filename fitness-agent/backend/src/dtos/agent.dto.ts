@@ -83,6 +83,20 @@ export class CreateAgentRunDto {
   steps!: CreateAgentRunStepDto[];
 }
 
+export class CreateToolInvocationLogDto {
+  @IsString()
+  toolName!: string;
+
+  @IsString()
+  status!: string;
+
+  @IsObject()
+  requestData!: Record<string, unknown>;
+
+  @IsObject()
+  responseData!: Record<string, unknown>;
+}
+
 export class CreateAgentProposalDto {
   @IsOptional()
   @IsString()

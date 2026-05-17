@@ -67,6 +67,15 @@ class SessionStore:
             response.raise_for_status()
             return response.json()
 
+    async def get_thread(self, thread_id: str, authorization: str | None = None) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                f"{settings.backend_base_url}/agent/state/threads/{thread_id}",
+                headers=self._headers(authorization),
+            )
+            response.raise_for_status()
+            return response.json()
+
     async def save_run(self, run: RunRecord, authorization: str | None = None) -> RunRecord:
         body = {
             "id": run.id,
@@ -90,6 +99,27 @@ class SessionStore:
             )
             response.raise_for_status()
         return run
+
+    async def create_tool_invocation(
+        self,
+        tool_name: str,
+        status: str,
+        request_data: dict[str, Any],
+        response_data: dict[str, Any],
+        authorization: str | None = None,
+    ) -> None:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                f"{settings.backend_base_url}/agent/state/tool-invocations",
+                headers=self._headers(authorization),
+                json={
+                    "toolName": tool_name,
+                    "status": status,
+                    "requestData": request_data,
+                    "responseData": response_data,
+                },
+            )
+            response.raise_for_status()
 
     async def get_run(self, run_id: str, authorization: str | None = None) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=10) as client:

@@ -11,6 +11,7 @@ const agentModels = readFileSync(join(repoRoot, "agent", "app", "models.py"), "u
 const requiredCardTypes = [
   "action_proposal_card",
   "action_result_card",
+  "tool_activity_card",
   "weekly_review_card",
   "daily_guidance_card",
   "coaching_package_card",
@@ -29,6 +30,21 @@ test("frontend and agent share the Phase 1/2/3/4 card contract", () => {
     assert.match(frontendTypes, new RegExp(`"${cardType}"`), `frontend type union should include ${cardType}`);
     assert.match(agentModels, new RegExp(`"${cardType}"`), `agent CardType should include ${cardType}`);
     assert.match(frontendCards, new RegExp(`${cardType}:`), `frontend card renderer should style ${cardType}`);
+  }
+});
+
+test("P0-P2 response metadata and run step types are shared by frontend and agent", () => {
+  for (const field of ["degradedMode", "degradedReason", "intent", "intentConfidence"]) {
+    assert.match(frontendTypes, new RegExp(field), `PostMessageResponse should expose ${field}`);
+  }
+
+  for (const rawField of ["degraded_mode", "degraded_reason", "intent_confidence"]) {
+    assert.match(readFileSync(join(process.cwd(), "lib", "api.ts"), "utf8"), new RegExp(rawField));
+  }
+
+  for (const stepType of ["llm_call", "intent_classification", "planner_decision", "degraded_mode"]) {
+    assert.match(frontendTypes, new RegExp(`"${stepType}"`));
+    assert.match(agentModels, new RegExp(`"${stepType}"`));
   }
 });
 

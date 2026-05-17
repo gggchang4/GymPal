@@ -10,6 +10,7 @@ import {
   CreateAgentProposalsDto,
   CreateAgentRunDto,
   CreateAgentThreadDto,
+  CreateToolInvocationLogDto,
   ProposalDecisionDto
 } from "../dtos/agent.dto";
 import { AgentStateService } from "../services/agent-state.service";
@@ -25,6 +26,11 @@ export class AgentStateController {
   @Post("threads")
   async createThread(@Body() body: CreateAgentThreadDto, @CurrentUser() user: AuthTokenClaims) {
     return this.agentState.createThread(body.title, user.sub);
+  }
+
+  @Get("threads/:threadId")
+  async getThread(@Param("threadId") threadId: string, @CurrentUser() user: AuthTokenClaims) {
+    return this.agentState.getThread(threadId, user.sub);
   }
 
   @Get("threads/:threadId/messages")
@@ -53,6 +59,11 @@ export class AgentStateController {
     @CurrentUser() user: AuthTokenClaims
   ) {
     return this.agentState.createRun(threadId, body, user.sub);
+  }
+
+  @Post("tool-invocations")
+  async createToolInvocationLog(@Body() body: CreateToolInvocationLogDto, @CurrentUser() user: AuthTokenClaims) {
+    return this.agentState.createToolInvocationLog(body, user.sub);
   }
 
   @Get("runs/:runId")

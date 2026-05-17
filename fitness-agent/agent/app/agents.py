@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .config import settings
-from .llm import OpenAICompatibleLLMClient
+from .llm import OpenAICompatibleLLMClient, StructuredLLMResult
 from .models import Card, MessageRecord, PostMessageRequest, PostMessageResponse, ProposalDecisionResponse, RunRecord, RunStep, ToolEvent
 from .session_store import SessionStore
 from .tool_gateway import ToolGateway, compute_place_rank
@@ -57,6 +57,43 @@ class HealthAgentRuntime:
         "daily guidance",
         "today",
     )
+    INTENT_NAMES = {
+        "health_answer",
+        "plan_answer",
+        "plan_generate",
+        "plan_adjust",
+        "workout_log",
+        "checkin_log",
+        "body_metric_log",
+        "diet_log",
+        "memory_save",
+        "weekly_review",
+        "daily_guidance",
+        "exercise_search",
+        "location_search",
+        "unclear",
+    }
+    WRITE_INTENT_TO_DOMAIN = {
+        "plan_generate": "plan",
+        "plan_adjust": "plan",
+        "workout_log": "workout_log",
+        "checkin_log": "daily_checkin",
+        "body_metric_log": "body_metric",
+        "diet_log": "daily_checkin",
+        "memory_save": "memory",
+    }
+    PLANNER_TOOL_WHITELIST = {
+        "get_coach_summary",
+        "load_current_plan",
+        "get_memory_summary",
+        "get_workspace_summary",
+        "get_exercise_catalog",
+        "get_recovery_guidance",
+        "geocode_location",
+        "reverse_geocode",
+        "search_nearby_places",
+        "create_action_proposal",
+    }
 
     def __init__(
         self,
@@ -79,11 +116,52 @@ class HealthAgentRuntime:
     @staticmethod
     def _tool_payload(tool_response) -> dict[str, Any]:
         payload = dict(tool_response.data)
+        payload["ok"] = tool_response.ok
+        payload["source"] = tool_response.source
         if not tool_response.ok:
             if tool_response.error_code:
                 payload["error_code"] = tool_response.error_code
             payload["retryable"] = tool_response.retryable
         return payload
+
+    @staticmethod
+    def _llm_metadata_payload(result: StructuredLLMResult | None, stage: str) -> dict[str, Any]:
+        if result is None:
+            return {"stage": stage, "ok": False, "fallback_used": True, "error_code": "not_attempted"}
+        return {
+            "stage": stage,
+            "ok": result.ok,
+            "model_id": result.model_id,
+            "base_url": result.base_url,
+            "latency_ms": result.latency_ms,
+            "error_code": result.error_code,
+            "error_message": result.error_message,
+            "fallback_used": result.fallback_used,
+        }
+
+    @staticmethod
+    def _coerce_confidence(value: Any, fallback: float = 0.0) -> float:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return fallback
+        return max(0.0, min(1.0, number))
+
+    def _coerce_intent(self, value: Any) -> str:
+        intent = str(value or "").strip()
+        return intent if intent in self.INTENT_NAMES else "unclear"
+
+    @staticmethod
+    def _coerce_bool(value: Any) -> bool:
+        return value is True or (isinstance(value, str) and value.lower() == "true")
+
+    @staticmethod
+    def _string_list(value: Any) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str) and value.strip():
+            return [value.strip()]
+        return []
 
     @staticmethod
     def _preview_to_bullets(preview: dict[str, Any]) -> list[str]:
@@ -145,6 +223,520 @@ class HealthAgentRuntime:
         cleaned = re.sub(r"[，。！？,.!?]", " ", text).strip()
         cleaned = re.sub(r"\s+", " ", cleaned)
         return cleaned[:48] if cleaned else fallback
+
+    def _fallback_intent_from_keywords(self, text: str) -> dict[str, Any]:
+        write_domain = self._detect_write_domain(text)
+        if self._is_weekly_review_request(text):
+            intent = "weekly_review"
+        elif self._is_daily_guidance_request(text):
+            intent = "daily_guidance"
+        elif write_domain == "memory":
+            intent = "memory_save"
+        elif write_domain == "body_metric":
+            intent = "body_metric_log"
+        elif write_domain == "daily_checkin":
+            intent = "checkin_log"
+        elif write_domain == "workout_log":
+            intent = "workout_log"
+        elif write_domain == "plan":
+            intent = "plan_generate" if any(verb in text for verb in ("生成", "创建", "新增", "添加")) else "plan_adjust"
+        elif self._is_location_query(text):
+            intent = "location_search"
+        elif self._is_exercise_query(text):
+            intent = "exercise_search"
+        elif self._is_plan_query(text):
+            intent = "plan_answer"
+        else:
+            intent = "health_answer"
+
+        return {
+            "intent": intent,
+            "confidence": 0.6 if intent != "health_answer" else 0.45,
+            "referenced_context": [],
+            "missing_fields": [],
+            "risk_flags": [keyword for keyword in self.HIGH_RISK_KEYWORDS if keyword in text],
+            "should_clarify": False,
+            "clarifying_question": "",
+            "write_domain": write_domain or self.WRITE_INTENT_TO_DOMAIN.get(intent),
+            "source": "keyword_fallback",
+        }
+
+    def _normalize_intent_result(self, raw: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+        intent = self._coerce_intent(raw.get("intent"))
+        confidence = self._coerce_confidence(raw.get("confidence"), fallback=float(fallback.get("confidence") or 0.0))
+        write_domain = raw.get("write_domain") or self.WRITE_INTENT_TO_DOMAIN.get(intent) or fallback.get("write_domain")
+        should_clarify = self._coerce_bool(raw.get("should_clarify")) or intent == "unclear" or confidence < 0.55
+        clarifying_question = str(raw.get("clarifying_question") or "").strip()
+        if should_clarify and not clarifying_question:
+            clarifying_question = "我想确认一下：你希望我回答问题、调整计划，还是记录一条健康/训练数据？"
+
+        return {
+            "intent": intent,
+            "confidence": confidence,
+            "referenced_context": self._string_list(raw.get("referenced_context")),
+            "missing_fields": self._string_list(raw.get("missing_fields")),
+            "risk_flags": self._string_list(raw.get("risk_flags")),
+            "should_clarify": should_clarify,
+            "clarifying_question": clarifying_question,
+            "write_domain": str(write_domain) if write_domain else None,
+            "source": "llm_classifier",
+        }
+
+    async def _load_conversation_context(
+        self,
+        thread_id: str,
+        current_message: str,
+        authorization: str | None,
+    ) -> dict[str, Any]:
+        messages: list[dict[str, Any]] = []
+        thread_summary = ""
+        try:
+            messages = await self.store.list_messages(thread_id, authorization)
+        except Exception as exc:
+            logger.warning("Unable to load thread messages for intent context: %s", exc)
+        try:
+            thread = await self.store.get_thread(thread_id, authorization)
+            thread_summary = str(thread.get("summary") or "")
+        except Exception as exc:
+            logger.warning("Unable to load thread summary for intent context: %s", exc)
+
+        recent_messages = [
+            {
+                "role": str(message.get("role") or ""),
+                "content": str(message.get("content") or ""),
+                "created_at": message.get("created_at"),
+            }
+            for message in messages[-12:]
+        ]
+        return {
+            "current_message": current_message,
+            "recent_messages": recent_messages,
+            "thread_summary": thread_summary,
+        }
+
+    async def _classify_intent(
+        self,
+        request: PostMessageRequest,
+        conversation_context: dict[str, Any],
+    ) -> tuple[dict[str, Any], StructuredLLMResult | None, str | None]:
+        fallback = self._fallback_intent_from_keywords(request.text)
+        if not self.llm.is_enabled():
+            return fallback, None, "llm_disabled"
+
+        system_prompt = (
+            "You classify user intent for a fitness coaching agent. Return JSON only. "
+            "Do not answer the user. Use the provided conversation context to resolve follow-ups. "
+            "Allowed intent values: health_answer, plan_answer, plan_generate, plan_adjust, workout_log, "
+            "checkin_log, body_metric_log, diet_log, memory_save, weekly_review, daily_guidance, "
+            "exercise_search, location_search, unclear. "
+            "Return keys: intent, confidence, referenced_context, missing_fields, risk_flags, "
+            "should_clarify, clarifying_question, write_domain."
+        )
+        user_prompt = json.dumps(
+            {
+                "message": request.text,
+                "location_hint": request.location_hint,
+                "latitude": request.latitude,
+                "longitude": request.longitude,
+                "conversation_context": conversation_context,
+                "fallback_hint": fallback,
+            },
+            ensure_ascii=False,
+        )
+        result = await asyncio.to_thread(self.llm.generate_structured_with_metadata, system_prompt, user_prompt)
+        if not result.ok:
+            return fallback, result, result.error_code or "llm_classifier_failed"
+        return self._normalize_intent_result(result.data, fallback), result, None
+
+    def _fallback_planner_from_intent(self, intent: dict[str, Any], request: PostMessageRequest) -> dict[str, Any]:
+        intent_name = str(intent.get("intent") or "health_answer")
+        write_domain = intent.get("write_domain") or self.WRITE_INTENT_TO_DOMAIN.get(intent_name)
+        tools: list[dict[str, Any]] = []
+        action = "answer"
+        risk_level = "medium" if intent_name.startswith("plan") else "low"
+
+        if intent_name in {"weekly_review", "daily_guidance"}:
+            action = "legacy_route"
+        elif write_domain:
+            action = "propose"
+            tools.append(
+                {
+                    "name": "create_action_proposal",
+                    "arguments": {"write_domain": write_domain},
+                    "purpose": "Generate safe pending proposals instead of writing directly.",
+                }
+            )
+        elif intent_name == "plan_answer":
+            tools.extend(
+                [
+                    {"name": "load_current_plan", "arguments": {}, "purpose": "Read the current active plan."},
+                    {"name": "get_memory_summary", "arguments": {}, "purpose": "Read relevant coaching preferences."},
+                ]
+            )
+            risk_level = "medium"
+        elif intent_name == "exercise_search":
+            tools.append({"name": "get_exercise_catalog", "arguments": {}, "purpose": "Read exercise catalog."})
+        elif intent_name == "location_search":
+            if request.latitude is not None and request.longitude is not None:
+                tools.append(
+                    {
+                        "name": "search_nearby_places",
+                        "arguments": {
+                            "keyword": "gym",
+                            "latitude": request.latitude,
+                            "longitude": request.longitude,
+                            "location_hint": request.location_hint,
+                        },
+                        "purpose": "Search nearby training places.",
+                    }
+                )
+            elif request.location_hint:
+                tools.append({"name": "geocode_location", "arguments": {"location": request.location_hint}, "purpose": "Resolve location."})
+        else:
+            tools.extend(
+                [
+                    {"name": "get_coach_summary", "arguments": {}, "purpose": "Read recent health and coaching context."},
+                    {"name": "get_memory_summary", "arguments": {}, "purpose": "Read long-lived preferences and constraints."},
+                ]
+            )
+
+        return {
+            "action": action,
+            "tools": tools[:4],
+            "requires_proposal": bool(write_domain),
+            "write_domain": write_domain,
+            "response_style": "normal",
+            "missing_fields": intent.get("missing_fields") or [],
+            "risk_level": risk_level,
+            "source": "fallback_planner",
+        }
+
+    def _normalize_planner_decision(self, raw: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+        action = str(raw.get("action") or fallback.get("action") or "answer")
+        if action not in {"answer", "clarify", "propose", "legacy_route"}:
+            action = str(fallback.get("action") or "answer")
+
+        tools: list[dict[str, Any]] = []
+        raw_tools = raw.get("tools")
+        if isinstance(raw_tools, list):
+            for raw_tool in raw_tools:
+                if not isinstance(raw_tool, dict):
+                    continue
+                name = str(raw_tool.get("name") or "").strip()
+                if name not in self.PLANNER_TOOL_WHITELIST:
+                    continue
+                arguments = raw_tool.get("arguments")
+                tools.append(
+                    {
+                        "name": name,
+                        "arguments": arguments if isinstance(arguments, dict) else {},
+                        "purpose": str(raw_tool.get("purpose") or ""),
+                    }
+                )
+                if len(tools) >= 4:
+                    break
+
+        if not tools:
+            tools = list(fallback.get("tools") or [])[:4]
+
+        write_domain = raw.get("write_domain") or fallback.get("write_domain")
+        return {
+            "action": action,
+            "tools": tools,
+            "requires_proposal": self._coerce_bool(raw.get("requires_proposal")) or bool(fallback.get("requires_proposal")),
+            "write_domain": str(write_domain) if write_domain else None,
+            "response_style": str(raw.get("response_style") or fallback.get("response_style") or "normal"),
+            "missing_fields": self._string_list(raw.get("missing_fields")) or list(fallback.get("missing_fields") or []),
+            "risk_level": str(raw.get("risk_level") or fallback.get("risk_level") or "medium"),
+            "source": "llm_planner",
+        }
+
+    async def _plan_next_steps(
+        self,
+        request: PostMessageRequest,
+        conversation_context: dict[str, Any],
+        intent: dict[str, Any],
+        degraded_reason: str | None,
+    ) -> tuple[dict[str, Any], StructuredLLMResult | None, str | None]:
+        fallback = self._fallback_planner_from_intent(intent, request)
+        if degraded_reason or not self.llm.is_enabled():
+            return fallback, None, degraded_reason or "llm_disabled"
+
+        system_prompt = (
+            "You are the planner for a safe fitness coaching agent. Return JSON only and do not answer the user. "
+            "Choose from actions: answer, clarify, propose, legacy_route. "
+            "Allowed tools: get_coach_summary, load_current_plan, get_memory_summary, get_workspace_summary, "
+            "get_exercise_catalog, get_recovery_guidance, geocode_location, reverse_geocode, search_nearby_places, "
+            "create_action_proposal. "
+            "Never write database state directly. For writes, use create_action_proposal only. "
+            "Return keys: action, tools, requires_proposal, write_domain, response_style, missing_fields, risk_level."
+        )
+        user_prompt = json.dumps(
+            {
+                "message": request.text,
+                "intent": intent,
+                "conversation_context": conversation_context,
+                "fallback_plan": fallback,
+                "location": {"hint": request.location_hint, "latitude": request.latitude, "longitude": request.longitude},
+            },
+            ensure_ascii=False,
+        )
+        result = await asyncio.to_thread(self.llm.generate_structured_with_metadata, system_prompt, user_prompt)
+        if not result.ok:
+            return fallback, result, result.error_code or "llm_planner_failed"
+        return self._normalize_planner_decision(result.data, fallback), result, None
+
+    def _build_tool_activity_card(
+        self,
+        tool_events: list[ToolEvent],
+        degraded_reason: str | None = None,
+    ) -> Card | None:
+        completed = [event for event in tool_events if event.event == "tool_call_completed"]
+        if not completed and not degraded_reason:
+            return None
+        bullets = []
+        for event in completed[:5]:
+            ok = event.payload.get("ok")
+            status = "完成" if ok is not False else "失败"
+            bullets.append(f"{event.tool_name}: {status} - {event.summary}")
+        if degraded_reason:
+            bullets.insert(0, f"受限模式: {degraded_reason}")
+        return Card(
+            type="tool_activity_card",
+            title="Agent 工作过程",
+            description="这次回复使用了以下上下文读取、规划或降级信息。",
+            bullets=bullets[:6] or ["本轮没有调用外部工具。"],
+            data={
+                "degradedReason": degraded_reason,
+                "toolEvents": [event.model_dump(mode="json") for event in completed],
+            },
+        )
+
+    async def _persist_tool_events(
+        self,
+        thread_id: str,
+        run_id: str,
+        tool_events: list[ToolEvent],
+        authorization: str | None,
+        planner_step: str,
+    ) -> None:
+        for event in tool_events:
+            if event.event != "tool_call_completed":
+                continue
+            try:
+                await self.store.create_tool_invocation(
+                    tool_name=event.tool_name,
+                    status="completed" if event.payload.get("ok") is not False else "failed",
+                    request_data={
+                        "thread_id": thread_id,
+                        "run_id": run_id,
+                        "planner_step": event.payload.get("planner_step", planner_step),
+                        "tool_name": event.tool_name,
+                    },
+                    response_data=event.payload,
+                    authorization=authorization,
+                )
+            except Exception as exc:
+                logger.warning("Unable to persist tool invocation log for %s: %s", event.tool_name, exc)
+
+    async def _execute_planner_tools(
+        self,
+        thread_id: str,
+        run_id: str,
+        request: PostMessageRequest,
+        planner: dict[str, Any],
+        authorization: str | None,
+    ) -> tuple[list[dict[str, Any]], list[ToolEvent], list[dict[str, Any]], list[str]]:
+        observations: list[dict[str, Any]] = []
+        tool_events: list[ToolEvent] = []
+        proposal_drafts: list[dict[str, Any]] = []
+        validation_warnings: list[str] = []
+        auth_tools = {"get_coach_summary", "load_current_plan", "get_memory_summary", "get_workspace_summary"}
+
+        pending_tools = list(planner.get("tools") or [])[:4]
+        for iteration in range(2):
+            next_round_tools: list[dict[str, Any]] = []
+            for index, tool in enumerate(pending_tools[:4]):
+                name = str(tool.get("name") or "")
+                if name not in self.PLANNER_TOOL_WHITELIST:
+                    continue
+                arguments = tool.get("arguments") if isinstance(tool.get("arguments"), dict) else {}
+                purpose = str(tool.get("purpose") or "")
+                planner_step = f"{iteration}:{index}"
+                tool_events.append(ToolEvent(event="tool_call_started", tool_name=name, summary=purpose or f"调用 {name}"))
+
+                if name == "create_action_proposal":
+                    write_domain = str(arguments.get("write_domain") or planner.get("write_domain") or "")
+                    context, write_events = await self._load_write_context(write_domain, authorization)
+                    tool_events.extend(write_events)
+                    proposed = self._heuristic_write_proposals(write_domain, request.text, context)
+                    proposal_drafts, validation_warnings = self._validate_proposals(proposed)
+                    payload = {
+                        "ok": bool(proposal_drafts),
+                        "proposal_count": len(proposal_drafts),
+                        "validation_warnings": validation_warnings,
+                        "planner_step": planner_step,
+                    }
+                    tool_events.append(
+                        ToolEvent(
+                            event="tool_call_completed",
+                            tool_name=name,
+                            summary=f"生成 {len(proposal_drafts)} 条待确认提案" if proposal_drafts else "未能生成安全提案",
+                            payload=payload,
+                        )
+                    )
+                    observations.append({"tool": name, "purpose": purpose, "result": payload})
+                    continue
+
+                kwargs = dict(arguments)
+                if name in auth_tools:
+                    kwargs["authorization"] = authorization
+                if name == "search_nearby_places":
+                    kwargs.setdefault("latitude", request.latitude)
+                    kwargs.setdefault("longitude", request.longitude)
+                    kwargs.setdefault("location_hint", request.location_hint)
+                if name == "geocode_location" and not kwargs.get("location") and request.location_hint:
+                    kwargs["location"] = request.location_hint
+
+                try:
+                    response = await self.tools.invoke(name, **kwargs)
+                    payload = self._tool_payload(response)
+                    payload["planner_step"] = planner_step
+                    tool_events.append(
+                        ToolEvent(
+                            event="tool_call_completed",
+                            tool_name=name,
+                            summary=response.human_readable,
+                            payload=payload,
+                        )
+                    )
+                    observations.append(
+                        {
+                            "tool": name,
+                            "purpose": purpose,
+                            "ok": response.ok,
+                            "source": response.source,
+                            "data": response.data,
+                            "error_code": response.error_code,
+                            "planner_step": planner_step,
+                        }
+                    )
+                    if (
+                        iteration == 0
+                        and name == "geocode_location"
+                        and response.ok
+                        and "latitude" in response.data
+                        and "longitude" in response.data
+                        and not any(str(item.get("name") or "") == "search_nearby_places" for item in pending_tools)
+                    ):
+                        next_round_tools.append(
+                            {
+                                "name": "search_nearby_places",
+                                "arguments": {
+                                    "keyword": arguments.get("keyword") or "gym",
+                                    "latitude": response.data.get("latitude"),
+                                    "longitude": response.data.get("longitude"),
+                                    "location_hint": request.location_hint or arguments.get("location"),
+                                },
+                                "purpose": "Use resolved coordinates to search nearby training places.",
+                            }
+                        )
+                except Exception as exc:
+                    payload = {"ok": False, "error_code": "tool_exception", "error": str(exc), "planner_step": planner_step}
+                    tool_events.append(
+                        ToolEvent(
+                            event="tool_call_completed",
+                            tool_name=name,
+                            summary=f"{name} 调用失败",
+                            payload=payload,
+                        )
+                    )
+                    observations.append(
+                        {
+                            "tool": name,
+                            "purpose": purpose,
+                            "ok": False,
+                            "error_code": "tool_exception",
+                            "error": str(exc),
+                            "planner_step": planner_step,
+                        }
+                    )
+            if not next_round_tools:
+                break
+            pending_tools = next_round_tools[:4]
+
+        await self._persist_tool_events(thread_id, run_id, tool_events, authorization, "planner_loop")
+        return observations, tool_events, proposal_drafts, validation_warnings
+
+    def _card_type_for_intent(self, intent: str) -> str:
+        if intent.startswith("plan"):
+            return "workout_plan_card"
+        if intent == "exercise_search":
+            return "exercise_card"
+        if intent == "location_search":
+            return "place_result_card"
+        if intent in {"daily_guidance", "weekly_review"}:
+            return "daily_guidance_card" if intent == "daily_guidance" else "weekly_review_card"
+        return "health_advice_card"
+
+    async def _compose_planned_response(
+        self,
+        request: PostMessageRequest,
+        conversation_context: dict[str, Any],
+        intent: dict[str, Any],
+        planner: dict[str, Any],
+        observations: list[dict[str, Any]],
+        degraded_reason: str | None,
+    ) -> tuple[str, str, list[str], Card | None, StructuredLLMResult | None, str | None]:
+        fallback_next_actions = ["告诉我你的目标或限制。", "需要修改数据时，我会先生成待确认提案。", "补充近期训练、睡眠或疲劳情况。"]
+        fallback_content = "我已经结合当前对话和已读取的上下文整理了建议。你可以继续补充目标、限制或希望调整的训练日，我会先确认再生成任何写入提案。"
+        fallback_reasoning = "本轮先识别意图，再按 planner 读取可用上下文；涉及写操作时只生成提案，不直接写库。"
+        if degraded_reason or not self.llm.is_enabled():
+            return fallback_content, fallback_reasoning, fallback_next_actions, None, None, degraded_reason or "llm_disabled"
+
+        system_prompt = (
+            "You are Health Agent, a non-medical fitness coach. "
+            f"Reply in {self._detect_reply_language(request.text)}. "
+            "Return JSON only with keys: content, reasoning_summary, next_actions, card_title, card_description, card_bullets. "
+            "Be concise but complete: normal answers should be 2-4 short paragraphs; use more detail when the user asks for planning or explanation. "
+            "Stay grounded in tool observations and do not claim that data was written."
+        )
+        user_prompt = json.dumps(
+            {
+                "message": request.text,
+                "conversation_context": conversation_context,
+                "intent": intent,
+                "planner": planner,
+                "tool_observations": observations,
+                "response_style": planner.get("response_style") or "normal",
+                "fallback": {
+                    "content": fallback_content,
+                    "reasoning_summary": fallback_reasoning,
+                    "next_actions": fallback_next_actions,
+                },
+            },
+            ensure_ascii=False,
+        )
+        result = await asyncio.to_thread(self.llm.generate_structured_with_metadata, system_prompt, user_prompt)
+        if not result.ok:
+            return fallback_content, fallback_reasoning, fallback_next_actions, None, result, result.error_code or "llm_composer_failed"
+
+        data = result.data
+        card = Card(
+            type=self._card_type_for_intent(str(intent.get("intent") or "")),
+            title=str(data.get("card_title") or "基于当前上下文的建议"),
+            description=str(data.get("card_description") or "这次回复基于当前对话、用户上下文和工具观察生成。"),
+            bullets=self._coerce_text_list(data.get("card_bullets"), ["继续补充目标、时间和限制，我可以进一步细化。"]),
+            data={"intent": intent, "planner": planner},
+        )
+        return (
+            str(data.get("content") or fallback_content),
+            str(data.get("reasoning_summary") or fallback_reasoning),
+            self._coerce_text_list(data.get("next_actions"), fallback_next_actions),
+            card,
+            result,
+            None,
+        )
 
     def _proposal_title(self, action_type: str) -> str:
         title_map = {
@@ -308,7 +900,8 @@ class HealthAgentRuntime:
             "You are Health Agent, a non-medical fitness coach. "
             f"Reply in {self._detect_reply_language(user_text)}. "
             "Return JSON only with keys: content, reasoning_summary, next_actions, card_title, card_description, card_bullets. "
-            "Keep the reply concise, safe, and grounded in the provided context."
+            "Be concise but complete, safe, and grounded in the provided context. "
+            "Use 2-4 short paragraphs for normal answers and add detail when the user asks for planning or explanation."
         )
         user_prompt = json.dumps(
             {
@@ -360,6 +953,8 @@ class HealthAgentRuntime:
         cards: list[Card],
         content: str,
         reasoning_summary: str,
+        extra_steps: list[RunStep] | None = None,
+        run_id: str | None = None,
     ) -> RunRecord:
         steps = [
             RunStep(
@@ -369,6 +964,7 @@ class HealthAgentRuntime:
                 payload={"reasoning_summary": reasoning_summary},
             )
         ]
+        steps.extend(extra_steps or [])
         for event in tool_events:
             steps.append(
                 RunStep(
@@ -395,7 +991,7 @@ class HealthAgentRuntime:
                 payload={"content": content},
             )
         )
-        return RunRecord(id=str(uuid.uuid4()), thread_id=thread_id, risk_level=risk_level, steps=steps)
+        return RunRecord(id=run_id or str(uuid.uuid4()), thread_id=thread_id, risk_level=risk_level, steps=steps)
 
     async def _append_assistant_message(
         self,
@@ -1785,6 +2381,10 @@ class HealthAgentRuntime:
         thread_id: str,
         request: PostMessageRequest,
         authorization: str | None,
+        extra_steps: list[RunStep] | None = None,
+        degraded_mode: bool = False,
+        degraded_reason: str | None = None,
+        intent_confidence: float = 1.0,
     ) -> PostMessageResponse:
         tool_events = [ToolEvent(event="tool_call_started", tool_name="get_coach_summary", summary="读取教练复盘上下文")]
         coach_summary = await self.tools.get_coach_summary(authorization)
@@ -1815,8 +2415,10 @@ class HealthAgentRuntime:
                 cards=cards,
                 content=content,
                 reasoning_summary=reasoning_summary,
+                extra_steps=extra_steps,
             )
             await self.store.save_run(run, authorization)
+            await self._persist_tool_events(thread_id, run.id, tool_events, authorization, "coaching_flow")
             message = await self._append_assistant_message(thread_id, content, reasoning_summary, cards, authorization)
             return PostMessageResponse(
                 id=message.id,
@@ -1827,6 +2429,10 @@ class HealthAgentRuntime:
                 tool_events=tool_events,
                 next_actions=["先检查 backend 和数据库状态。", "确认当前用户已有计划或日志数据。", "稍后重新触发复盘。"],
                 risk_level=run.risk_level,
+                degraded_mode=degraded_mode,
+                degraded_reason=degraded_reason,
+                intent=flow_type,
+                intent_confidence=intent_confidence,
             )
 
         pending_package = self._read_summary_value(
@@ -1862,8 +2468,10 @@ class HealthAgentRuntime:
                 cards=cards,
                 content=content,
                 reasoning_summary=reasoning_summary,
+                extra_steps=extra_steps,
             )
             await self.store.save_run(run, authorization)
+            await self._persist_tool_events(thread_id, run.id, tool_events, authorization, "coaching_flow")
             message = await self._append_assistant_message(thread_id, content, reasoning_summary, cards, authorization)
             return PostMessageResponse(
                 id=message.id,
@@ -1874,6 +2482,10 @@ class HealthAgentRuntime:
                 tool_events=tool_events,
                 next_actions=["先处理当前教练包。", "确认执行或拒绝。", "处理后再重新触发新的复盘。"],
                 risk_level=run.risk_level,
+                degraded_mode=degraded_mode,
+                degraded_reason=degraded_reason,
+                intent=flow_type,
+                intent_confidence=intent_confidence,
             )
 
         review_payload, group_payload, proposals, assistant_message, reasoning_summary, next_actions = self._draft_coaching_package(
@@ -1889,8 +2501,10 @@ class HealthAgentRuntime:
             cards=[],
             content=assistant_message,
             reasoning_summary=reasoning_summary,
+            extra_steps=extra_steps,
         )
         await self.store.save_run(run, authorization)
+        await self._persist_tool_events(thread_id, run.id, tool_events, authorization, "coaching_flow")
 
         created_package = await self.store.create_coaching_package(
             thread_id,
@@ -1933,6 +2547,10 @@ class HealthAgentRuntime:
             tool_events=tool_events,
             next_actions=next_actions,
             risk_level=run.risk_level,
+            degraded_mode=degraded_mode,
+            degraded_reason=degraded_reason,
+            intent=flow_type,
+            intent_confidence=intent_confidence,
         )
 
     async def process_message(
@@ -1944,84 +2562,198 @@ class HealthAgentRuntime:
         user_message = MessageRecord(id=str(uuid.uuid4()), role="user", content=request.text)
         await self.store.append_message(thread_id, user_message, authorization)
 
-        write_domain = self._detect_write_domain(request.text)
+        conversation_context = await self._load_conversation_context(thread_id, request.text, authorization)
+        intent, intent_llm, degraded_reason = await self._classify_intent(request, conversation_context)
+        degraded_mode = degraded_reason is not None
+        planner, planner_llm, planner_degraded_reason = await self._plan_next_steps(
+            request,
+            conversation_context,
+            intent,
+            degraded_reason,
+        )
+        if planner_degraded_reason and not degraded_reason:
+            degraded_reason = planner_degraded_reason
+            degraded_mode = True
+
+        write_domain = str(intent.get("write_domain") or planner.get("write_domain") or self._detect_write_domain(request.text) or "")
         self.trace.log(
             user_id=self._extract_user_id_from_authorization(authorization),
             thread_id=thread_id,
             text=request.text,
             write_domain=write_domain,
+            intent=intent,
+            planner=planner,
+            degraded_reason=degraded_reason,
         )
 
-        if self._is_weekly_review_request(request.text):
-            return await self._process_coaching_flow("weekly_review", thread_id, request, authorization)
+        base_extra_steps = [
+            RunStep(
+                id=str(uuid.uuid4()),
+                step_type="llm_call",
+                title="LLM 意图识别",
+                payload=self._llm_metadata_payload(intent_llm, "intent_classifier"),
+            ),
+            RunStep(
+                id=str(uuid.uuid4()),
+                step_type="intent_classification",
+                title="意图识别",
+                payload=intent,
+            ),
+            RunStep(
+                id=str(uuid.uuid4()),
+                step_type="llm_call",
+                title="LLM Planner",
+                payload=self._llm_metadata_payload(planner_llm, "planner"),
+            ),
+            RunStep(
+                id=str(uuid.uuid4()),
+                step_type="planner_decision",
+                title="Planner 决策",
+                payload=planner,
+            ),
+        ]
+        if degraded_mode:
+            base_extra_steps.append(
+                RunStep(
+                    id=str(uuid.uuid4()),
+                    step_type="degraded_mode",
+                    title="受限模式",
+                    payload={"reason": degraded_reason},
+                )
+            )
 
-        if self._is_daily_guidance_request(request.text):
-            return await self._process_coaching_flow("daily_guidance", thread_id, request, authorization)
-
-        if write_domain:
-            context, tool_events = await self._load_write_context(write_domain, authorization)
-            proposed = self._heuristic_write_proposals(write_domain, request.text, context)
-            proposals, validation_warnings = self._validate_proposals(proposed)
-
-            if proposals:
-                assistant_message = f"我先把这次请求整理成了 {len(proposals)} 条待确认提案。你确认后，我再通过后端命令写入数据库。"
-                reasoning_summary = "这次请求涉及写操作，所以先生成结构化提案，再进入确认执行链路。"
-                next_actions = ["检查提案内容。", "确认执行或拒绝。", "执行后刷新相关页面查看结果。"]
-            else:
-                assistant_message = "我理解到你想修改数据，但当前信息还不足以生成安全提案。"
-                reasoning_summary = "这次请求没有得到足够明确的目标对象或字段，因此暂不进入写库。"
-                next_actions = ["补充更具体的目标对象。", "说明你想新增、修改还是删除。", "如果是计划项，请告诉我对应训练日。"]
-
-            if validation_warnings:
-                next_actions = [*validation_warnings, *next_actions][:3]
-
+        if intent.get("should_clarify") or planner.get("action") == "clarify":
+            content = str(intent.get("clarifying_question") or "我需要再确认一下你的目标，才能安全继续。")
+            reasoning_summary = "本轮意图识别置信度不足或缺少关键字段，因此先追问，不调用写入工具。"
+            next_actions = ["补充目标或训练日。", "说明你想记录、调整还是查询。", "如果涉及疼痛，请描述位置和程度。"]
+            cards = [
+                Card(
+                    type="reasoning_summary_card",
+                    title="需要先澄清",
+                    description="信息不足时，Agent 会先确认意图，而不是猜测或直接写入。",
+                    bullets=[content],
+                    data={"intent": intent, "planner": planner},
+                )
+            ]
             run = self._build_run(
                 thread_id=thread_id,
-                risk_level=self._max_risk_level([proposal["riskLevel"] for proposal in proposals]) if proposals else "medium",
-                tool_events=tool_events,
-                cards=[],
-                content=assistant_message,
+                risk_level="medium",
+                tool_events=[],
+                cards=cards,
+                content=content,
                 reasoning_summary=reasoning_summary,
+                extra_steps=base_extra_steps,
             )
             await self.store.save_run(run, authorization)
-
-            created_proposals = await self.store.create_proposals(thread_id, run.id, proposals, authorization) if proposals else []
-            cards: list[Card] = []
-            for proposal in created_proposals:
-                memory_card = self._build_memory_candidate_card(proposal)
-                if memory_card is not None:
-                    cards.append(memory_card)
-                cards.append(self._build_proposal_card(proposal))
-            message = await self._append_assistant_message(
-                thread_id=thread_id,
-                content=assistant_message,
-                reasoning_summary=reasoning_summary,
-                cards=cards,
-                authorization=authorization,
-            )
+            message = await self._append_assistant_message(thread_id, content, reasoning_summary, cards, authorization)
             return PostMessageResponse(
                 id=message.id,
                 content=message.content,
                 reasoning_summary=message.reasoning_summary or reasoning_summary,
                 cards=cards,
                 run_id=run.id,
-                tool_events=tool_events,
+                tool_events=[],
                 next_actions=next_actions,
                 risk_level=run.risk_level,
+                degraded_mode=degraded_mode,
+                degraded_reason=degraded_reason,
+                intent=str(intent.get("intent") or ""),
+                intent_confidence=float(intent.get("confidence") or 0.0),
             )
 
-        if self._is_location_query(request.text):
-            content, reasoning_summary, cards, next_actions, tool_events = await self._handle_location(request, authorization)
-            risk_level = "low"
-        elif self._is_exercise_query(request.text):
-            content, reasoning_summary, cards, next_actions, tool_events = await self._handle_exercise(request, authorization)
-            risk_level = "low"
-        elif self._is_plan_query(request.text):
-            content, reasoning_summary, cards, next_actions, tool_events = await self._handle_plan(request, authorization)
-            risk_level = "medium"
+        intent_name = str(intent.get("intent") or "")
+        if intent_name == "weekly_review":
+            return await self._process_coaching_flow(
+                "weekly_review",
+                thread_id,
+                request,
+                authorization,
+                extra_steps=base_extra_steps,
+                degraded_mode=degraded_mode,
+                degraded_reason=degraded_reason,
+                intent_confidence=float(intent.get("confidence") or 0.0),
+            )
+
+        if intent_name == "daily_guidance":
+            return await self._process_coaching_flow(
+                "daily_guidance",
+                thread_id,
+                request,
+                authorization,
+                extra_steps=base_extra_steps,
+                degraded_mode=degraded_mode,
+                degraded_reason=degraded_reason,
+                intent_confidence=float(intent.get("confidence") or 0.0),
+            )
+
+        run_id = str(uuid.uuid4())
+        observations, tool_events, proposals, validation_warnings = await self._execute_planner_tools(
+            thread_id,
+            run_id,
+            request,
+            planner,
+            authorization,
+        )
+        compose_llm: StructuredLLMResult | None = None
+
+        if proposals or planner.get("action") == "propose":
+            if proposals:
+                content = f"我先把这次请求整理成了 {len(proposals)} 条待确认提案。你确认后，我再通过后端命令写入数据库。"
+                reasoning_summary = "这次请求涉及写操作，所以先生成结构化提案，再进入确认执行链路。"
+                next_actions = ["检查提案内容。", "确认执行或拒绝。", "执行后刷新相关页面查看结果。"]
+            else:
+                content = "我理解到你想修改数据，但当前信息还不足以生成安全提案。"
+                reasoning_summary = "这次请求没有得到足够明确的目标对象或字段，因此暂不进入写库。"
+                next_actions = ["补充更具体的目标对象。", "说明你想新增、修改还是删除。", "如果是计划项，请告诉我对应训练日。"]
+
+            if validation_warnings:
+                next_actions = [*validation_warnings, *next_actions][:3]
+            cards: list[Card] = []
+            activity_card = self._build_tool_activity_card(tool_events, degraded_reason)
+            if activity_card is not None:
+                cards.append(activity_card)
+            risk_level = self._max_risk_level([proposal["riskLevel"] for proposal in proposals]) if proposals else "medium"
         else:
-            content, reasoning_summary, cards, next_actions, tool_events = await self._handle_health(request, authorization)
-            risk_level = "medium"
+            content, reasoning_summary, next_actions, response_card, compose_llm, compose_degraded_reason = await self._compose_planned_response(
+                request,
+                conversation_context,
+                intent,
+                planner,
+                observations,
+                degraded_reason,
+            )
+            if compose_degraded_reason and not degraded_reason:
+                degraded_reason = compose_degraded_reason
+                degraded_mode = True
+            cards = []
+            activity_card = self._build_tool_activity_card(tool_events, degraded_reason)
+            if activity_card is not None:
+                cards.append(activity_card)
+            if response_card is not None:
+                cards.append(response_card)
+            risk_level = str(planner.get("risk_level") or "medium")
+            if risk_level not in {"low", "medium", "high"}:
+                risk_level = "medium"
+
+        extra_steps = list(base_extra_steps)
+        if compose_llm is not None:
+            extra_steps.append(
+                RunStep(
+                    id=str(uuid.uuid4()),
+                    step_type="llm_call",
+                    title="LLM 回复合成",
+                    payload=self._llm_metadata_payload(compose_llm, "response_composer"),
+                )
+            )
+        if degraded_mode and not any(step.step_type == "degraded_mode" for step in extra_steps):
+            extra_steps.append(
+                RunStep(
+                    id=str(uuid.uuid4()),
+                    step_type="degraded_mode",
+                    title="受限模式",
+                    payload={"reason": degraded_reason},
+                )
+            )
 
         run = self._build_run(
             thread_id=thread_id,
@@ -2030,8 +2762,18 @@ class HealthAgentRuntime:
             cards=cards,
             content=content,
             reasoning_summary=reasoning_summary,
+            extra_steps=extra_steps,
+            run_id=run_id,
         )
         await self.store.save_run(run, authorization)
+
+        if proposals:
+            created_proposals = await self.store.create_proposals(thread_id, run.id, proposals, authorization)
+            for proposal in created_proposals:
+                memory_card = self._build_memory_candidate_card(proposal)
+                if memory_card is not None:
+                    cards.append(memory_card)
+                cards.append(self._build_proposal_card(proposal))
         message = await self._append_assistant_message(thread_id, content, reasoning_summary, cards, authorization)
 
         return PostMessageResponse(
@@ -2043,6 +2785,10 @@ class HealthAgentRuntime:
             tool_events=tool_events,
             next_actions=next_actions,
             risk_level=risk_level,
+            degraded_mode=degraded_mode,
+            degraded_reason=degraded_reason,
+            intent=str(intent.get("intent") or ""),
+            intent_confidence=float(intent.get("confidence") or 0.0),
         )
 
     async def approve_proposal(self, proposal_id: str, authorization: str | None = None) -> ProposalDecisionResponse:

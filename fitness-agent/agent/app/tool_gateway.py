@@ -22,6 +22,7 @@ class ToolGateway:
             "load_current_plan": self.load_current_plan,
             "get_coach_summary": self.get_coach_summary,
             "get_memory_summary": self.get_memory_summary,
+            "get_workspace_summary": self.get_workspace_summary,
             "get_exercise_catalog": self.get_exercise_catalog,
             "get_recovery_guidance": self.get_recovery_guidance,
             "geocode_location": self.geocode_location,
@@ -200,6 +201,24 @@ class ToolGateway:
                 )
         except Exception as exc:
             return self._backend_failure("load the coaching memory summary", exc)
+
+    async def get_workspace_summary(self, authorization: str | None = None) -> ToolResponse:
+        try:
+            logger.info("[TOOLS] Requesting agent workspace summary from backend.")
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.get(
+                    f"{settings.backend_base_url}/agent/context/workspace-summary",
+                    headers=self._backend_headers(authorization),
+                )
+                response.raise_for_status()
+                return ToolResponse(
+                    ok=True,
+                    data=response.json(),
+                    human_readable="Loaded the agent workspace summary from backend.",
+                    source="backend",
+                )
+        except Exception as exc:
+            return self._backend_failure("load the agent workspace summary", exc)
 
     async def get_exercise_catalog(self) -> ToolResponse:
         try:

@@ -28,6 +28,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(levelname)s %(name)s: %(message)s",
 )
+logger = logging.getLogger("health_agent.main")
 
 app = FastAPI(title=settings.app_name)
 app.add_middleware(
@@ -43,6 +44,9 @@ tool_gateway = ToolGateway()
 trace_logger = TraceLogger()
 llm_client = OpenAICompatibleLLMClient()
 runtime = HealthAgentRuntime(session_store, tool_gateway, trace_logger, llm_client)
+
+for warning in settings.llm_config_warnings():
+    logger.warning("[LLM CONFIG] %s The agent will remain available but may run in degraded mode.", warning)
 
 
 def require_authorization_header(authorization: str | None) -> str:
@@ -101,6 +105,11 @@ def extract_user_id_from_authorization(authorization: str | None) -> str | None:
 @app.get("/healthz")
 async def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/agent/health/llm")
+async def llm_healthcheck() -> dict[str, object]:
+    return llm_client.health_check()
 
 
 @app.post("/agent/threads", response_model=CreateThreadResponse)

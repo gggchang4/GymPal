@@ -22,6 +22,10 @@ export type CardType =
 
 export type RunStepType =
   | "thinking_summary"
+  | "llm_call"
+  | "intent_classification"
+  | "planner_decision"
+  | "degraded_mode"
   | "tool_call_started"
   | "tool_call_completed"
   | "card_render"
@@ -322,6 +326,10 @@ export interface PostMessageResponse {
   toolEvents: ToolEvent[];
   nextActions: string[];
   riskLevel: "low" | "medium" | "high";
+  degradedMode: boolean;
+  degradedReason?: string | null;
+  intent?: string | null;
+  intentConfidence?: number | null;
 }
 
 export interface RunStepEventPayload {

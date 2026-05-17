@@ -17,7 +17,7 @@ import {
 import { readAgentThreadId, writeAgentThreadId } from "@/lib/agent-thread";
 import { readAuthAccessToken, subscribeAuthChange } from "@/lib/auth";
 import { appRoutes } from "@/lib/routes";
-import type { AgentMessage, RecommendationFeedbackType } from "@/lib/types";
+import type { AgentMessage, PostMessageResponse, RecommendationFeedbackType } from "@/lib/types";
 
 const initialMessages: AgentMessage[] = [
   {
@@ -56,6 +56,19 @@ function buildErrorMessage(error: unknown, action: "message" | "proposal" | "pac
   return `请求失败：${detail}`;
 }
 
+function buildAgentMeta(response: PostMessageResponse) {
+  const nextActions = response.nextActions.slice(0, 3);
+  return {
+    degradedMode: response.degradedMode,
+    degradedReason: response.degradedReason,
+    intent: response.intent,
+    intentConfidence: response.intentConfidence,
+    nextActions,
+    hasDetail: response.degradedMode || nextActions.length > 0,
+    toolCount: response.toolEvents.filter((event) => event.event === "tool_call_completed").length
+  };
+}
+
 export default function ChatPage() {
   const router = useRouter();
   const [threadId, setThreadId] = useState("");
@@ -65,6 +78,7 @@ export default function ChatPage() {
   const [status, setStatus] = useState("正在连接助手");
   const [pendingProposalId, setPendingProposalId] = useState<string | null>(null);
   const [hasAuthToken, setHasAuthToken] = useState<boolean | null>(null);
+  const [lastAgentMeta, setLastAgentMeta] = useState<ReturnType<typeof buildAgentMeta> | null>(null);
 
   const mountedRef = useRef(true);
   const threadPromiseRef = useRef<Promise<string> | null>(null);
@@ -184,9 +198,10 @@ export default function ChatPage() {
 
     try {
       const activeThreadId = await ensureThread();
-      await postMessage(activeThreadId, content);
+      const response = await postMessage(activeThreadId, content);
+      setLastAgentMeta(buildAgentMeta(response));
       await refreshMessages(activeThreadId);
-      setStatus("已同步最新消息");
+      setStatus(response.degradedMode ? "Agent 当前使用受限模式" : "已同步最新消息");
     } catch (error) {
       setMessages((current) => [
         ...current,
@@ -197,6 +212,7 @@ export default function ChatPage() {
           reasoningSummary: "这次失败反映的是当前后端或 Agent 服务的真实状态。"
         }
       ]);
+      setLastAgentMeta(null);
       setStatus("消息发送失败");
     } finally {
       if (mountedRef.current) {
@@ -316,8 +332,25 @@ export default function ChatPage() {
           <div className="chip-row">
             <span className={`status-pill ${busy || pendingProposalId ? "live" : "idle"}`}>{status}</span>
             <span className="mini-chip">{threadId ? "已连接线程" : "尚未建立线程"}</span>
+            {lastAgentMeta?.intent ? <span className="mini-chip">意图 {lastAgentMeta.intent}</span> : null}
+            {lastAgentMeta?.toolCount ? <span className="mini-chip">工具 {lastAgentMeta.toolCount}</span> : null}
           </div>
         </div>
+        {lastAgentMeta?.hasDetail ? (
+          <div className="chat-meta-row">
+            <span className="section-label">{lastAgentMeta.degradedMode ? "受限模式" : "Next"}</span>
+            <div className="chip-row">
+              {lastAgentMeta.degradedMode ? (
+                <span className="mini-chip">{lastAgentMeta.degradedReason || "LLM 暂不可用，已使用安全降级逻辑"}</span>
+              ) : null}
+              {lastAgentMeta.nextActions.map((action) => (
+                <span key={action} className="mini-chip">
+                  {action}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         <div className="messages chat-feed">
           {messages.map((message) => (

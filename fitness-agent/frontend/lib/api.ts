@@ -63,6 +63,10 @@ interface RawPostMessageResponse {
   tool_events: RawToolEvent[];
   next_actions: string[];
   risk_level: "low" | "medium" | "high";
+  degraded_mode?: boolean;
+  degraded_reason?: string | null;
+  intent?: string | null;
+  intent_confidence?: number | null;
 }
 
 interface RawAgentMessage {
@@ -377,7 +381,11 @@ function mapPostMessageResponse(response: RawPostMessageResponse): PostMessageRe
     runId: response.run_id,
     toolEvents: (response.tool_events ?? []).map(mapToolEvent),
     nextActions: response.next_actions ?? [],
-    riskLevel: response.risk_level
+    riskLevel: response.risk_level,
+    degradedMode: response.degraded_mode ?? false,
+    degradedReason: response.degraded_reason ?? null,
+    intent: response.intent ?? null,
+    intentConfidence: response.intent_confidence ?? null
   };
 }
 
