@@ -426,6 +426,7 @@ class HealthAgentRuntime:
 
         tools: list[dict[str, Any]] = []
         raw_tools = raw.get("tools")
+        raw_tools_present = isinstance(raw_tools, list)
         if isinstance(raw_tools, list):
             for raw_tool in raw_tools:
                 if not isinstance(raw_tool, dict):
@@ -444,14 +445,21 @@ class HealthAgentRuntime:
                 if len(tools) >= 4:
                     break
 
-        if not tools:
+        if action == "clarify":
+            tools = []
+        elif not raw_tools_present and not tools:
             tools = list(fallback.get("tools") or [])[:4]
 
         write_domain = raw.get("write_domain") or fallback.get("write_domain")
+        requires_proposal = False
+        if action != "clarify":
+            requires_proposal = self._coerce_bool(raw.get("requires_proposal")) or (
+                action == "propose" and bool(fallback.get("requires_proposal"))
+            )
         return {
             "action": action,
             "tools": tools,
-            "requires_proposal": self._coerce_bool(raw.get("requires_proposal")) or bool(fallback.get("requires_proposal")),
+            "requires_proposal": requires_proposal,
             "write_domain": str(write_domain) if write_domain else None,
             "response_style": str(raw.get("response_style") or fallback.get("response_style") or "normal"),
             "missing_fields": self._string_list(raw.get("missing_fields")) or list(fallback.get("missing_fields") or []),
