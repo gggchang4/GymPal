@@ -52,6 +52,19 @@ function hasText(value: unknown) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function finiteNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 @Injectable()
 export class AgentQualityService {
   constructor(
@@ -218,6 +231,49 @@ export class AgentQualityService {
         preview: proposal.preview
       })
     );
+    const generatedPlanProposals = input.packagePayload.proposals.filter((proposal) =>
+      ["generate_plan", "adjust_plan", "generate_next_week_plan"].includes(proposal.actionType)
+    );
+    const generatedDietProposals = input.packagePayload.proposals.filter((proposal) =>
+      ["generate_diet_snapshot"].includes(proposal.actionType)
+    );
+    const planDayCounts = generatedPlanProposals.map((proposal) => asArray(asRecord(proposal.payload).days).length);
+    const hasEmptyGeneratedPlan = generatedPlanProposals.some((proposal) => {
+      const payload = asRecord(proposal.payload);
+      const days = asArray(payload.days);
+      if (proposal.actionType !== "adjust_plan" && days.length === 0) {
+        return true;
+      }
+      return days.some((day) => {
+        const record = asRecord(day);
+        return !hasText(record.focus) || asArray(record.exercises).length === 0;
+      });
+    });
+    const missingRecoveryGuidance = generatedPlanProposals.some((proposal) => {
+      const payload = asRecord(proposal.payload);
+      return asArray(payload.days).some((day) => !hasText(asRecord(day).recoveryTip));
+    });
+    const unsafeDietCalories = generatedDietProposals.some((proposal) => {
+      const payload = asRecord(proposal.payload);
+      const calorie = finiteNumber(payload.targetCalorie ?? payload.totalCalorie);
+      return calorie !== null && (calorie < 1200 || calorie > 4500);
+    });
+    const missingDietStrategy = generatedDietProposals.some((proposal) => {
+      const payload = asRecord(proposal.payload);
+      return asArray(payload.agentTips).length === 0 || !hasObjectContent(payload.nutritionDetail);
+    });
+    const reviewEvidence = asRecord(input.review.evidence);
+    const inputSnapshot = asRecord(input.review.inputSnapshot);
+    const highImpactWithoutEvidence =
+      (generatedPlanProposals.length > 0 || generatedDietProposals.length > 0) &&
+      !hasObjectContent(reviewEvidence) &&
+      !hasObjectContent(inputSnapshot);
+    const missingGoal =
+      (generatedPlanProposals.length > 0 || generatedDietProposals.length > 0) &&
+      !input.packagePayload.proposals.some((proposal) => {
+        const payload = asRecord(proposal.payload);
+        return hasText(payload.goal) || hasText(payload.userGoal);
+      });
 
     if (unsupportedActions.length > 0) {
       score -= 50;
@@ -230,6 +286,34 @@ export class AgentQualityService {
     if (input.packagePayload.proposals.length === 0) {
       score -= 35;
       blockedReasons.push("empty_package");
+    }
+    if (hasEmptyGeneratedPlan) {
+      score -= 45;
+      blockedReasons.push("empty_training_day");
+    }
+    if (unsafeDietCalories) {
+      score -= 55;
+      blockedReasons.push("unsafe_diet_calories");
+    }
+    if (missingRecoveryGuidance) {
+      score -= 35;
+      blockedReasons.push("missing_recovery_guidance");
+    }
+    if (highImpactWithoutEvidence) {
+      score -= 40;
+      blockedReasons.push("high_impact_without_evidence");
+    }
+    if (missingDietStrategy) {
+      score -= 12;
+      downgradeReasons.push("missing_meal_strategy");
+    }
+    if (missingGoal) {
+      score -= 10;
+      downgradeReasons.push("missing_goal_context");
+    }
+    if (generatedPlanProposals.length > 0 && !JSON.stringify(input.review.inputSnapshot ?? {}).match(/equipment/i)) {
+      score -= 8;
+      downgradeReasons.push("missing_equipment_context");
     }
     if (!hasText(input.packagePayload.proposalGroup.summary)) {
       score -= 10;
@@ -275,6 +359,9 @@ export class AgentQualityService {
         actionCount: input.packagePayload.proposals.length,
         riskLevel: input.riskLevel,
         highRiskActionCount,
+        generatedPlanCount: generatedPlanProposals.length,
+        generatedDietCount: generatedDietProposals.length,
+        planDayCounts,
         policyLabels: input.policyLabels,
         hasPackagePreview: hasObjectContent(input.packagePayload.proposalGroup.preview),
         hasReviewEvidence: hasObjectContent(input.review.evidence),

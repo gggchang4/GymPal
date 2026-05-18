@@ -4,20 +4,23 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AgentCardList } from "@/components/cards";
+import { AgentRunTimeline } from "@/components/agent-run-timeline";
 import {
   approveProposal,
   approveProposalGroup,
   createThread,
   getThreadMessages,
+  getThreadProposals,
   postMessage,
   rejectProposal,
   rejectProposalGroup,
+  streamRun,
   submitRecommendationFeedback
 } from "@/lib/api";
-import { readAgentThreadId, writeAgentThreadId } from "@/lib/agent-thread";
+import { clearAgentIntentHint, readAgentIntentHint, readAgentThreadId, writeAgentThreadId } from "@/lib/agent-thread";
 import { readAuthAccessToken, subscribeAuthChange } from "@/lib/auth";
 import { appRoutes } from "@/lib/routes";
-import type { AgentMessage, PostMessageResponse, RecommendationFeedbackType } from "@/lib/types";
+import type { AgentActionProposal, AgentMessage, AgentRunTimelineItem, PostMessageResponse, RecommendationFeedbackType } from "@/lib/types";
 
 const initialMessages: AgentMessage[] = [
   {
@@ -63,9 +66,23 @@ function buildAgentMeta(response: PostMessageResponse) {
     degradedReason: response.degradedReason,
     intent: response.intent,
     intentConfidence: response.intentConfidence,
+    clarification: response.clarification,
+    usedMemories: response.usedMemories,
+    pendingProposalCount: response.pendingProposalCount,
     nextActions,
-    hasDetail: response.degradedMode || nextActions.length > 0,
+    hasDetail: response.degradedMode || nextActions.length > 0 || Boolean(response.clarification) || response.usedMemories.length > 0,
     toolCount: response.toolEvents.filter((event) => event.event === "tool_call_completed").length
+  };
+}
+
+function mapTimelineItem(runId: string, item: { data: { id: string; step_type: AgentRunTimelineItem["stepType"]; title: string; payload: Record<string, unknown>; created_at?: string } }): AgentRunTimelineItem {
+  return {
+    runId,
+    id: item.data.id,
+    stepType: item.data.step_type,
+    title: item.data.title,
+    payload: item.data.payload,
+    createdAt: item.data.created_at
   };
 }
 
@@ -79,6 +96,10 @@ export default function ChatPage() {
   const [pendingProposalId, setPendingProposalId] = useState<string | null>(null);
   const [hasAuthToken, setHasAuthToken] = useState<boolean | null>(null);
   const [lastAgentMeta, setLastAgentMeta] = useState<ReturnType<typeof buildAgentMeta> | null>(null);
+  const [timelineByRunId, setTimelineByRunId] = useState<Record<string, AgentRunTimelineItem[]>>({});
+  const [activeRunId, setActiveRunId] = useState("");
+  const [pendingProposals, setPendingProposals] = useState<AgentActionProposal[]>([]);
+  const [intentHint, setIntentHint] = useState("");
 
   const mountedRef = useRef(true);
   const threadPromiseRef = useRef<Promise<string> | null>(null);
@@ -107,12 +128,16 @@ export default function ChatPage() {
   }, [router]);
 
   const hydrateThread = useCallback(async (existingThreadId: string) => {
-    const history = await getThreadMessages(existingThreadId);
+    const [history, proposals] = await Promise.all([
+      getThreadMessages(existingThreadId),
+      getThreadProposals(existingThreadId)
+    ]);
     if (!mountedRef.current) {
       return;
     }
 
     setMessages(history.length > 0 ? history : initialMessages);
+    setPendingProposals(proposals.filter((proposal) => proposal.status === "pending" || proposal.status === "approved"));
     setStatus("助手已连接");
   }, []);
 
@@ -160,6 +185,11 @@ export default function ChatPage() {
       return;
     }
 
+    const hint = readAgentIntentHint();
+    if (hint) {
+      setIntentHint(hint);
+      clearAgentIntentHint();
+    }
     void ensureThread();
   }, [ensureThread, hasAuthToken]);
 
@@ -171,12 +201,16 @@ export default function ChatPage() {
   }, [messages, busy, pendingProposalId]);
 
   async function refreshMessages(activeThreadId: string) {
-    const history = await getThreadMessages(activeThreadId);
+    const [history, proposals] = await Promise.all([
+      getThreadMessages(activeThreadId),
+      getThreadProposals(activeThreadId)
+    ]);
     if (!mountedRef.current) {
       return;
     }
 
     setMessages(history.length > 0 ? history : initialMessages);
+    setPendingProposals(proposals.filter((proposal) => proposal.status === "pending" || proposal.status === "approved"));
   }
 
   async function onSubmit() {
@@ -190,8 +224,14 @@ export default function ChatPage() {
       role: "user",
       content
     };
+    const placeholderMessage: AgentMessage = {
+      id: `assistant-${crypto.randomUUID()}`,
+      role: "assistant",
+      content: "GymPal is working...",
+      reasoningSummary: "Waiting for the agent run timeline."
+    };
 
-    setMessages((current) => [...current, userMessage]);
+    setMessages((current) => [...current, userMessage, placeholderMessage]);
     setText("");
     setBusy(true);
     setStatus("正在发送消息");
@@ -200,6 +240,18 @@ export default function ChatPage() {
       const activeThreadId = await ensureThread();
       const response = await postMessage(activeThreadId, content);
       setLastAgentMeta(buildAgentMeta(response));
+      setActiveRunId(response.runId);
+      setTimelineByRunId((current) => ({ ...current, [response.runId]: [] }));
+      try {
+        await streamRun(response.runId, (event) => {
+          setTimelineByRunId((current) => ({
+            ...current,
+            [response.runId]: [...(current[response.runId] ?? []), mapTimelineItem(response.runId, event)]
+          }));
+        });
+      } catch {
+        setStatus("Timeline stream unavailable; syncing final messages.");
+      }
       await refreshMessages(activeThreadId);
       setStatus(response.degradedMode ? "Agent 当前使用受限模式" : "已同步最新消息");
     } catch (error) {
@@ -344,12 +396,49 @@ export default function ChatPage() {
                 <span className="mini-chip">{lastAgentMeta.degradedReason || "LLM 暂不可用，已使用安全降级逻辑"}</span>
               ) : null}
               {lastAgentMeta.nextActions.map((action) => (
-                <span key={action} className="mini-chip">
+                <button key={action} type="button" className="mini-chip chip-button" onClick={() => setText(action)}>
                   {action}
-                </span>
+                </button>
               ))}
+              {lastAgentMeta.clarification?.chips.map((chip) => (
+                <button key={chip} type="button" className="mini-chip chip-button" onClick={() => setText(chip)}>
+                  {chip}
+                </button>
+              ))}
+              {lastAgentMeta.usedMemories.length > 0 ? (
+                <span className="mini-chip">Used memories {lastAgentMeta.usedMemories.length}</span>
+              ) : null}
             </div>
           </div>
+        ) : null}
+        {intentHint ? (
+          <div className="pending-proposal-banner">
+            <span>{intentHint}</span>
+            <button type="button" className="chip-button" onClick={() => setText(intentHint)}>
+              Use as prompt
+            </button>
+            <button type="button" className="ghost-button subtle" onClick={() => setIntentHint("")}>
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+        {pendingProposals.length > 0 ? (
+          <div className="pending-proposal-banner">
+            <span>{pendingProposals.length} pending confirmation item(s)</span>
+            <button
+              type="button"
+              className="chip-button"
+              onClick={() => {
+                scrollAnchorRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+                setStatus("Pending proposal cards are in this conversation.");
+              }}
+            >
+              Jump to cards
+            </button>
+          </div>
+        ) : null}
+        {activeRunId && timelineByRunId[activeRunId]?.length ? (
+          <AgentRunTimeline items={timelineByRunId[activeRunId]} />
         ) : null}
 
         <div className="messages chat-feed">

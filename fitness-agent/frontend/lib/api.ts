@@ -2,6 +2,7 @@ import type {
   AdviceSnapshot,
   AgentCard,
   AgentMessage,
+  AgentActionProposal,
   AgentProposalGroup,
   AgentProductEventSnapshot,
   AgentQualityCheckSnapshot,
@@ -67,6 +68,9 @@ interface RawPostMessageResponse {
   degraded_reason?: string | null;
   intent?: string | null;
   intent_confidence?: number | null;
+  clarification?: { question: string; chips?: string[] } | null;
+  used_memories?: PostMessageResponse["usedMemories"];
+  pending_proposal_count?: number;
 }
 
 interface RawAgentMessage {
@@ -124,6 +128,27 @@ interface RawAgentProposalGroup {
   strategy_template_id?: string | null;
   strategy_version?: string | null;
   policy_labels?: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+interface RawAgentActionProposal {
+  id: string;
+  thread_id: string;
+  run_id: string;
+  proposal_group_id?: string | null;
+  status: string;
+  action_type: string;
+  entity_type: string;
+  entity_id?: string | null;
+  title: string;
+  summary: string;
+  payload?: Record<string, unknown>;
+  preview?: Record<string, unknown>;
+  risk_level: "low" | "medium" | "high" | string;
+  requires_confirmation?: boolean;
+  expires_at?: string | null;
+  executed_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -385,7 +410,12 @@ function mapPostMessageResponse(response: RawPostMessageResponse): PostMessageRe
     degradedMode: response.degraded_mode ?? false,
     degradedReason: response.degraded_reason ?? null,
     intent: response.intent ?? null,
-    intentConfidence: response.intent_confidence ?? null
+    intentConfidence: response.intent_confidence ?? null,
+    clarification: response.clarification
+      ? { question: response.clarification.question, chips: response.clarification.chips ?? [] }
+      : null,
+    usedMemories: response.used_memories ?? [],
+    pendingProposalCount: response.pending_proposal_count ?? 0
   };
 }
 
@@ -452,6 +482,29 @@ function mapProposalGroup(group: RawAgentProposalGroup): AgentProposalGroup {
     policyLabels: group.policy_labels ?? [],
     createdAt: group.created_at,
     updatedAt: group.updated_at
+  };
+}
+
+function mapProposal(proposal: RawAgentActionProposal): AgentActionProposal {
+  return {
+    id: proposal.id,
+    threadId: proposal.thread_id,
+    runId: proposal.run_id,
+    proposalGroupId: proposal.proposal_group_id ?? null,
+    status: proposal.status,
+    actionType: proposal.action_type,
+    entityType: proposal.entity_type,
+    entityId: proposal.entity_id ?? null,
+    title: proposal.title,
+    summary: proposal.summary,
+    payload: proposal.payload ?? {},
+    preview: proposal.preview ?? {},
+    riskLevel: proposal.risk_level,
+    requiresConfirmation: proposal.requires_confirmation ?? true,
+    expiresAt: proposal.expires_at ?? null,
+    executedAt: proposal.executed_at ?? null,
+    createdAt: proposal.created_at,
+    updatedAt: proposal.updated_at
   };
 }
 
@@ -963,6 +1016,11 @@ export async function submitRecommendationFeedback(payload: {
 export async function getThreadProposalGroups(threadId: string): Promise<AgentProposalGroup[]> {
   const result = await requestJson<RawAgentProposalGroup[]>(`${backendBaseUrl}/agent/state/threads/${threadId}/proposal-groups`);
   return result.map(mapProposalGroup);
+}
+
+export async function getThreadProposals(threadId: string): Promise<AgentActionProposal[]> {
+  const result = await requestJson<RawAgentActionProposal[]>(`${backendBaseUrl}/agent/state/threads/${threadId}/proposals`);
+  return result.map(mapProposal);
 }
 
 export async function getThreadCoachingReviews(threadId: string): Promise<CoachingReviewSnapshot[]> {

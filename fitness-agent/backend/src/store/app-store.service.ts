@@ -130,13 +130,25 @@ export interface GeneratedAdvicePayload {
 
 export interface CoachingMemoryPayload {
   memoryType: string;
+  category?: string;
   title: string;
   summary: string;
   value?: Record<string, unknown>;
   confidence?: number;
+  relevanceTags?: string[];
   sourceType?: string;
   sourceId?: string;
+  sourceMessageId?: string;
+  expiresAt?: string | Date | null;
+  conflictGroupId?: string | null;
+  conflictStatus?: string;
   reason?: string;
+}
+
+export interface MemorySummaryOptions {
+  categories?: string[];
+  tags?: string[];
+  includeExpired?: boolean;
 }
 
 export interface RecommendationFeedbackPayload {
@@ -159,13 +171,21 @@ export interface MemorySummaryRecord {
   activeMemories: Array<{
     id: string;
     memoryType: string;
+    category: string;
     title: string;
     summary: string;
     value: Prisma.JsonValue;
     confidence: number;
+    relevanceTags: string[];
     sourceType: string;
     sourceId: string | null;
+    sourceMessageId: string | null;
     status: string;
+    expiresAt: string | null;
+    conflictGroupId: string | null;
+    conflictStatus: string;
+    lastUsedAt: string | null;
+    useCount: number;
     createdAt: string;
     updatedAt: string;
   }>;
@@ -252,6 +272,24 @@ function normalizeConfidence(value: unknown, fallback = 60) {
   }
 
   return Math.max(1, Math.min(100, Math.round(numericValue)));
+}
+
+function normalizeMemoryCategory(value: unknown, fallback = "behavior") {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized || fallback;
+}
+
+function normalizeOptionalDate(value: string | Date | null | undefined) {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+function notEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function mapRecommendationFeedback(feedback: {
@@ -653,7 +691,11 @@ export class AppStoreService {
     return { ok: true, id: dayId };
   }
 
-  async generatePlan(userId: string, goal = "fat_loss") {
+  async generatePlan(userId: string, goalOrPayload: string | GeneratedWorkoutPlanPayload = "fat_loss") {
+    const generatedPayload = typeof goalOrPayload === "object" ? goalOrPayload : null;
+    const goal = generatedPayload?.goal ?? String(goalOrPayload || "fat_loss");
+    const generatedDays = generatedPayload?.days?.length ? generatedPayload.days : null;
+
     await this.prisma.workoutPlan.updateMany({
       where: { userId, status: "active" },
       data: { status: "archived" }
@@ -662,20 +704,20 @@ export class AppStoreService {
     return this.prisma.workoutPlan.create({
       data: {
         userId,
-        title: "Generated weekly plan",
+        title: generatedPayload?.title || "Generated weekly plan",
         goal,
-        weekOf: normalizeDateToDay(new Date()),
+        weekOf: normalizeDateToDay(normalizeOptionalDate(generatedPayload?.weekOf) ?? new Date()),
         version: 1,
         status: "active",
         days: {
-          create: buildPlanDays().map((day) => ({
+          create: (generatedDays ?? buildPlanDays()).map((day, index) => ({
             dayLabel: day.dayLabel,
             focus: day.focus,
             duration: day.duration,
             exercises: day.exercises,
             recoveryTip: day.recoveryTip,
-            isCompleted: day.isCompleted,
-            sortOrder: day.sortOrder
+            isCompleted: day.isCompleted ?? false,
+            sortOrder: day.sortOrder ?? index
           }))
         }
       },
@@ -683,7 +725,7 @@ export class AppStoreService {
     });
   }
 
-  async adjustPlan(userId: string, note: string) {
+  async adjustPlan(userId: string, note: string, payload?: Record<string, unknown>) {
     const current = await this.getCurrentPlan(userId);
     if (!current) {
       throw new NotFoundException("Plan not found");
@@ -693,6 +735,38 @@ export class AppStoreService {
       where: { id: current.id },
       data: { version: { increment: 1 } }
     });
+
+    const changes = Array.isArray(payload?.changes) ? payload.changes : [];
+    if (changes.length > 0) {
+      for (const rawChange of changes) {
+        const change = typeof rawChange === "object" && rawChange ? (rawChange as Record<string, unknown>) : {};
+        const dayId = notEmptyString(change.dayId) ? change.dayId : undefined;
+        const dayLabel = notEmptyString(change.dayLabel) ? change.dayLabel : undefined;
+        const targetDay = dayId
+          ? current.days.find((day) => day.id === dayId)
+          : dayLabel
+            ? current.days.find((day) => day.dayLabel === dayLabel)
+            : undefined;
+        if (!targetDay) {
+          continue;
+        }
+
+        await this.prisma.workoutPlanDay.update({
+          where: { id: targetDay.id },
+          data: {
+            focus: notEmptyString(change.focus) ? normalizePlanString(change.focus, targetDay.focus) : undefined,
+            duration: notEmptyString(change.duration) ? normalizePlanString(change.duration, targetDay.duration) : undefined,
+            exercises: Array.isArray(change.exercises) ? sanitizeStringArray(change.exercises) : undefined,
+            recoveryTip: notEmptyString(change.recoveryTip)
+              ? normalizePlanString(change.recoveryTip, targetDay.recoveryTip)
+              : undefined,
+            isCompleted: typeof change.isCompleted === "boolean" ? change.isCompleted : undefined
+          }
+        });
+      }
+
+      return this.getCurrentPlan(userId);
+    }
 
     const adjustableDay = current.days[1];
     if (adjustableDay) {
@@ -803,12 +877,22 @@ export class AppStoreService {
     });
   }
 
-  async getMemorySummary(userId?: string): Promise<MemorySummaryRecord> {
+  async getMemorySummary(userId?: string, options: MemorySummaryOptions = {}): Promise<MemorySummaryRecord> {
     const user = await this.getUser(userId);
+    const categories = sanitizeStringArray(options.categories);
+    const tags = sanitizeStringArray(options.tags);
+    const includeExpired = options.includeExpired === true;
+    const memoryWhere: Prisma.UserCoachingMemoryWhereInput = {
+      userId: user.id,
+      status: "active",
+      ...(categories.length > 0 ? { category: { in: categories } } : {}),
+      ...(tags.length > 0 ? { relevanceTags: { hasSome: tags } } : {}),
+      ...(includeExpired ? {} : { OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }] })
+    };
     const [activeMemories, recentEvents] = await Promise.all([
       this.prisma.userCoachingMemory.findMany({
-        where: { userId: user.id, status: "active" },
-        orderBy: [{ confidence: "desc" }, { updatedAt: "desc" }],
+        where: memoryWhere,
+        orderBy: [{ confidence: "desc" }, { lastUsedAt: "desc" }, { updatedAt: "desc" }],
         take: 12
       }),
       this.prisma.coachingMemoryEvent.findMany({
@@ -833,20 +917,33 @@ export class AppStoreService {
     );
 
     const safetyConstraints = activeMemories
-      .filter((memory) => memory.memoryType === "safety_constraint" || memory.memoryType === "recovery_pattern")
+      .filter(
+        (memory) =>
+          memory.category === "safety_constraint" ||
+          memory.memoryType === "safety_constraint" ||
+          memory.memoryType === "recovery_pattern"
+      )
       .map((memory) => memory.summary);
 
     return {
       activeMemories: activeMemories.map((memory) => ({
         id: memory.id,
         memoryType: memory.memoryType,
+        category: memory.category,
         title: memory.title,
         summary: memory.summary,
         value: memory.value,
         confidence: memory.confidence,
+        relevanceTags: memory.relevanceTags,
         sourceType: memory.sourceType,
         sourceId: memory.sourceId,
+        sourceMessageId: memory.sourceMessageId,
         status: memory.status,
+        expiresAt: memory.expiresAt?.toISOString() ?? null,
+        conflictGroupId: memory.conflictGroupId,
+        conflictStatus: memory.conflictStatus,
+        lastUsedAt: memory.lastUsedAt?.toISOString() ?? null,
+        useCount: memory.useCount,
         createdAt: memory.createdAt.toISOString(),
         updatedAt: memory.updatedAt.toISOString()
       })),
@@ -868,21 +965,31 @@ export class AppStoreService {
     const db = this.db(client);
     const confidence = normalizeConfidence(payload.confidence);
     const memoryType = normalizePlanString(payload.memoryType, "behavior_pattern");
+    const category = normalizeMemoryCategory(payload.category, memoryType);
     const title = normalizePlanString(payload.title, "教练记忆");
     const summary = normalizePlanString(payload.summary, "用户确认了一条长期教练记忆。");
     const value = asJson(payload.value ?? {});
     const sourceType = normalizePlanString(payload.sourceType, "chat");
+    const relevanceTags = sanitizeStringArray(payload.relevanceTags);
+    const expiresAt = normalizeOptionalDate(payload.expiresAt);
+    const conflictStatus = normalizeMemoryCategory(payload.conflictStatus, "none");
     return db.userCoachingMemory.create({
       data: {
         userId,
         memoryType,
+        category,
         title,
         summary,
         value,
         confidence,
+        relevanceTags,
         sourceType,
         sourceId: payload.sourceId,
+        sourceMessageId: payload.sourceMessageId,
         status: "active",
+        expiresAt,
+        conflictGroupId: payload.conflictGroupId ?? undefined,
+        conflictStatus,
         events: {
           create: {
             userId,
@@ -891,10 +998,13 @@ export class AppStoreService {
             before: Prisma.JsonNull,
             after: asJson({
               memoryType,
+              category,
               title,
               summary,
               value: payload.value ?? {},
               confidence,
+              relevanceTags,
+              conflictStatus,
               status: "active"
             }),
             sourceType,
@@ -917,6 +1027,7 @@ export class AppStoreService {
 
     const nextSnapshot = {
       memoryType: payload.memoryType ? normalizePlanString(payload.memoryType, current.memoryType) : current.memoryType,
+      category: payload.category ? normalizeMemoryCategory(payload.category, current.category) : current.category,
       title: payload.title ? normalizePlanString(payload.title, current.title) : current.title,
       summary: payload.summary ? normalizePlanString(payload.summary, current.summary) : current.summary,
       value: payload.value ?? current.value,
@@ -924,12 +1035,21 @@ export class AppStoreService {
         payload.confidence === undefined
           ? current.confidence
           : normalizeConfidence(payload.confidence, current.confidence),
+      relevanceTags: payload.relevanceTags === undefined ? current.relevanceTags : sanitizeStringArray(payload.relevanceTags),
+      sourceMessageId: payload.sourceMessageId === undefined ? current.sourceMessageId : payload.sourceMessageId,
+      expiresAt: payload.expiresAt === undefined ? current.expiresAt : normalizeOptionalDate(payload.expiresAt) ?? null,
+      conflictGroupId: payload.conflictGroupId === undefined ? current.conflictGroupId : payload.conflictGroupId,
+      conflictStatus:
+        payload.conflictStatus === undefined
+          ? current.conflictStatus
+          : normalizeMemoryCategory(payload.conflictStatus, current.conflictStatus),
       status: current.status
     };
     const updated = await db.userCoachingMemory.update({
       where: { id: current.id },
       data: {
         memoryType: payload.memoryType ? nextSnapshot.memoryType : undefined,
+        category: payload.category ? nextSnapshot.category : undefined,
         title: payload.title ? nextSnapshot.title : undefined,
         summary: payload.summary ? nextSnapshot.summary : undefined,
         value: payload.value ? asJson(payload.value) : undefined,
@@ -937,8 +1057,13 @@ export class AppStoreService {
           payload.confidence === undefined
             ? undefined
             : nextSnapshot.confidence,
+        relevanceTags: payload.relevanceTags === undefined ? undefined : nextSnapshot.relevanceTags,
         sourceType: payload.sourceType ? normalizePlanString(payload.sourceType, current.sourceType) : undefined,
         sourceId: payload.sourceId,
+        sourceMessageId: payload.sourceMessageId,
+        expiresAt: payload.expiresAt === undefined ? undefined : nextSnapshot.expiresAt,
+        conflictGroupId: payload.conflictGroupId === undefined ? undefined : nextSnapshot.conflictGroupId,
+        conflictStatus: payload.conflictStatus === undefined ? undefined : nextSnapshot.conflictStatus,
         events: {
           create: {
             userId,
@@ -946,10 +1071,13 @@ export class AppStoreService {
             reason: normalizePlanString(payload.reason, "用户确认更新教练记忆。"),
             before: asJson({
               memoryType: current.memoryType,
+              category: current.category,
               title: current.title,
               summary: current.summary,
               value: current.value,
-              confidence: current.confidence
+              confidence: current.confidence,
+              relevanceTags: current.relevanceTags,
+              conflictStatus: current.conflictStatus
             }),
             after: asJson(nextSnapshot),
             sourceType: normalizePlanString(payload.sourceType, "chat"),
@@ -960,6 +1088,31 @@ export class AppStoreService {
     });
 
     return updated;
+  }
+
+  async markCoachingMemoryUsed(userId: string, memoryId: string, client?: DbClient) {
+    const db = this.db(client);
+    const current = await db.userCoachingMemory.findFirst({
+      where: { id: memoryId, userId }
+    });
+
+    if (!current) {
+      throw new NotFoundException("Coaching memory not found.");
+    }
+
+    const updated = await db.userCoachingMemory.update({
+      where: { id: current.id },
+      data: {
+        lastUsedAt: new Date(),
+        useCount: { increment: 1 }
+      }
+    });
+
+    return {
+      id: updated.id,
+      lastUsedAt: updated.lastUsedAt?.toISOString() ?? null,
+      useCount: updated.useCount
+    };
   }
 
   async archiveCoachingMemory(userId: string, memoryId: string, reason?: string, client?: DbClient) {
@@ -983,13 +1136,18 @@ export class AppStoreService {
             reason: normalizePlanString(reason, "用户确认归档教练记忆。"),
             before: asJson({
               memoryType: current.memoryType,
+              category: current.category,
+              relevanceTags: current.relevanceTags,
               title: current.title,
               summary: current.summary,
               value: current.value,
               confidence: current.confidence,
-              status: current.status
+              status: current.status,
+              conflictStatus: current.conflictStatus,
+              lastUsedAt: current.lastUsedAt?.toISOString() ?? null,
+              useCount: current.useCount
             }),
-            after: asJson({ status: "archived" }),
+            after: asJson({ status: "archived", conflictStatus: current.conflictStatus }),
             sourceType: "chat"
           }
         }

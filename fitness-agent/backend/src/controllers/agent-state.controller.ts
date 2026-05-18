@@ -66,6 +66,11 @@ export class AgentStateController {
     return this.agentState.createToolInvocationLog(body, user.sub);
   }
 
+  @Post("memories/:memoryId/mark-used")
+  async markMemoryUsed(@Param("memoryId") memoryId: string, @CurrentUser() user: AuthTokenClaims) {
+    return this.agentState.markMemoryUsed(memoryId, user.sub);
+  }
+
   @Get("runs/:runId")
   async getRun(@Param("runId") runId: string, @CurrentUser() user: AuthTokenClaims) {
     return this.agentState.getRun(runId, user.sub);

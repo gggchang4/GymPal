@@ -120,13 +120,21 @@ export interface MemorySummarySnapshot {
   activeMemories: Array<{
     id: string;
     memoryType: string;
+    category?: string;
     title: string;
     summary: string;
     value: Record<string, unknown>;
     confidence: number;
+    relevanceTags?: string[];
     sourceType: string;
     sourceId?: string | null;
+    sourceMessageId?: string | null;
     status: string;
+    expiresAt?: string | null;
+    conflictGroupId?: string | null;
+    conflictStatus?: string;
+    lastUsedAt?: string | null;
+    useCount?: number;
     createdAt: string;
     updatedAt: string;
   }>;
@@ -263,6 +271,56 @@ export interface AgentProductEventSnapshot {
   createdAt: string;
 }
 
+export interface AgentActionProposal {
+  id: string;
+  threadId: string;
+  runId: string;
+  proposalGroupId?: string | null;
+  status: string;
+  actionType: string;
+  entityType: string;
+  entityId?: string | null;
+  title: string;
+  summary: string;
+  payload: Record<string, unknown>;
+  preview: Record<string, unknown>;
+  riskLevel: "low" | "medium" | "high" | string;
+  requiresConfirmation: boolean;
+  expiresAt?: string | null;
+  executedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ClarificationState {
+  question: string;
+  chips: string[];
+}
+
+export interface UsedMemory {
+  id?: string | null;
+  category?: string | null;
+  title?: string | null;
+  summary?: string | null;
+  confidence?: number | null;
+  relevanceTags?: string[];
+}
+
+export interface ProposalDiff {
+  label: string;
+  before?: string;
+  after?: string;
+}
+
+export interface AgentRunTimelineItem {
+  runId: string;
+  id: string;
+  stepType: RunStepType;
+  title: string;
+  payload: Record<string, unknown>;
+  createdAt?: string;
+}
+
 export interface AgentQualityCheckSnapshot {
   id: string;
   userId: string;
@@ -330,6 +388,9 @@ export interface PostMessageResponse {
   degradedReason?: string | null;
   intent?: string | null;
   intentConfidence?: number | null;
+  clarification?: ClarificationState | null;
+  usedMemories: UsedMemory[];
+  pendingProposalCount: number;
 }
 
 export interface RunStepEventPayload {

@@ -128,6 +128,9 @@ class PostMessageResponse(BaseModel):
     degraded_reason: str | None = None
     intent: str | None = None
     intent_confidence: float | None = None
+    clarification: dict[str, Any] | None = None
+    used_memories: list[dict[str, Any]] = Field(default_factory=list)
+    pending_proposal_count: int = 0
 
 
 class ActionProposal(BaseModel):

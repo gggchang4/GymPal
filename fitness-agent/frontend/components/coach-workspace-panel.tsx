@@ -3,7 +3,7 @@
 import { startTransition, useState } from "react";
 import { useRouter } from "next/navigation";
 import { convertAgentWorkItem, dismissAgentWorkItem, openAgentWorkItem, refreshAgentWorkItems } from "@/lib/api";
-import { readAgentThreadId, writeAgentThreadId } from "@/lib/agent-thread";
+import { readAgentThreadId, writeAgentIntentHint, writeAgentThreadId } from "@/lib/agent-thread";
 import { appRoutes, type AppRoute } from "@/lib/routes";
 import type { AgentWorkItemSnapshot, WorkspaceSummarySnapshot } from "@/lib/types";
 
@@ -55,6 +55,15 @@ function qualityDisplayLabel(status: string) {
   return "internal check";
 }
 
+function intentHintForWorkItem(item: AgentWorkItemSnapshot) {
+  if (item.type === "weekly_review_due") return "Continue from workspace: generate the weekly review package.";
+  if (item.type === "daily_guidance_due") return "Continue from workspace: create today's guidance.";
+  if (item.type === "memory_candidate") return "Continue from workspace: review memory candidates.";
+  if (item.type === "pending_package") return "Continue from workspace: handle the pending coaching package.";
+  if (item.type === "revision_suggested") return "Continue from workspace: inspect the suggested revision.";
+  return `Continue from workspace: ${item.title}`;
+}
+
 export function CoachWorkspacePanel({ workspace }: { workspace: WorkspaceSummarySnapshot }) {
   const router = useRouter();
   const [items, setItems] = useState<AgentWorkItemSnapshot[]>(workspace.pendingWorkItems);
@@ -91,6 +100,7 @@ export function CoachWorkspacePanel({ workspace }: { workspace: WorkspaceSummary
       } else if (!readAgentThreadId() && result.navigation.route === "chat") {
         setNotice("Open chat to continue this item with a new conversation.");
       }
+      writeAgentIntentHint(intentHintForWorkItem(result.workItem));
 
       startTransition(() => {
         router.push(routeForNavigation(result.navigation.route));
@@ -133,6 +143,7 @@ export function CoachWorkspacePanel({ workspace }: { workspace: WorkspaceSummary
       if (threadId) {
         writeAgentThreadId(threadId);
       }
+      writeAgentIntentHint(intentHintForWorkItem(item));
       setNotice("Revision package created. It is waiting for confirmation.");
       startTransition(() => {
         router.push(appRoutes.chat);

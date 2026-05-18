@@ -263,5 +263,116 @@ class LLMClientMetadataTests(unittest.TestCase):
         self.assertTrue(result.fallback_used)
 
 
+class RemediationP3P5Tests(unittest.IsolatedAsyncioTestCase):
+    async def test_coaching_constraints_vary_by_user_request_and_memory(self) -> None:
+        runtime = make_runtime(FakeLLM(enabled=False))
+        summary = {
+            "completion": {"completionRate": 50},
+            "currentPlan": {"days": []},
+            "recentDailyCheckins": [{"sleepHours": 6, "fatigueLevel": "high"}],
+            "recentWorkoutLogs": [{}],
+            "memorySummary": {
+                "activeMemories": [
+                    {
+                        "id": "memory-1",
+                        "category": "equipment_constraint",
+                        "summary": "User trains at home with adjustable dumbbells.",
+                        "confidence": 90,
+                    },
+                    {
+                        "id": "memory-2",
+                        "category": "injury_or_pain",
+                        "summary": "Knee pain increases after running.",
+                        "confidence": 90,
+                    },
+                ]
+            },
+        }
+
+        constraints = runtime._build_programming_constraints("weekly_review", "安排4天，每次30分钟，增肌", summary)
+        generation = runtime._fallback_coaching_generation("weekly_review", constraints)
+
+        self.assertEqual(constraints["days_per_week"], 4)
+        self.assertEqual(constraints["session_duration_min"], 30)
+        self.assertEqual(constraints["goal"], "muscle_gain")
+        self.assertTrue(constraints["recovery_mode"])
+        self.assertEqual(len(generation["training_plan_draft"]["days"]), 4)
+        self.assertIn("dumbbells", constraints["equipment"])
+
+    async def test_invalid_llm_coaching_draft_falls_back_to_valid_generation(self) -> None:
+        llm = FakeLLM(
+            data={
+                "training_plan_draft": {"title": "Bad", "goal": "fat_loss", "days": []},
+                "nutrition_draft": {"targetCalorie": 800, "totalCalorie": 800},
+                "coaching_review_draft": {"title": "Bad", "summary": "Bad"},
+            }
+        )
+        runtime = make_runtime(llm)
+        generation, steps, _constraints, warnings = await runtime._generate_coaching_generation(
+            "weekly_review",
+            "下周计划",
+            {"completion": {}, "recentDailyCheckins": [], "currentPlan": {"days": []}},
+            None,
+        )
+
+        self.assertTrue(steps)
+        self.assertGreaterEqual(generation["nutrition_draft"]["targetCalorie"], 1200)
+        self.assertTrue(generation["training_plan_draft"]["days"])
+        self.assertTrue(any("fallback_used_after_blockers" in warning for warning in warnings))
+
+    async def test_memory_extraction_creates_candidate_and_conflict_proposals_only(self) -> None:
+        runtime = make_runtime(FakeLLM(enabled=False))
+        candidate = runtime._memory_extraction_proposals("请记住我不喜欢跑步", "好的", {"memory_summary": {"activeMemories": []}})
+
+        self.assertEqual(len(candidate), 1)
+        self.assertEqual(candidate[0]["actionType"], "create_coaching_memory")
+        self.assertEqual(candidate[0]["payload"]["conflictStatus"], "candidate")
+
+        conflict = runtime._memory_extraction_proposals(
+            "请记住我现在喜欢跑步",
+            "好的",
+            {
+                "memory_summary": {
+                    "activeMemories": [
+                        {
+                            "id": "memory-old",
+                            "category": "training_preference",
+                            "summary": "我不喜欢跑步",
+                        }
+                    ]
+                }
+            },
+        )
+
+        self.assertEqual(conflict[0]["actionType"], "update_coaching_memory")
+        self.assertEqual(conflict[0]["payload"]["memoryId"], "memory-old")
+
+
+    async def test_failed_llm_coaching_generation_is_observable(self) -> None:
+        runtime = make_runtime(FakeLLM(ok=False))
+        generation, steps, _constraints, warnings = await runtime._generate_coaching_generation(
+            "weekly_review",
+            "next week plan",
+            {"completion": {}, "recentDailyCheckins": [], "currentPlan": {"days": []}},
+            None,
+        )
+
+        self.assertTrue(generation["training_plan_draft"]["days"])
+        self.assertTrue(any(warning.startswith("llm_generation_failed") for warning in warnings))
+        self.assertTrue(any(step.step_type == "llm_call" and step.payload.get("ok") is False for step in steps))
+
+    async def test_memory_extraction_tracks_source_message_id(self) -> None:
+        runtime = make_runtime(FakeLLM(enabled=False))
+        candidate = runtime._memory_extraction_proposals(
+            "remember I dislike running",
+            "Got it.",
+            {"memory_summary": {"activeMemories": []}},
+            "user-message-1",
+        )
+
+        self.assertEqual(candidate[0]["actionType"], "create_coaching_memory")
+        self.assertEqual(candidate[0]["payload"]["sourceMessageId"], "user-message-1")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { AgentCard, CardType, RecommendationFeedbackType } from "@/lib/types";
+import type { AgentCard, CardType, ProposalDiff, RecommendationFeedbackType } from "@/lib/types";
 import { getProposalActionState, type ProposalStatus } from "@/lib/proposal-state";
 
 type ToneConfig = { label: string; tone: string };
@@ -371,6 +371,78 @@ function Phase4CardDetails({ card }: { card: AgentCard }) {
   return null;
 }
 
+function stringifyCompact(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.map((item) => (typeof item === "object" ? JSON.stringify(item) : String(item))).join(" / ");
+  }
+
+  if (typeof value === "object" && value !== null) {
+    return JSON.stringify(value);
+  }
+
+  return value === undefined || value === null || value === "" ? "Not set" : String(value);
+}
+
+function buildProposalDiffs(card: AgentCard): ProposalDiff[] {
+  const data = asRecord(card.data);
+  const payload = asRecord(data.payload);
+  const preview = asRecord(data.preview);
+  const actionType = firstText(data, "actionType", "action_type");
+
+  if (actionType === "update_plan_day") {
+    return [
+      { label: "Focus", before: stringifyCompact(preview.oldFocus), after: stringifyCompact(payload.focus ?? preview.newFocus) },
+      { label: "Duration", before: stringifyCompact(preview.oldDuration), after: stringifyCompact(payload.duration) },
+      { label: "Exercises", before: stringifyCompact(preview.oldExercises), after: stringifyCompact(payload.exercises) }
+    ].filter((item) => item.before !== "Not set" || item.after !== "Not set");
+  }
+
+  if (actionType === "generate_diet_snapshot") {
+    return [
+      { label: "Calories", before: stringifyCompact(preview.oldTargetCalorie), after: stringifyCompact(payload.targetCalorie ?? preview.targetCalorie) },
+      { label: "Protein", before: stringifyCompact(preview.oldProteinGrams), after: stringifyCompact(payload.proteinGrams ?? preview.proteinGrams) },
+      { label: "Meal strategy", before: stringifyCompact(preview.oldMealStrategy), after: stringifyCompact(payload.mealStrategy ?? preview.mealStrategy) }
+    ].filter((item) => item.before !== "Not set" || item.after !== "Not set");
+  }
+
+  if (actionType === "create_coaching_memory" || actionType === "update_coaching_memory") {
+    return [
+      { label: "Memory", before: stringifyCompact(preview.old), after: stringifyCompact(payload.summary ?? preview.new ?? preview.summary) },
+      { label: "Category", before: stringifyCompact(preview.oldCategory), after: stringifyCompact(payload.category ?? preview.category) }
+    ].filter((item) => item.before !== "Not set" || item.after !== "Not set");
+  }
+
+  if (actionType === "generate_plan" || actionType === "generate_next_week_plan" || actionType === "adjust_plan") {
+    return [
+      { label: "Goal", before: stringifyCompact(preview.oldGoal), after: stringifyCompact(payload.goal ?? preview.goal) },
+      { label: "Days", before: stringifyCompact(preview.oldDays), after: stringifyCompact(payload.days ?? preview.days) },
+      { label: "Progression", before: stringifyCompact(preview.oldProgression), after: stringifyCompact(payload.progression ?? preview.progression) }
+    ].filter((item) => item.before !== "Not set" || item.after !== "Not set");
+  }
+
+  return [];
+}
+
+function ProposalDiffDetails({ card }: { card: AgentCard }) {
+  const diffs = buildProposalDiffs(card);
+  if (diffs.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="proposal-diff">
+      <span className="phase4-card-detail-title">Before / after</span>
+      {diffs.map((diff) => (
+        <div className="proposal-diff-row" key={diff.label}>
+          <strong>{diff.label}</strong>
+          <span>{diff.before ?? "Not set"}</span>
+          <span>{diff.after ?? "Not set"}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function InfoCard({
   title,
   description,
@@ -472,6 +544,7 @@ export function AgentCardList({
               </div>
             ) : null}
             <Phase4CardDetails card={card} />
+            {isProposal ? <ProposalDiffDetails card={card} /> : null}
             {isProposal ? (
               <div className="action-row">
                 <button

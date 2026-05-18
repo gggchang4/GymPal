@@ -121,6 +121,20 @@ class SessionStore:
             )
             response.raise_for_status()
 
+    async def mark_memory_used(
+        self,
+        memory_id: str,
+        authorization: str | None = None,
+    ) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                f"{settings.backend_base_url}/agent/state/memories/{memory_id}/mark-used",
+                headers=self._headers(authorization),
+                json={},
+            )
+            response.raise_for_status()
+            return response.json()
+
     async def get_run(self, run_id: str, authorization: str | None = None) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.get(

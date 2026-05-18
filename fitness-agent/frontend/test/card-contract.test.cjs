@@ -55,3 +55,24 @@ test("Phase 4 cards have dedicated render paths", () => {
 
   assert.match(frontendCards, /terminalWorkItemStatuses/, "work item cards should model terminal read-only states");
 });
+
+test("P5 chat experience exposes streaming, clarification, pending, and proposal diff contracts", () => {
+  const chatPage = readFileSync(join(process.cwd(), "app", "chat", "page.tsx"), "utf8");
+  const api = readFileSync(join(process.cwd(), "lib", "api.ts"), "utf8");
+  const timeline = readFileSync(join(process.cwd(), "components", "agent-run-timeline.tsx"), "utf8");
+
+  for (const field of ["clarification", "usedMemories", "pendingProposalCount"]) {
+    assert.match(frontendTypes, new RegExp(field), `PostMessageResponse should expose ${field}`);
+  }
+
+  for (const typeName of ["AgentRunTimelineItem", "ClarificationState", "UsedMemory", "ProposalDiff", "AgentActionProposal"]) {
+    assert.match(frontendTypes, new RegExp(`interface ${typeName}`), `${typeName} should be defined`);
+  }
+
+  assert.match(api, /getThreadProposals/);
+  assert.match(chatPage, /streamRun/);
+  assert.match(chatPage, /timelineByRunId/);
+  assert.match(chatPage, /pendingProposals/);
+  assert.match(frontendCards, /ProposalDiffDetails/);
+  assert.match(timeline, /AgentRunTimeline/);
+});

@@ -897,6 +897,78 @@ select:focus {
   min-width: 0;
 }
 
+.agent-run-timeline,
+.pending-proposal-banner,
+.proposal-diff {
+  border: 1px solid rgba(25, 35, 50, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.agent-run-timeline {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.75rem;
+}
+
+.agent-run-timeline-item {
+  display: grid;
+  grid-template-columns: 0.75rem minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: start;
+}
+
+.agent-run-timeline-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  margin-top: 0.35rem;
+  background: #5f8b7e;
+}
+
+.agent-run-timeline-item.status-failed .agent-run-timeline-dot {
+  background: #b75b58;
+}
+
+.agent-run-timeline-item.status-running .agent-run-timeline-dot,
+.agent-run-timeline-item.status-limited .agent-run-timeline-dot {
+  background: #b48a42;
+}
+
+.agent-run-timeline-item strong,
+.agent-run-timeline-item small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.pending-proposal-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem;
+}
+
+.proposal-diff {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.65rem;
+  margin-top: 0.75rem;
+}
+
+.proposal-diff-row {
+  display: grid;
+  grid-template-columns: minmax(5rem, 0.6fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: start;
+  font-size: 0.82rem;
+}
+
+.proposal-diff-row span {
+  overflow-wrap: anywhere;
+}
+
 .revision-compare-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

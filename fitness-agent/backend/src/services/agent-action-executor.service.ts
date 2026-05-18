@@ -30,9 +30,16 @@ export class AgentActionExecutorService {
 
     switch (actionType) {
       case "generate_plan":
-        return this.appStore.generatePlan(userId, typeof payload.goal === "string" ? payload.goal : "fat_loss");
+        return this.appStore.generatePlan(
+          userId,
+          Array.isArray(payload.days) ? this.buildGeneratedPlanPayload(payload) : typeof payload.goal === "string" ? payload.goal : "fat_loss"
+        );
       case "adjust_plan":
-        return this.appStore.adjustPlan(userId, typeof payload.note === "string" ? payload.note : "Adjusted via agent");
+        return this.appStore.adjustPlan(
+          userId,
+          typeof payload.note === "string" ? payload.note : "Adjusted via agent",
+          payload
+        );
       case "create_plan_day":
         return this.appStore.createCurrentPlanDay(
           {
@@ -215,12 +222,18 @@ export class AgentActionExecutorService {
     const value = typeof payload.value === "object" && payload.value ? (payload.value as Record<string, unknown>) : {};
     return {
       memoryType: typeof payload.memoryType === "string" ? payload.memoryType : "behavior_pattern",
+      category: typeof payload.category === "string" ? payload.category : undefined,
       title: typeof payload.title === "string" ? payload.title : "Coaching memory",
       summary: typeof payload.summary === "string" ? payload.summary : "The user confirmed a long-lived coaching memory.",
       value,
       confidence: Number(payload.confidence ?? 60),
+      relevanceTags: normalizeArray(payload.relevanceTags),
       sourceType: typeof payload.sourceType === "string" ? payload.sourceType : "chat",
       sourceId: typeof payload.sourceId === "string" ? payload.sourceId : undefined,
+      sourceMessageId: typeof payload.sourceMessageId === "string" ? payload.sourceMessageId : undefined,
+      expiresAt: typeof payload.expiresAt === "string" ? payload.expiresAt : undefined,
+      conflictGroupId: typeof payload.conflictGroupId === "string" ? payload.conflictGroupId : undefined,
+      conflictStatus: typeof payload.conflictStatus === "string" ? payload.conflictStatus : undefined,
       reason: typeof payload.reason === "string" ? payload.reason : undefined
     };
   }
@@ -228,12 +241,18 @@ export class AgentActionExecutorService {
   private buildPartialCoachingMemoryPayload(payload: Record<string, unknown>) {
     return {
       memoryType: typeof payload.memoryType === "string" ? payload.memoryType : undefined,
+      category: typeof payload.category === "string" ? payload.category : undefined,
       title: typeof payload.title === "string" ? payload.title : undefined,
       summary: typeof payload.summary === "string" ? payload.summary : undefined,
       value: typeof payload.value === "object" && payload.value ? (payload.value as Record<string, unknown>) : undefined,
       confidence: payload.confidence === undefined ? undefined : Number(payload.confidence),
+      relevanceTags: Array.isArray(payload.relevanceTags) ? normalizeArray(payload.relevanceTags) : undefined,
       sourceType: typeof payload.sourceType === "string" ? payload.sourceType : undefined,
       sourceId: typeof payload.sourceId === "string" ? payload.sourceId : undefined,
+      sourceMessageId: typeof payload.sourceMessageId === "string" ? payload.sourceMessageId : undefined,
+      expiresAt: typeof payload.expiresAt === "string" ? payload.expiresAt : undefined,
+      conflictGroupId: typeof payload.conflictGroupId === "string" ? payload.conflictGroupId : undefined,
+      conflictStatus: typeof payload.conflictStatus === "string" ? payload.conflictStatus : undefined,
       reason: typeof payload.reason === "string" ? payload.reason : undefined
     };
   }

@@ -184,13 +184,27 @@ class ToolGateway:
         except Exception as exc:
             return self._backend_failure("load the coaching summary", exc)
 
-    async def get_memory_summary(self, authorization: str | None = None) -> ToolResponse:
+    async def get_memory_summary(
+        self,
+        authorization: str | None = None,
+        categories: list[str] | str | None = None,
+        tags: list[str] | str | None = None,
+        include_expired: bool = False,
+    ) -> ToolResponse:
         try:
             logger.info("[TOOLS] Requesting coaching memory summary from backend.")
+            params: dict[str, str] = {}
+            if categories:
+                params["categories"] = ",".join(categories) if isinstance(categories, list) else str(categories)
+            if tags:
+                params["tags"] = ",".join(tags) if isinstance(tags, list) else str(tags)
+            if include_expired:
+                params["includeExpired"] = "true"
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.get(
                     f"{settings.backend_base_url}/agent/context/memory-summary",
                     headers=self._backend_headers(authorization),
+                    params=params,
                 )
                 response.raise_for_status()
                 return ToolResponse(

@@ -524,6 +524,11 @@ export class AgentStateService {
     };
   }
 
+  async markMemoryUsed(memoryId: string, userId?: string) {
+    const actor = await this.getActor(userId);
+    return this.appStore.markCoachingMemoryUsed(actor.id, memoryId);
+  }
+
   async getThreadMemoryState(threadId: string, userId?: string) {
     const { actor, thread } = await this.getThreadForActor(threadId, userId);
     return {

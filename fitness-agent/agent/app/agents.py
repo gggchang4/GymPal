@@ -290,6 +290,7 @@ class HealthAgentRuntime:
     ) -> dict[str, Any]:
         messages: list[dict[str, Any]] = []
         thread_summary = ""
+        memory_summary: dict[str, Any] = {}
         try:
             messages = await self.store.list_messages(thread_id, authorization)
         except Exception as exc:
@@ -299,6 +300,12 @@ class HealthAgentRuntime:
             thread_summary = str(thread.get("summary") or "")
         except Exception as exc:
             logger.warning("Unable to load thread summary for intent context: %s", exc)
+        try:
+            memory = await self.tools.get_memory_summary(authorization=authorization)
+            if memory.ok:
+                memory_summary = memory.data
+        except Exception as exc:
+            logger.warning("Unable to load memory summary for intent context: %s", exc)
 
         recent_messages = [
             {
@@ -312,6 +319,7 @@ class HealthAgentRuntime:
             "current_message": current_message,
             "recent_messages": recent_messages,
             "thread_summary": thread_summary,
+            "memory_summary": memory_summary,
         }
 
     async def _classify_intent(
@@ -1026,6 +1034,7 @@ class HealthAgentRuntime:
                 "entityId": proposal.get("entity_id"),
                 "riskLevel": proposal.get("risk_level"),
                 "status": proposal.get("status"),
+                "payload": proposal.get("payload") if isinstance(proposal.get("payload"), dict) else {},
                 "preview": preview_dict,
                 "requiresConfirmation": proposal.get("requires_confirmation", True),
             },
@@ -1125,7 +1134,7 @@ class HealthAgentRuntime:
         )
 
     def _build_memory_candidate_card(self, proposal: dict[str, Any]) -> Card | None:
-        if proposal.get("action_type") != "create_coaching_memory":
+        if proposal.get("action_type") not in {"create_coaching_memory", "update_coaching_memory"}:
             return None
 
         payload = proposal.get("payload") if isinstance(proposal.get("payload"), dict) else {}
@@ -1491,6 +1500,573 @@ class HealthAgentRuntime:
 
         return generated_days
 
+    def _collect_used_memories(self, coach_summary: dict[str, Any], flow_type: str | None = None) -> list[dict[str, Any]]:
+        memory_summary = self._read_summary_value(coach_summary, "memorySummary", "memory_summary", fallback={})
+        raw_memories = memory_summary.get("activeMemories") if isinstance(memory_summary, dict) else []
+        if not isinstance(raw_memories, list):
+            return []
+
+        category_map = {
+            "weekly_review": {"goal", "training_preference", "diet_preference", "equipment_constraint", "safety_constraint", "injury_or_pain", "coaching_outcome"},
+            "daily_guidance": {"training_preference", "schedule_preference", "equipment_constraint", "safety_constraint", "injury_or_pain", "goal"},
+        }
+        allowed_categories = category_map.get(flow_type or "", set())
+        used: list[dict[str, Any]] = []
+        for memory in raw_memories[:12]:
+            if not isinstance(memory, dict):
+                continue
+            category = str(memory.get("category") or memory.get("memoryType") or "")
+            if allowed_categories and category not in allowed_categories:
+                continue
+            used.append(
+                {
+                    "id": memory.get("id"),
+                    "category": category,
+                    "title": memory.get("title"),
+                    "summary": memory.get("summary"),
+                    "confidence": memory.get("confidence"),
+                    "relevanceTags": memory.get("relevanceTags") or [],
+                }
+            )
+        return used[:8]
+
+    def _build_programming_constraints(
+        self,
+        flow_type: str,
+        user_text: str,
+        coach_summary: dict[str, Any],
+        exercise_catalog: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        completion = self._read_summary_value(coach_summary, "completion", fallback={})
+        current_plan = self._read_summary_value(coach_summary, "currentPlan", "current_plan", fallback={})
+        current_days = current_plan.get("days") if isinstance(current_plan, dict) else []
+        checkins = self._read_summary_value(coach_summary, "recentDailyCheckins", "recent_daily_checkins", fallback=[])
+        workouts = self._read_summary_value(coach_summary, "recentWorkoutLogs", "recent_workout_logs", fallback=[])
+        latest_checkin = checkins[0] if isinstance(checkins, list) and checkins else {}
+        sleep_hours = float(latest_checkin.get("sleepHours") or latest_checkin.get("sleep_hours") or 0)
+        fatigue_level = str(latest_checkin.get("fatigueLevel") or latest_checkin.get("fatigue_level") or "moderate")
+        recovery_mode = bool(sleep_hours and sleep_hours < 7) or fatigue_level == "high"
+        days_per_week = len(current_days) if isinstance(current_days, list) and current_days else 3
+        if re.search(r"(?:2|two|两|二)\s*(?:天|days?)", user_text, flags=re.IGNORECASE):
+            days_per_week = 2
+        elif re.search(r"(?:4|four|四)\s*(?:天|days?)", user_text, flags=re.IGNORECASE):
+            days_per_week = 4
+        elif re.search(r"(?:5|five|五)\s*(?:天|days?)", user_text, flags=re.IGNORECASE):
+            days_per_week = 5
+
+        session_duration = 45
+        duration_match = re.search(r"(\d{2,3})\s*(?:min|分钟)", user_text, flags=re.IGNORECASE)
+        if duration_match:
+            session_duration = max(20, min(90, int(duration_match.group(1))))
+
+        lowered = user_text.lower()
+        goal = "consistency_and_recovery" if recovery_mode else "fat_loss"
+        if "muscle" in lowered or "增肌" in user_text:
+            goal = "muscle_gain"
+        elif "maintain" in lowered or "维持" in user_text:
+            goal = "maintenance"
+
+        used_memories = self._collect_used_memories(coach_summary, flow_type)
+        limitations = [
+            str(memory.get("summary"))
+            for memory in used_memories
+            if memory.get("category") in {"equipment_constraint", "safety_constraint", "injury_or_pain"}
+        ]
+        preferences = [
+            str(memory.get("summary"))
+            for memory in used_memories
+            if memory.get("category") in {"training_preference", "diet_preference", "schedule_preference", "goal", "dislike"}
+        ]
+        equipment = next(
+            (str(memory.get("summary")) for memory in used_memories if memory.get("category") == "equipment_constraint"),
+            "available gym or home equipment",
+        )
+        catalog_items: list[Any] = []
+        if isinstance(exercise_catalog, dict) and isinstance(exercise_catalog.get("items"), list):
+            catalog_items = exercise_catalog["items"][:20]
+        outcome_context = self._build_outcome_context(coach_summary)
+
+        return {
+            "flow_type": flow_type,
+            "goal": goal,
+            "training_level": "beginner_to_intermediate",
+            "days_per_week": max(1, min(6, days_per_week)),
+            "session_duration_min": session_duration,
+            "equipment": equipment,
+            "limitations": limitations[:6],
+            "preferences": preferences[:6],
+            "sleep_hours": sleep_hours or None,
+            "fatigue_level": fatigue_level,
+            "recovery_mode": recovery_mode,
+            "completion_rate": int(completion.get("completionRate") or completion.get("completion_rate") or 0),
+            "recent_workout_count": len(workouts) if isinstance(workouts, list) else 0,
+            "used_memories": used_memories,
+            "outcome_constraints": outcome_context.get("constraints", []),
+            "outcome_evidence": outcome_context.get("bullets", []),
+            "exercise_catalog_sample": catalog_items,
+        }
+
+    def _fallback_coaching_generation(self, flow_type: str, constraints: dict[str, Any]) -> dict[str, Any]:
+        days_per_week = int(constraints.get("days_per_week") or 3)
+        duration = int(constraints.get("session_duration_min") or 45)
+        recovery_mode = bool(constraints.get("recovery_mode"))
+        goal = str(constraints.get("goal") or "consistency_and_recovery")
+        focus_cycle = (
+            ["Full-body strength", "Low-impact aerobic base", "Mobility and core", "Upper/lower strength"]
+            if recovery_mode
+            else ["Lower-body strength", "Upper-body strength", "Zone 2 conditioning", "Full-body strength", "Mobility and core"]
+        )
+        days: list[dict[str, Any]] = []
+        for index in range(days_per_week):
+            focus = focus_cycle[index % len(focus_cycle)]
+            days.append(
+                {
+                    "dayLabel": f"Training day {index + 1}",
+                    "focus": focus,
+                    "duration": f"{duration} min",
+                    "exercises": [
+                        f"{focus} primary pattern 3x8",
+                        "Accessory movement 3x10",
+                        "Easy cooldown 8 min",
+                    ],
+                    "recoveryTip": "Keep RPE 6-7 and stop if pain increases." if recovery_mode else "Keep 1-2 reps in reserve and log RPE.",
+                    "rpe": "6-7" if recovery_mode else "7-8",
+                    "sortOrder": index,
+                }
+            )
+
+        calorie = 2050 if recovery_mode else 2200
+        return {
+            "training_plan_draft": {
+                "title": "Generated coaching plan",
+                "goal": goal,
+                "days": days,
+                "progression": "Add one set or 2.5-5% load only after two comfortable completions.",
+                "recovery_strategy": "Protect sleep, hydration, and one lower-load day each week.",
+            },
+            "nutrition_draft": {
+                "userGoal": "recovery_support" if recovery_mode else goal,
+                "targetCalorie": calorie,
+                "totalCalorie": calorie,
+                "proteinGrams": 150,
+                "nutritionRatio": {"carbohydrate": 45, "protein": 30, "fat": 25},
+                "nutritionDetail": {
+                    "protein": {"target": 150, "recommend": 150, "remaining": 0},
+                    "carbohydrate": {"target": 220, "recommend": 220, "remaining": 0},
+                    "fat": {"target": 60, "recommend": 60, "remaining": 0},
+                    "fiber": {"target": 28, "recommend": 28, "remaining": 0},
+                },
+                "meals": [
+                    {"mealType": "breakfast", "totalCalorie": 500, "foods": []},
+                    {"mealType": "lunch", "totalCalorie": 800, "foods": []},
+                    {"mealType": "dinner", "totalCalorie": max(350, calorie - 1300), "foods": []},
+                ],
+                "agentTips": [
+                    "Prioritize protein at each meal.",
+                    "Place most carbohydrates near training.",
+                    "Avoid extreme calorie cuts when recovery signals are poor.",
+                ],
+                "restrictionNotes": constraints.get("limitations", []),
+                "mealStrategy": "Simple high-protein meals with vegetables and training-day carbohydrates.",
+            },
+            "coaching_review_draft": {
+                "title": "Weekly coaching review" if flow_type == "weekly_review" else "Daily coaching guidance",
+                "summary": "Generated from recent plan, logs, memories, and recovery signals.",
+                "focusAreas": [
+                    "Protect recovery first." if recovery_mode else "Keep training consistency high.",
+                    f"Use {days_per_week} sessions of about {duration} minutes.",
+                ],
+                "recommendationTags": [flow_type, goal, "coaching_generation"],
+                "riskFlags": ["recovery_limited"] if recovery_mode else [],
+                "guidance": [
+                    "Train at a conservative RPE today." if recovery_mode else "Follow the planned session without adding extra volume.",
+                    "Log completion, RPE, and pain after training.",
+                ],
+            },
+            "quality": {"source": "rule_fallback", "warnings": []},
+        }
+
+    @staticmethod
+    def _normalize_generated_days(raw_days: Any) -> list[dict[str, Any]]:
+        days = raw_days if isinstance(raw_days, list) else []
+        normalized: list[dict[str, Any]] = []
+        for index, raw_day in enumerate(days[:6]):
+            day = raw_day if isinstance(raw_day, dict) else {}
+            exercises = day.get("exercises")
+            normalized.append(
+                {
+                    "dayLabel": str(day.get("dayLabel") or day.get("label") or f"Training day {index + 1}"),
+                    "focus": str(day.get("focus") or "Training focus"),
+                    "duration": str(day.get("duration") or day.get("durationMin") or "45 min"),
+                    "exercises": [str(item) for item in exercises[:6]] if isinstance(exercises, list) else [],
+                    "recoveryTip": str(day.get("recoveryTip") or day.get("recovery_tip") or "Prioritize recovery quality."),
+                    "rpe": str(day.get("rpe") or "7"),
+                    "sortOrder": index,
+                }
+            )
+        return normalized
+
+    def _normalize_coaching_generation(
+        self,
+        raw: dict[str, Any],
+        fallback: dict[str, Any],
+        constraints: dict[str, Any],
+    ) -> dict[str, Any]:
+        training = raw.get("training_plan_draft") if isinstance(raw.get("training_plan_draft"), dict) else {}
+        nutrition = raw.get("nutrition_draft") if isinstance(raw.get("nutrition_draft"), dict) else {}
+        review = raw.get("coaching_review_draft") if isinstance(raw.get("coaching_review_draft"), dict) else {}
+        fallback_training = fallback["training_plan_draft"]
+        fallback_nutrition = fallback["nutrition_draft"]
+        fallback_review = fallback["coaching_review_draft"]
+        try:
+            target_calorie = int(float(nutrition.get("targetCalorie") or nutrition.get("target_calorie") or fallback_nutrition["targetCalorie"]))
+        except (TypeError, ValueError):
+            target_calorie = int(fallback_nutrition["targetCalorie"])
+        try:
+            protein_grams = int(float(nutrition.get("proteinGrams") or nutrition.get("protein_grams") or fallback_nutrition["proteinGrams"]))
+        except (TypeError, ValueError):
+            protein_grams = int(fallback_nutrition["proteinGrams"])
+
+        return {
+            "training_plan_draft": {
+                "title": str(training.get("title") or fallback_training["title"]),
+                "goal": str(training.get("goal") or constraints.get("goal") or fallback_training["goal"]),
+                "days": self._normalize_generated_days(training.get("days")) or fallback_training["days"],
+                "progression": str(training.get("progression") or fallback_training["progression"]),
+                "recovery_strategy": str(training.get("recovery_strategy") or training.get("recoveryStrategy") or fallback_training["recovery_strategy"]),
+            },
+            "nutrition_draft": {
+                **fallback_nutrition,
+                "userGoal": str(nutrition.get("userGoal") or nutrition.get("user_goal") or fallback_nutrition["userGoal"]),
+                "targetCalorie": target_calorie,
+                "totalCalorie": int(nutrition.get("totalCalorie") or target_calorie),
+                "proteinGrams": protein_grams,
+                "nutritionRatio": nutrition.get("nutritionRatio") if isinstance(nutrition.get("nutritionRatio"), dict) else fallback_nutrition["nutritionRatio"],
+                "nutritionDetail": nutrition.get("nutritionDetail") if isinstance(nutrition.get("nutritionDetail"), dict) else fallback_nutrition["nutritionDetail"],
+                "meals": nutrition.get("meals") if isinstance(nutrition.get("meals"), list) else fallback_nutrition["meals"],
+                "agentTips": self._string_list(nutrition.get("agentTips")) or fallback_nutrition["agentTips"],
+                "restrictionNotes": self._string_list(nutrition.get("restrictionNotes")) or fallback_nutrition["restrictionNotes"],
+                "mealStrategy": str(nutrition.get("mealStrategy") or fallback_nutrition["mealStrategy"]),
+            },
+            "coaching_review_draft": {
+                "title": str(review.get("title") or fallback_review["title"]),
+                "summary": str(review.get("summary") or fallback_review["summary"]),
+                "focusAreas": self._string_list(review.get("focusAreas")) or fallback_review["focusAreas"],
+                "recommendationTags": self._string_list(review.get("recommendationTags")) or fallback_review["recommendationTags"],
+                "riskFlags": self._string_list(review.get("riskFlags")) or fallback_review["riskFlags"],
+                "guidance": self._string_list(review.get("guidance")) or fallback_review["guidance"],
+            },
+            "quality": {"source": "llm" if raw else "rule_fallback", "warnings": []},
+        }
+
+    def _validate_coaching_generation(self, generation: dict[str, Any]) -> tuple[list[str], list[str]]:
+        blockers: list[str] = []
+        warnings: list[str] = []
+        training = generation.get("training_plan_draft") if isinstance(generation.get("training_plan_draft"), dict) else {}
+        nutrition = generation.get("nutrition_draft") if isinstance(generation.get("nutrition_draft"), dict) else {}
+        days = training.get("days") if isinstance(training.get("days"), list) else []
+        if not days:
+            blockers.append("training_days_empty")
+        for day in days:
+            item = day if isinstance(day, dict) else {}
+            if not item.get("focus") or not item.get("exercises"):
+                blockers.append("training_day_missing_focus_or_exercises")
+                break
+            if not item.get("recoveryTip"):
+                blockers.append("missing_recovery_guidance")
+                break
+        try:
+            calorie = int(float(nutrition.get("targetCalorie") or nutrition.get("totalCalorie")))
+        except (TypeError, ValueError):
+            calorie = 0
+        if calorie < 1200 or calorie > 4500:
+            blockers.append("unsafe_diet_calories")
+        if not nutrition.get("agentTips"):
+            warnings.append("missing_nutrition_tips")
+        if not training.get("progression"):
+            warnings.append("missing_progression_strategy")
+        return self._dedupe_text_items(blockers), self._dedupe_text_items(warnings)
+
+    async def _generate_coaching_generation(
+        self,
+        flow_type: str,
+        user_text: str,
+        coach_summary: dict[str, Any],
+        exercise_catalog: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any], list[RunStep], dict[str, Any], list[str]]:
+        constraints = self._build_programming_constraints(flow_type, user_text, coach_summary, exercise_catalog)
+        fallback = self._fallback_coaching_generation(flow_type, constraints)
+        steps: list[RunStep] = []
+        generation = fallback
+        generation_warnings: list[str] = []
+
+        if not self.llm.is_enabled():
+            generation_warnings.append("coaching_generation_llm_disabled")
+        else:
+            system_prompt = (
+                "You are a product-grade fitness coach planner. Return JSON only with keys "
+                "training_plan_draft, nutrition_draft, coaching_review_draft. Respect injuries and pain, "
+                "avoid medical claims, and include RPE, progression, recovery strategy, calories, protein, "
+                "restriction notes, and meal strategy."
+            )
+            user_prompt = json.dumps(
+                {
+                    "flow_type": flow_type,
+                    "user_message": user_text,
+                    "programming_constraints": constraints,
+                    "required_schema": {
+                        "training_plan_draft": "title, goal, days[{dayLabel, focus, duration, exercises, recoveryTip, rpe}], progression, recovery_strategy",
+                        "nutrition_draft": "userGoal, targetCalorie, totalCalorie, proteinGrams, nutritionRatio, nutritionDetail, meals, agentTips, restrictionNotes, mealStrategy",
+                        "coaching_review_draft": "title, summary, focusAreas, recommendationTags, riskFlags, guidance",
+                    },
+                },
+                ensure_ascii=False,
+            )
+            result = await asyncio.to_thread(self.llm.generate_structured_with_metadata, system_prompt, user_prompt)
+            steps.append(
+                RunStep(
+                    id=str(uuid.uuid4()),
+                    step_type="llm_call",
+                    title="LLM coaching generation",
+                    payload=self._llm_metadata_payload(result, "coaching_generation"),
+                )
+            )
+            if result.ok:
+                generation = self._normalize_coaching_generation(result.data, fallback, constraints)
+            else:
+                generation_warnings.append(f"llm_generation_failed:{result.error_code or 'unknown'}")
+
+        blockers, validation_warnings = self._validate_coaching_generation(generation)
+        warnings = self._dedupe_text_items([*generation_warnings, *validation_warnings])
+        if blockers and self.llm.is_enabled():
+            revision_prompt = json.dumps(
+                {
+                    "blockers": blockers,
+                    "warnings": warnings,
+                    "programming_constraints": constraints,
+                    "current_generation": generation,
+                },
+                ensure_ascii=False,
+            )
+            revision = await asyncio.to_thread(
+                self.llm.generate_structured_with_metadata,
+                "Return JSON only. Revise the coaching generation to clear blockers without increasing risk.",
+                revision_prompt,
+            )
+            steps.append(
+                RunStep(
+                    id=str(uuid.uuid4()),
+                    step_type="llm_call",
+                    title="LLM coaching revision",
+                    payload=self._llm_metadata_payload(revision, "coaching_generation_revision"),
+                )
+            )
+            if revision.ok:
+                revised = self._normalize_coaching_generation(revision.data, fallback, constraints)
+                revised_blockers, revised_warnings = self._validate_coaching_generation(revised)
+                if not revised_blockers:
+                    generation = revised
+                    blockers = []
+                    warnings = self._dedupe_text_items([*generation_warnings, *revised_warnings])
+                else:
+                    warnings = self._dedupe_text_items(
+                        [*warnings, f"revision_unresolved_blockers:{','.join(revised_blockers)}"]
+                    )
+            else:
+                warnings = self._dedupe_text_items(
+                    [*warnings, f"llm_generation_revision_failed:{revision.error_code or 'unknown'}"]
+                )
+
+        if blockers:
+            generation = fallback
+            warnings = self._dedupe_text_items([*warnings, f"fallback_used_after_blockers:{','.join(blockers)}"])
+        generation["quality"] = {
+            **(generation.get("quality") if isinstance(generation.get("quality"), dict) else {}),
+            "warnings": warnings,
+            "constraints": constraints,
+        }
+        return generation, steps, constraints, warnings
+
+    def _coaching_generation_to_package(
+        self,
+        flow_type: str,
+        coach_summary: dict[str, Any],
+        generation: dict[str, Any],
+        constraints: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]], str, str, list[str]]:
+        completion = self._read_summary_value(coach_summary, "completion", fallback={})
+        completion_rate = int(completion.get("completionRate") or completion.get("completion_rate") or 0)
+        current_plan = self._read_summary_value(coach_summary, "currentPlan", "current_plan", fallback={})
+        snapshot_fields = self._build_plan_snapshot_fields(current_plan if isinstance(current_plan, dict) else {})
+        training = generation["training_plan_draft"]
+        nutrition = generation["nutrition_draft"]
+        review = generation["coaching_review_draft"]
+        next_week_date = (datetime.utcnow() + timedelta(days=7)).date().isoformat()
+        risk_flags = self._dedupe_text_items([str(item) for item in review.get("riskFlags", [])])
+        recommendation_tags = self._dedupe_text_items([str(item) for item in review.get("recommendationTags", [])])
+        quality = generation.get("quality") if isinstance(generation.get("quality"), dict) else {}
+
+        if flow_type == "weekly_review":
+            proposals = [
+                self._draft_proposal(
+                    action_type="generate_next_week_plan",
+                    entity_type="workout_plan",
+                    title=self._proposal_title("generate_next_week_plan"),
+                    summary="Generate a personalized next-week training plan after confirmation.",
+                    payload={
+                        "title": str(training.get("title") or "Next week coaching plan"),
+                        "goal": str(training.get("goal") or constraints.get("goal") or "maintenance"),
+                        "weekOf": next_week_date,
+                        "days": training.get("days", []),
+                        "progression": training.get("progression"),
+                        "recoveryStrategy": training.get("recovery_strategy"),
+                    },
+                    preview={
+                        "goal": training.get("goal"),
+                        "days": len(training.get("days", [])),
+                        "progression": training.get("progression"),
+                        "recoveryStrategy": training.get("recovery_strategy"),
+                    },
+                    snapshot_fields=snapshot_fields,
+                ),
+                self._draft_proposal(
+                    action_type="generate_diet_snapshot",
+                    entity_type="diet_snapshot",
+                    title=self._proposal_title("generate_diet_snapshot"),
+                    summary="Generate a nutrition snapshot matched to the training week after confirmation.",
+                    payload={
+                        "date": next_week_date,
+                        "userGoal": nutrition.get("userGoal"),
+                        "totalCalorie": nutrition.get("totalCalorie"),
+                        "targetCalorie": nutrition.get("targetCalorie"),
+                        "nutritionRatio": nutrition.get("nutritionRatio"),
+                        "nutritionDetail": nutrition.get("nutritionDetail"),
+                        "meals": nutrition.get("meals"),
+                        "agentTips": nutrition.get("agentTips"),
+                        "restrictionNotes": nutrition.get("restrictionNotes"),
+                        "mealStrategy": nutrition.get("mealStrategy"),
+                    },
+                    preview={
+                        "targetCalorie": nutrition.get("targetCalorie"),
+                        "proteinGrams": nutrition.get("proteinGrams"),
+                        "mealStrategy": nutrition.get("mealStrategy"),
+                        "restrictionNotes": nutrition.get("restrictionNotes"),
+                    },
+                ),
+            ]
+        else:
+            guidance = review.get("guidance") if isinstance(review.get("guidance"), list) else []
+            proposals = [
+                self._draft_proposal(
+                    action_type="create_advice_snapshot",
+                    entity_type="advice_snapshot",
+                    title=self._proposal_title("create_advice_snapshot"),
+                    summary="Save today's guidance after confirmation.",
+                    payload={
+                        "type": "daily_guidance",
+                        "priority": "high" if constraints.get("recovery_mode") else "medium",
+                        "summary": str(guidance[0]) if guidance else str(review.get("summary")),
+                        "reasoningTags": recommendation_tags,
+                        "actionItems": [str(item) for item in guidance[:4]],
+                        "riskFlags": risk_flags,
+                    },
+                    preview={
+                        "focus": str(review.get("focusAreas", ["guidance"])[0]),
+                        "guidanceItems": len(guidance),
+                        "recoveryMode": constraints.get("recovery_mode"),
+                    },
+                )
+            ]
+
+        used_memory_count = len(constraints.get("used_memories") if isinstance(constraints.get("used_memories"), list) else [])
+        review_result = {
+            "focus_areas": review.get("focusAreas", []),
+            "risk_flags": risk_flags,
+            "completion_rate": completion_rate,
+            "generated_plan_days": len(training.get("days", [])),
+            "training_plan_draft": training,
+            "nutrition_draft": nutrition,
+            "programming_constraints": constraints,
+            "outcome_constraints": constraints.get("outcome_constraints", []),
+            "outcome_evidence": constraints.get("outcome_evidence", []),
+        }
+        review_payload = {
+            "type": flow_type,
+            "title": str(review.get("title")),
+            "summary": str(review.get("summary")),
+            "status": "draft",
+            "adherenceScore": completion_rate,
+            "riskFlags": risk_flags,
+            "focusAreas": [str(item) for item in review.get("focusAreas", [])],
+            "recommendationTags": recommendation_tags,
+            "inputSnapshot": {"coach_summary": coach_summary, "programming_constraints": constraints},
+            "resultSnapshot": review_result,
+            "evidence": {
+                "completionRate": completion_rate,
+                "memoryCount": used_memory_count,
+                "outcomeEvidence": constraints.get("outcome_evidence", []),
+                "qualityWarnings": quality.get("warnings", []),
+            },
+            "uncertaintyFlags": [str(item) for item in quality.get("warnings", [])],
+        }
+        group_payload = {
+            "title": "Personalized coaching package" if flow_type == "weekly_review" else "Daily guidance package",
+            "summary": "Generated from current context and waiting for confirmation.",
+            "preview": {
+                "goal": training.get("goal"),
+                "trainingDays": len(training.get("days", [])),
+                "targetCalories": nutrition.get("targetCalorie"),
+                "proteinGrams": nutrition.get("proteinGrams"),
+                "usedMemoryCount": used_memory_count,
+                "qualityWarnings": quality.get("warnings", []),
+            },
+            "riskLevel": self._max_risk_level([proposal["riskLevel"] for proposal in proposals]),
+        }
+        assistant_message = (
+            "我已经基于最近的训练、恢复、记忆和结果证据生成了一份待确认的教练包。确认后才会写入计划或饮食。"
+            if flow_type == "weekly_review"
+            else "我已经基于当前恢复状态生成了今日建议。确认后才会保存为建议快照。"
+        )
+        reasoning_summary = "本轮使用 coaching_generation: 先构造约束，再生成草案，通过本地质量校验后封装为 proposal package。"
+        next_actions = (
+            ["检查训练计划、RPE 和恢复策略。", "确认或拒绝整包。", "执行后在 workspace 追踪结果。"]
+            if flow_type == "weekly_review"
+            else ["查看今日建议。", "确认保存或继续调整。", "训练后补充 RPE 和疼痛反馈。"]
+        )
+        return review_payload, group_payload, proposals, assistant_message, reasoning_summary, next_actions
+
+    async def _draft_coaching_package_v2(
+        self,
+        flow_type: str,
+        user_text: str,
+        coach_summary: dict[str, Any],
+        exercise_catalog: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]], str, str, list[str], list[RunStep], list[str]]:
+        generation, llm_steps, constraints, warnings = await self._generate_coaching_generation(
+            flow_type,
+            user_text,
+            coach_summary,
+            exercise_catalog,
+        )
+        review_payload, group_payload, proposals, assistant_message, reasoning_summary, next_actions = (
+            self._coaching_generation_to_package(flow_type, coach_summary, generation, constraints)
+        )
+        return review_payload, group_payload, proposals, assistant_message, reasoning_summary, next_actions, llm_steps, warnings
+
+    async def _mark_used_memories(
+        self,
+        memories: list[dict[str, Any]],
+        authorization: str | None,
+    ) -> None:
+        for memory in memories[:8]:
+            memory_id = memory.get("id")
+            if not isinstance(memory_id, str) or not memory_id:
+                continue
+            try:
+                await self.store.mark_memory_used(memory_id, authorization)
+            except Exception as exc:
+                logger.warning("Unable to mark coaching memory %s as used: %s", memory_id, exc)
+
     def _draft_coaching_package(
         self,
         flow_type: str,
@@ -1773,6 +2349,17 @@ class HealthAgentRuntime:
         return []
 
     def _memory_type_from_text(self, user_text: str) -> str:
+        lowered = user_text.lower()
+        if any(keyword in lowered for keyword in ("goal", "目标", "想要", "希望")):
+            return "goal"
+        if any(keyword in lowered for keyword in ("injury", "pain", "疼", "痛", "受伤", "膝盖", "腰")):
+            return "injury_or_pain"
+        if any(keyword in lowered for keyword in ("allergy", "过敏", "乳糖", "素食")):
+            return "diet_preference"
+        if any(keyword in lowered for keyword in ("dislike", "不喜欢", "讨厌", "不想")):
+            return "dislike"
+        if any(keyword in lowered for keyword in ("prefer", "喜欢", "训练偏好", "力量", "有氧")):
+            return "training_preference"
         if any(keyword in user_text for keyword in ("膝盖", "疼", "不舒服", "受伤", "恢复", "疲劳")):
             return "recovery_pattern"
         if any(keyword in user_text for keyword in ("器械", "设备", "哑铃", "杠铃", "健身房", "家里")):
@@ -1785,6 +2372,25 @@ class HealthAgentRuntime:
             return "training_preference"
         return "behavior_pattern"
 
+    def _memory_category_from_type(self, memory_type: str) -> str:
+        category_map = {
+            "recovery_pattern": "safety_constraint",
+            "behavior_pattern": "training_preference",
+        }
+        allowed = {
+            "profile_fact",
+            "training_preference",
+            "diet_preference",
+            "schedule_preference",
+            "equipment_constraint",
+            "safety_constraint",
+            "injury_or_pain",
+            "goal",
+            "dislike",
+            "coaching_outcome",
+        }
+        return memory_type if memory_type in allowed else category_map.get(memory_type, "training_preference")
+
     def _memory_proposals(self, user_text: str, context: dict[str, Any]) -> list[dict[str, Any]]:
         memory_summary = context.get("memory_summary")
         active_memories = memory_summary.get("activeMemories") if isinstance(memory_summary, dict) else []
@@ -1792,6 +2398,7 @@ class HealthAgentRuntime:
         cleaned = re.sub(r"^(请)?(帮我)?记住[:,，：]?", "", normalized_text).strip()
         summary = cleaned[:120] if cleaned else normalized_text[:120]
         memory_type = self._memory_type_from_text(user_text)
+        category = self._memory_category_from_type(memory_type)
 
         if not summary:
             return []
@@ -1812,6 +2419,7 @@ class HealthAgentRuntime:
                 summary=f"保存一条长期教练记忆：{summary}",
                 payload={
                     "memoryType": memory_type,
+                    "category": category,
                     "title": "用户偏好与约束",
                     "summary": summary,
                     "value": {
@@ -1819,10 +2427,107 @@ class HealthAgentRuntime:
                         "extractedSummary": summary,
                     },
                     "confidence": 72,
+                    "relevanceTags": [category, memory_type],
+                    "conflictStatus": "candidate",
                     "sourceType": "chat",
                     "reason": "用户在聊天中明确要求记住长期偏好或约束。",
                 },
                 preview=preview,
+            )
+        ]
+
+    def _find_memory_conflict(self, category: str, summary: str, active_memories: list[Any]) -> dict[str, Any] | None:
+        normalized = summary.lower()
+        negated = any(token in normalized for token in ("不再", "不要", "不喜欢", "not", "no longer", "dislike"))
+        positive = any(token in normalized for token in ("喜欢", "可以", "改成", "prefer", "like"))
+        for memory in active_memories:
+            if not isinstance(memory, dict):
+                continue
+            memory_category = str(memory.get("category") or memory.get("memoryType") or "")
+            if memory_category != category:
+                continue
+            old_summary = str(memory.get("summary") or "").lower()
+            old_negated = any(token in old_summary for token in ("不再", "不要", "不喜欢", "not", "no longer", "dislike"))
+            if (negated and not old_negated) or (positive and old_negated):
+                return memory
+        return None
+
+    def _memory_extraction_proposals(
+        self,
+        user_text: str,
+        assistant_content: str,
+        conversation_context: dict[str, Any],
+        source_message_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        lowered = user_text.lower()
+        explicit = any(token in lowered for token in ("记住", "幫我記住", "帮我记住", "remember"))
+        implicit = any(
+            token in lowered
+            for token in ("我喜欢", "我不喜欢", "我不能", "膝盖", "过敏", "目标是", "prefer", "dislike", "allergy")
+        )
+        if not explicit and not implicit:
+            return []
+
+        memory_summary = conversation_context.get("memory_summary") if isinstance(conversation_context.get("memory_summary"), dict) else {}
+        active_memories = memory_summary.get("activeMemories") if isinstance(memory_summary, dict) else []
+        normalized_text = re.sub(r"\s+", " ", user_text).strip()
+        summary = re.sub(r"^(请|please)?\s*(帮我)?\s*(记住|remember)[:,：，]?", "", normalized_text, flags=re.IGNORECASE).strip()
+        summary = summary[:160] if summary else normalized_text[:160]
+        if not summary:
+            return []
+
+        memory_type = self._memory_type_from_text(user_text)
+        category = self._memory_category_from_type(memory_type)
+        confidence = 88 if explicit else 58
+        relevance_tags = self._dedupe_text_items([category, memory_type, "chat_extraction"])
+        conflict = self._find_memory_conflict(category, summary, active_memories if isinstance(active_memories, list) else [])
+        if conflict and conflict.get("id"):
+            return [
+                self._draft_proposal(
+                    action_type="update_coaching_memory",
+                    entity_type="coaching_memory",
+                    entity_id=str(conflict.get("id")),
+                    title=self._proposal_title("update_coaching_memory"),
+                    summary=f"Update a possibly conflicting coaching memory: {summary}",
+                    payload={
+                        "memoryId": conflict.get("id"),
+                        "memoryType": memory_type,
+                        "category": category,
+                        "title": str(conflict.get("title") or "Updated coaching memory"),
+                        "summary": summary,
+                        "value": {"rawText": normalized_text, "previousSummary": conflict.get("summary")},
+                        "confidence": confidence,
+                        "relevanceTags": relevance_tags,
+                        "sourceType": "chat",
+                        "sourceMessageId": source_message_id,
+                        "conflictGroupId": str(conflict.get("conflictGroupId") or conflict.get("id")),
+                        "conflictStatus": "candidate",
+                        "reason": "The user introduced a memory that appears to conflict with an existing memory.",
+                    },
+                    preview={"status": "conflict", "old": conflict.get("summary"), "new": summary, "category": category},
+                )
+            ]
+
+        return [
+            self._draft_proposal(
+                action_type="create_coaching_memory",
+                entity_type="coaching_memory",
+                title=self._proposal_title("create_coaching_memory"),
+                summary=f"Save a candidate coaching memory: {summary}",
+                payload={
+                    "memoryType": memory_type,
+                    "category": category,
+                    "title": "Coaching memory candidate",
+                    "summary": summary,
+                    "value": {"rawText": normalized_text, "assistantContext": assistant_content[:240]},
+                    "confidence": confidence,
+                    "relevanceTags": relevance_tags,
+                    "sourceType": "chat",
+                    "sourceMessageId": source_message_id,
+                    "conflictStatus": "candidate",
+                    "reason": "Extracted from chat. Confirmation is required before long-term memory is written.",
+                },
+                preview={"status": "candidate", "category": category, "summary": summary, "confidence": confidence},
             )
         ]
 
@@ -2385,6 +3090,7 @@ class HealthAgentRuntime:
         degraded_mode: bool = False,
         degraded_reason: str | None = None,
         intent_confidence: float = 1.0,
+        source_message_id: str | None = None,
     ) -> PostMessageResponse:
         tool_events = [ToolEvent(event="tool_call_started", tool_name="get_coach_summary", summary="读取教练复盘上下文")]
         coach_summary = await self.tools.get_coach_summary(authorization)
@@ -2488,11 +3194,51 @@ class HealthAgentRuntime:
                 intent_confidence=intent_confidence,
             )
 
-        review_payload, group_payload, proposals, assistant_message, reasoning_summary, next_actions = self._draft_coaching_package(
-            flow_type,
-            request.text,
-            coach_summary.data,
+        tool_events.append(ToolEvent(event="tool_call_started", tool_name="get_exercise_catalog", summary="Load exercise catalog"))
+        exercise_catalog = await self.tools.get_exercise_catalog()
+        tool_events.append(
+            ToolEvent(
+                event="tool_call_completed",
+                tool_name="get_exercise_catalog",
+                summary=exercise_catalog.human_readable,
+                payload=self._tool_payload(exercise_catalog),
+            )
         )
+
+        review_payload, group_payload, proposals, assistant_message, reasoning_summary, next_actions, generation_steps, generation_warnings = (
+            await self._draft_coaching_package_v2(
+                flow_type,
+                request.text,
+                coach_summary.data,
+                exercise_catalog.data if exercise_catalog.ok else None,
+            )
+        )
+        used_memories = self._collect_used_memories(coach_summary.data, flow_type)
+        await self._mark_used_memories(used_memories, authorization)
+        generation_degraded_warnings = [
+            warning
+            for warning in generation_warnings
+            if warning.startswith(
+                (
+                    "coaching_generation_llm_disabled",
+                    "llm_generation_failed",
+                    "llm_generation_revision_failed",
+                    "fallback_used_after_blockers",
+                )
+            )
+        ]
+        if generation_degraded_warnings:
+            generation_degraded_reason = "; ".join(generation_degraded_warnings[:3])
+            degraded_mode = True
+            degraded_reason = degraded_reason or generation_degraded_reason
+            generation_steps.append(
+                RunStep(
+                    id=str(uuid.uuid4()),
+                    step_type="degraded_mode",
+                    title="Coaching generation limited",
+                    payload={"reason": generation_degraded_reason, "warnings": generation_warnings},
+                )
+            )
 
         run = self._build_run(
             thread_id=thread_id,
@@ -2501,7 +3247,7 @@ class HealthAgentRuntime:
             cards=[],
             content=assistant_message,
             reasoning_summary=reasoning_summary,
-            extra_steps=extra_steps,
+            extra_steps=[*(extra_steps or []), *generation_steps],
         )
         await self.store.save_run(run, authorization)
         await self._persist_tool_events(thread_id, run.id, tool_events, authorization, "coaching_flow")
@@ -2531,6 +3277,28 @@ class HealthAgentRuntime:
             *(card for card in optional_cards if card is not None),
             self._build_proposal_group_card(proposal_group),
         ]
+        created_memory_proposal_count = 0
+        memory_context = {
+            "memory_summary": self._read_summary_value(
+                coach_summary.data,
+                "memorySummary",
+                "memory_summary",
+                fallback={},
+            )
+        }
+        memory_drafts, memory_warnings = self._validate_proposals(
+            self._memory_extraction_proposals(request.text, assistant_message, memory_context, source_message_id)
+        )
+        if memory_drafts:
+            created_memory_proposals = await self.store.create_proposals(thread_id, run.id, memory_drafts, authorization)
+            created_memory_proposal_count = len(created_memory_proposals)
+            for proposal in created_memory_proposals:
+                memory_card = self._build_memory_candidate_card(proposal)
+                if memory_card is not None:
+                    cards.append(memory_card)
+                cards.append(self._build_proposal_card(proposal))
+        if memory_warnings:
+            next_actions = [*memory_warnings, *next_actions][:3]
         message = await self._append_assistant_message(
             thread_id=thread_id,
             content=assistant_message,
@@ -2551,6 +3319,8 @@ class HealthAgentRuntime:
             degraded_reason=degraded_reason,
             intent=flow_type,
             intent_confidence=intent_confidence,
+            used_memories=used_memories,
+            pending_proposal_count=len(proposals) + created_memory_proposal_count,
         )
 
     async def process_message(
@@ -2659,6 +3429,7 @@ class HealthAgentRuntime:
                 degraded_reason=degraded_reason,
                 intent=str(intent.get("intent") or ""),
                 intent_confidence=float(intent.get("confidence") or 0.0),
+                clarification={"question": content, "chips": next_actions},
             )
 
         intent_name = str(intent.get("intent") or "")
@@ -2672,6 +3443,7 @@ class HealthAgentRuntime:
                 degraded_mode=degraded_mode,
                 degraded_reason=degraded_reason,
                 intent_confidence=float(intent.get("confidence") or 0.0),
+                source_message_id=user_message.id,
             )
 
         if intent_name == "daily_guidance":
@@ -2684,6 +3456,7 @@ class HealthAgentRuntime:
                 degraded_mode=degraded_mode,
                 degraded_reason=degraded_reason,
                 intent_confidence=float(intent.get("confidence") or 0.0),
+                source_message_id=user_message.id,
             )
 
         run_id = str(uuid.uuid4())
@@ -2767,13 +3540,29 @@ class HealthAgentRuntime:
         )
         await self.store.save_run(run, authorization)
 
+        created_proposal_count = 0
         if proposals:
             created_proposals = await self.store.create_proposals(thread_id, run.id, proposals, authorization)
+            created_proposal_count += len(created_proposals)
             for proposal in created_proposals:
                 memory_card = self._build_memory_candidate_card(proposal)
                 if memory_card is not None:
                     cards.append(memory_card)
                 cards.append(self._build_proposal_card(proposal))
+        if write_domain != "memory":
+            memory_drafts, memory_warnings = self._validate_proposals(
+                self._memory_extraction_proposals(request.text, content, conversation_context, user_message.id)
+            )
+            if memory_drafts:
+                created_memory_proposals = await self.store.create_proposals(thread_id, run.id, memory_drafts, authorization)
+                created_proposal_count += len(created_memory_proposals)
+                for proposal in created_memory_proposals:
+                    memory_card = self._build_memory_candidate_card(proposal)
+                    if memory_card is not None:
+                        cards.append(memory_card)
+                    cards.append(self._build_proposal_card(proposal))
+            if memory_warnings:
+                next_actions = [*memory_warnings, *next_actions][:3]
         message = await self._append_assistant_message(thread_id, content, reasoning_summary, cards, authorization)
 
         return PostMessageResponse(
@@ -2789,6 +3578,7 @@ class HealthAgentRuntime:
             degraded_reason=degraded_reason,
             intent=str(intent.get("intent") or ""),
             intent_confidence=float(intent.get("confidence") or 0.0),
+            pending_proposal_count=created_proposal_count,
         )
 
     async def approve_proposal(self, proposal_id: str, authorization: str | None = None) -> ProposalDecisionResponse:
