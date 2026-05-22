@@ -94,6 +94,26 @@ class HealthAgentRuntime:
         "search_nearby_places",
         "create_action_proposal",
     }
+    SUPPORTED_WRITE_DOMAINS = {
+        "body_metric",
+        "daily_checkin",
+        "workout_log",
+        "plan",
+        "memory",
+        "diet_log",
+    }
+    PLANNER_TOOL_ARGUMENT_ALLOWLIST = {
+        "get_coach_summary": set(),
+        "load_current_plan": set(),
+        "get_workspace_summary": set(),
+        "get_exercise_catalog": set(),
+        "get_memory_summary": {"categories", "tags", "include_expired"},
+        "get_recovery_guidance": {"fatigue_level"},
+        "geocode_location": {"location"},
+        "reverse_geocode": {"latitude", "longitude"},
+        "search_nearby_places": {"keyword", "latitude", "longitude", "location_hint"},
+        "create_action_proposal": {"write_domain"},
+    }
 
     def __init__(
         self,
@@ -150,6 +170,46 @@ class HealthAgentRuntime:
     def _coerce_intent(self, value: Any) -> str:
         intent = str(value or "").strip()
         return intent if intent in self.INTENT_NAMES else "unclear"
+
+    def _normalize_write_domain(
+        self,
+        value: Any,
+        intent: str | None = None,
+        fallback: Any = None,
+    ) -> str | None:
+        domain = str(value or "").strip().lower().replace("-", "_")
+        fallback_domain = str(fallback or "").strip().lower().replace("-", "_")
+        intent_name = str(intent or "")
+
+        if domain in self.SUPPORTED_WRITE_DOMAINS:
+            return domain
+        if domain in {"fitness", "exercise"}:
+            if intent_name in {"plan_generate", "plan_adjust"}:
+                return "plan"
+            if intent_name == "exercise_search":
+                return None
+            if fallback_domain in self.SUPPORTED_WRITE_DOMAINS:
+                return fallback_domain
+            return None
+        if domain in {"training", "workout"}:
+            if intent_name == "workout_log":
+                return "workout_log"
+            if intent_name in {"plan_generate", "plan_adjust"}:
+                return "plan"
+            if fallback_domain in self.SUPPORTED_WRITE_DOMAINS:
+                return fallback_domain
+            return None
+        if fallback_domain:
+            return self._normalize_write_domain(fallback_domain, intent=intent_name)
+        return None
+
+    def _sanitize_tool_arguments(self, tool_name: str, arguments: Any) -> dict[str, Any]:
+        if not isinstance(arguments, dict):
+            return {}
+        allowed = self.PLANNER_TOOL_ARGUMENT_ALLOWLIST.get(tool_name)
+        if allowed is None:
+            return {}
+        return {key: value for key, value in arguments.items() if key in allowed}
 
     @staticmethod
     def _coerce_bool(value: Any) -> bool:
@@ -264,7 +324,11 @@ class HealthAgentRuntime:
     def _normalize_intent_result(self, raw: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
         intent = self._coerce_intent(raw.get("intent"))
         confidence = self._coerce_confidence(raw.get("confidence"), fallback=float(fallback.get("confidence") or 0.0))
-        write_domain = raw.get("write_domain") or self.WRITE_INTENT_TO_DOMAIN.get(intent) or fallback.get("write_domain")
+        write_domain = self._normalize_write_domain(
+            raw.get("write_domain"),
+            intent=intent,
+            fallback=self.WRITE_INTENT_TO_DOMAIN.get(intent) or fallback.get("write_domain"),
+        )
         should_clarify = self._coerce_bool(raw.get("should_clarify")) or intent == "unclear" or confidence < 0.55
         clarifying_question = str(raw.get("clarifying_question") or "").strip()
         if should_clarify and not clarifying_question:
@@ -358,7 +422,11 @@ class HealthAgentRuntime:
 
     def _fallback_planner_from_intent(self, intent: dict[str, Any], request: PostMessageRequest) -> dict[str, Any]:
         intent_name = str(intent.get("intent") or "health_answer")
-        write_domain = intent.get("write_domain") or self.WRITE_INTENT_TO_DOMAIN.get(intent_name)
+        write_domain = self._normalize_write_domain(
+            intent.get("write_domain"),
+            intent=intent_name,
+            fallback=self.WRITE_INTENT_TO_DOMAIN.get(intent_name),
+        )
         tools: list[dict[str, Any]] = []
         action = "answer"
         risk_level = "medium" if intent_name.startswith("plan") else "low"
@@ -438,24 +506,51 @@ class HealthAgentRuntime:
                 tools.append(
                     {
                         "name": name,
-                        "arguments": arguments if isinstance(arguments, dict) else {},
+                        "arguments": self._sanitize_tool_arguments(name, arguments),
                         "purpose": str(raw_tool.get("purpose") or ""),
                     }
                 )
                 if len(tools) >= 4:
                     break
 
+        write_domain = self._normalize_write_domain(raw.get("write_domain"), fallback=fallback.get("write_domain"))
+        requires_proposal = False
         if action == "clarify":
             tools = []
+            write_domain = self._normalize_write_domain(raw.get("write_domain"), fallback=fallback.get("write_domain"))
         elif not raw_tools_present and not tools:
             tools = list(fallback.get("tools") or [])[:4]
+            tools = [
+                {
+                    "name": str(tool.get("name") or ""),
+                    "arguments": self._sanitize_tool_arguments(str(tool.get("name") or ""), tool.get("arguments")),
+                    "purpose": str(tool.get("purpose") or ""),
+                }
+                for tool in tools
+                if str(tool.get("name") or "") in self.PLANNER_TOOL_WHITELIST
+            ]
 
-        write_domain = raw.get("write_domain") or fallback.get("write_domain")
-        requires_proposal = False
         if action != "clarify":
-            requires_proposal = self._coerce_bool(raw.get("requires_proposal")) or (
-                action == "propose" and bool(fallback.get("requires_proposal"))
-            )
+            requires_proposal = self._coerce_bool(raw.get("requires_proposal")) or action == "propose" or bool(fallback.get("requires_proposal"))
+            if write_domain and requires_proposal:
+                create_tool_index = next(
+                    (index for index, tool in enumerate(tools) if str(tool.get("name") or "") == "create_action_proposal"),
+                    None,
+                )
+                if create_tool_index is None:
+                    tools = tools[:3]
+                    tools.append(
+                        {
+                            "name": "create_action_proposal",
+                            "arguments": {"write_domain": write_domain},
+                            "purpose": "Generate safe pending proposals instead of writing directly.",
+                        }
+                    )
+                else:
+                    tools[create_tool_index]["arguments"] = {
+                        **self._sanitize_tool_arguments("create_action_proposal", tools[create_tool_index].get("arguments")),
+                        "write_domain": write_domain,
+                    }
         return {
             "action": action,
             "tools": tools,
@@ -576,13 +671,13 @@ class HealthAgentRuntime:
                 name = str(tool.get("name") or "")
                 if name not in self.PLANNER_TOOL_WHITELIST:
                     continue
-                arguments = tool.get("arguments") if isinstance(tool.get("arguments"), dict) else {}
+                arguments = self._sanitize_tool_arguments(name, tool.get("arguments"))
                 purpose = str(tool.get("purpose") or "")
                 planner_step = f"{iteration}:{index}"
                 tool_events.append(ToolEvent(event="tool_call_started", tool_name=name, summary=purpose or f"调用 {name}"))
 
                 if name == "create_action_proposal":
-                    write_domain = str(arguments.get("write_domain") or planner.get("write_domain") or "")
+                    write_domain = self._normalize_write_domain(arguments.get("write_domain"), fallback=planner.get("write_domain")) or ""
                     context, write_events = await self._load_write_context(write_domain, authorization)
                     tool_events.extend(write_events)
                     proposed = self._heuristic_write_proposals(write_domain, request.text, context)

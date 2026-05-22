@@ -48,6 +48,9 @@ class FakeTools:
     async def get_memory_summary(self, authorization: str | None = None) -> ToolResponse:
         return ToolResponse(ok=True, data={"memories": []}, human_readable="Loaded memories.", source="backend")
 
+    async def load_current_plan(self, authorization: str | None = None) -> ToolResponse:
+        return ToolResponse(ok=True, data={}, human_readable="Loaded plan.", source="backend")
+
     async def invoke(self, tool_name: str, **kwargs: Any) -> ToolResponse:
         if tool_name == "get_memory_summary":
             return await self.get_memory_summary(kwargs.get("authorization"))
@@ -57,6 +60,22 @@ class FakeTools:
             human_readable="Tool failed in test.",
             source="test",
             error_code="test_failure",
+        )
+
+
+class StrictArgumentTools(FakeTools):
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def invoke(self, tool_name: str, **kwargs: Any) -> ToolResponse:
+        self.calls.append((tool_name, kwargs))
+        if tool_name == "get_exercise_catalog" and kwargs:
+            raise TypeError(f"get_exercise_catalog does not accept planner arguments: {kwargs}")
+        return ToolResponse(
+            ok=True,
+            data={"tool_name": tool_name, "arguments": kwargs},
+            human_readable=f"{tool_name} completed.",
+            source="test",
         )
 
 
@@ -202,6 +221,42 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([tool["name"] for tool in planner["tools"]], ["get_memory_summary"])
 
+    def test_classifier_normalizes_fitness_domain_for_plan_generation(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        intent = runtime._normalize_intent_result(
+            {
+                "intent": "plan_generate",
+                "confidence": 0.9,
+                "write_domain": "fitness",
+                "should_clarify": False,
+            },
+            {"intent": "plan_generate", "confidence": 0.6, "write_domain": "plan"},
+        )
+
+        self.assertEqual(intent["write_domain"], "plan")
+
+    def test_planner_appends_missing_proposal_tool_when_required(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        planner = runtime._normalize_planner_decision(
+            {
+                "action": "propose",
+                "tools": [
+                    {"name": "get_coach_summary", "arguments": {}, "purpose": "read coach"},
+                    {"name": "load_current_plan", "arguments": {}, "purpose": "read plan"},
+                    {"name": "get_memory_summary", "arguments": {}, "purpose": "read memory"},
+                    {"name": "get_exercise_catalog", "arguments": {}, "purpose": "read exercises"},
+                ],
+                "requires_proposal": True,
+                "write_domain": "plan",
+            },
+            {"action": "propose", "tools": [], "requires_proposal": True, "write_domain": "plan", "risk_level": "medium"},
+        )
+
+        tool_names = [tool["name"] for tool in planner["tools"]]
+        self.assertEqual(len(tool_names), 4)
+        self.assertEqual(tool_names[-1], "create_action_proposal")
+        self.assertNotIn("get_exercise_catalog", tool_names)
+
     async def test_virtual_proposal_tool_generates_proposals_without_execution(self) -> None:
         store = FakeStore()
         runtime = HealthAgentRuntime(store, FakeTools(), TraceLogger(), FakeLLM())  # type: ignore[arg-type]
@@ -228,6 +283,56 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(event.tool_name == "create_action_proposal" for event in tool_events))
         self.assertTrue(store.tool_logs)
         self.assertTrue(any(item["tool"] == "create_action_proposal" for item in observations))
+
+    async def test_planner_tool_arguments_are_filtered_before_execution(self) -> None:
+        store = FakeStore()
+        tools = StrictArgumentTools()
+        runtime = HealthAgentRuntime(store, tools, TraceLogger(), FakeLLM())  # type: ignore[arg-type]
+        observations, _tool_events, proposals, warnings = await runtime._execute_planner_tools(
+            "thread-1",
+            "run-1",
+            PostMessageRequest(text="推荐一个胸部训练动作"),
+            {
+                "tools": [
+                    {
+                        "name": "get_exercise_catalog",
+                        "arguments": {"muscle_group": "chest", "tags": ["push"]},
+                        "purpose": "read filtered exercises",
+                    }
+                ],
+                "write_domain": None,
+            },
+            None,
+        )
+
+        self.assertEqual(proposals, [])
+        self.assertEqual(warnings, [])
+        self.assertEqual(tools.calls, [("get_exercise_catalog", {})])
+        self.assertTrue(observations[0]["ok"])
+
+    async def test_proposal_tool_normalizes_tool_domain_argument_at_execution(self) -> None:
+        store = FakeStore()
+        runtime = HealthAgentRuntime(store, FakeTools(), TraceLogger(), FakeLLM())  # type: ignore[arg-type]
+        _observations, _tool_events, proposals, warnings = await runtime._execute_planner_tools(
+            "thread-1",
+            "run-1",
+            PostMessageRequest(text="帮我生成一个一周三练的三分化训练计划吧"),
+            {
+                "tools": [
+                    {
+                        "name": "create_action_proposal",
+                        "arguments": {"write_domain": "fitness"},
+                        "purpose": "plan proposal",
+                    }
+                ],
+                "write_domain": "plan",
+            },
+            None,
+        )
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(len(proposals), 1)
+        self.assertEqual(proposals[0]["actionType"], "generate_plan")
 
     async def test_planner_can_chain_geocode_to_nearby_search_in_second_iteration(self) -> None:
         store = FakeStore()
