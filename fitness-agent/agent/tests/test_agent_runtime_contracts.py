@@ -334,6 +334,191 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(proposals), 1)
         self.assertEqual(proposals[0]["actionType"], "generate_plan")
 
+    def test_dialogue_keeps_casual_training_chat_answer_only(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        intent = {
+            "intent": "health_answer",
+            "confidence": 0.86,
+            "should_clarify": False,
+            "write_domain": None,
+            "risk_flags": [],
+        }
+        planner = {"action": "answer", "tools": [], "requires_proposal": False, "write_domain": None, "risk_level": "low"}
+
+        decision = runtime._decide_dialogue_turn(
+            PostMessageRequest(text="力量训练后第二天酸痛还能练吗？"),
+            {"recent_messages": []},
+            intent,
+            planner,
+        )
+
+        self.assertEqual(decision["mode"], "answer")
+        self.assertFalse(decision["planner"]["requires_proposal"])
+        self.assertNotIn("create_action_proposal", [tool["name"] for tool in decision["planner"]["tools"]])
+
+    def test_dialogue_confirms_ambiguous_operation_before_tools(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        intent = {
+            "intent": "workout_log",
+            "confidence": 0.72,
+            "should_clarify": False,
+            "write_domain": "workout_log",
+            "risk_flags": [],
+        }
+        planner = {
+            "action": "propose",
+            "tools": [{"name": "create_action_proposal", "arguments": {"write_domain": "workout_log"}, "purpose": "Create log."}],
+            "requires_proposal": True,
+            "write_domain": "workout_log",
+            "risk_level": "low",
+        }
+
+        decision = runtime._decide_dialogue_turn(
+            PostMessageRequest(text="把我的训练记录保存一下"),
+            {"recent_messages": []},
+            intent,
+            planner,
+        )
+
+        self.assertEqual(decision["mode"], "confirm_operation")
+        self.assertEqual(decision["planner"]["tools"], [])
+        self.assertFalse(decision["planner"]["requires_proposal"])
+        self.assertIn("训练日志", decision["question"])
+
+    def test_dialogue_clarifies_plan_generation_missing_goal(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        intent = {
+            "intent": "plan_generate",
+            "confidence": 0.9,
+            "should_clarify": False,
+            "write_domain": "plan",
+            "missing_fields": [],
+            "risk_flags": [],
+        }
+        planner = {
+            "action": "propose",
+            "tools": [{"name": "create_action_proposal", "arguments": {"write_domain": "plan"}, "purpose": "Create plan."}],
+            "requires_proposal": True,
+            "write_domain": "plan",
+            "risk_level": "medium",
+        }
+
+        decision = runtime._decide_dialogue_turn(
+            PostMessageRequest(text="帮我生成一个训练计划"),
+            {"recent_messages": []},
+            intent,
+            planner,
+        )
+
+        self.assertEqual(decision["mode"], "clarify")
+        self.assertEqual(decision["planner"]["tools"], [])
+        self.assertIn("目标", decision["question"])
+
+    def test_dialogue_allows_clear_workout_log_proposal(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        intent = {
+            "intent": "workout_log",
+            "confidence": 0.93,
+            "should_clarify": False,
+            "write_domain": "workout_log",
+            "risk_flags": [],
+        }
+        planner = {
+            "action": "propose",
+            "tools": [{"name": "create_action_proposal", "arguments": {"write_domain": "workout_log"}, "purpose": "Create log."}],
+            "requires_proposal": True,
+            "write_domain": "workout_log",
+            "risk_level": "low",
+        }
+
+        decision = runtime._decide_dialogue_turn(
+            PostMessageRequest(text="记录一下今天练了45分钟上肢，RPE 8"),
+            {"recent_messages": []},
+            intent,
+            planner,
+        )
+
+        self.assertEqual(decision["mode"], "propose")
+        self.assertTrue(decision["planner"]["requires_proposal"])
+        self.assertIn("create_action_proposal", [tool["name"] for tool in decision["planner"]["tools"]])
+
+    def test_dialogue_asks_safety_question_before_high_risk_plan(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        intent = {
+            "intent": "plan_generate",
+            "confidence": 0.78,
+            "should_clarify": False,
+            "write_domain": "plan",
+            "risk_flags": ["knee_pain"],
+        }
+        planner = {
+            "action": "propose",
+            "tools": [{"name": "create_action_proposal", "arguments": {"write_domain": "plan"}, "purpose": "Create plan."}],
+            "requires_proposal": True,
+            "write_domain": "plan",
+            "risk_level": "high",
+        }
+
+        decision = runtime._decide_dialogue_turn(
+            PostMessageRequest(text="我膝盖疼但想冲一下跑步计划"),
+            {"recent_messages": []},
+            intent,
+            planner,
+        )
+
+        self.assertEqual(decision["mode"], "clarify")
+        self.assertEqual(decision["planner"]["tools"], [])
+        self.assertEqual(decision["planner"]["dialogue_reason"], "safety_first")
+
+    def test_dialogue_downgrades_implicit_memory_to_answer_candidate(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        intent = {
+            "intent": "memory_save",
+            "confidence": 0.72,
+            "should_clarify": False,
+            "write_domain": "memory",
+            "risk_flags": [],
+        }
+        planner = {
+            "action": "propose",
+            "tools": [{"name": "create_action_proposal", "arguments": {"write_domain": "memory"}, "purpose": "Create memory."}],
+            "requires_proposal": True,
+            "write_domain": "memory",
+            "risk_level": "low",
+        }
+
+        decision = runtime._decide_dialogue_turn(
+            PostMessageRequest(text="我不喜欢早上练，晚上状态更好"),
+            {"recent_messages": []},
+            intent,
+            planner,
+        )
+
+        self.assertEqual(decision["mode"], "answer")
+        self.assertIsNone(decision["intent"]["write_domain"])
+        self.assertNotIn("create_action_proposal", [tool["name"] for tool in decision["planner"]["tools"]])
+        self.assertTrue(decision["planner"]["implicit_memory_candidate"])
+
+    async def test_dialogue_proposal_copy_uses_training_buddy_confirmation(self) -> None:
+        runtime = make_runtime(FakeLLM(enabled=False))
+        content, reasoning, next_actions, _metadata, degraded_reason = await runtime._compose_dialogue_response(
+            "propose",
+            PostMessageRequest(text="记录一下今天练了45分钟上肢，RPE 8"),
+            {"recent_messages": []},
+            {"intent": "workout_log", "write_domain": "workout_log"},
+            {"action": "propose", "write_domain": "workout_log"},
+            {"operation_label": "记录训练日志"},
+            proposals=[{"riskLevel": "low"}],
+            degraded_reason=None,
+        )
+
+        self.assertEqual(degraded_reason, "llm_disabled")
+        self.assertIn("待确认卡片", content)
+        self.assertIn("确认后", content)
+        self.assertNotIn("修改数据", content)
+        self.assertTrue(reasoning)
+        self.assertTrue(next_actions)
+
     async def test_planner_can_chain_geocode_to_nearby_search_in_second_iteration(self) -> None:
         store = FakeStore()
         runtime = HealthAgentRuntime(store, LocationTools(), TraceLogger(), FakeLLM())  # type: ignore[arg-type]

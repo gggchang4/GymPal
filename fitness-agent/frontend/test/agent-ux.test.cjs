@@ -31,6 +31,9 @@ test("Chat UX keeps product-grade agent states visible", () => {
   assert.match(chatPage, /clarification\?\.chips/, "clarification chips should remain visible");
   assert.match(chatPage, /degradedMode/, "degraded mode should remain visible");
   assert.match(chatPage, /setText\(chip\)/, "chips should fill composer without auto-send");
+  assert.match(chatPage, /像训练搭子一样/, "welcome copy should position GymPal as a training buddy");
+  assert.doesNotMatch(chatPage, /意图 \{lastAgentMeta\.intent\}/, "debug intent chips should not be shown in the default chat chrome");
+  assert.doesNotMatch(chatPage, /工具 \{lastAgentMeta\.toolCount\}/, "debug tool-count chips should not be shown in the default chat chrome");
 });
 
 test("Tool timeline renders success, failure, and degraded states", () => {

@@ -27,7 +27,7 @@ const initialMessages: AgentMessage[] = [
     id: "welcome",
     role: "assistant",
     content:
-      "你可以直接询问训练、恢复和饮食建议，也可以让我先整理一条待确认的执行提案。这里的回复会实时依赖后端和 Agent 服务。"
+      "我是 GymPal，可以先像训练搭子一样陪你聊训练、恢复和饮食。你要我记录、调整或生成计划时，我会先确认意图和关键信息，再整理成待确认卡片。"
   }
 ];
 
@@ -227,8 +227,8 @@ export default function ChatPage() {
     const placeholderMessage: AgentMessage = {
       id: `assistant-${crypto.randomUUID()}`,
       role: "assistant",
-      content: "GymPal 正在处理...",
-      reasoningSummary: "正在同步本次处理进度。"
+      content: "GymPal 正在想怎么接这一句...",
+      reasoningSummary: "正在理解这次对话，并判断是否需要进入待确认操作。"
     };
 
     setMessages((current) => [...current, userMessage, placeholderMessage]);
@@ -384,8 +384,6 @@ export default function ChatPage() {
           <div className="chip-row">
             <span className={`status-pill ${busy || pendingProposalId ? "live" : "idle"}`}>{status}</span>
             <span className="mini-chip">{threadId ? "已连接线程" : "尚未建立线程"}</span>
-            {lastAgentMeta?.intent ? <span className="mini-chip">意图 {lastAgentMeta.intent}</span> : null}
-            {lastAgentMeta?.toolCount ? <span className="mini-chip">工具 {lastAgentMeta.toolCount}</span> : null}
           </div>
         </div>
         {lastAgentMeta?.hasDetail ? (
