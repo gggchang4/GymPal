@@ -414,6 +414,58 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(decision["planner"]["tools"], [])
         self.assertIn("目标", decision["question"])
 
+    def test_dialogue_uses_recent_plan_answers_before_asking_again(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        request = PostMessageRequest(text="增肌为目标")
+        conversation_context = {
+            "recent_messages": [
+                {"role": "user", "content": "给我生成一个练胸日的计划"},
+                {"role": "assistant", "content": "这份计划更偏增肌、减脂还是力量提升？"},
+                {"role": "user", "content": "练胸为目标"},
+                {"role": "assistant", "content": "这份计划更偏增肌、减脂还是力量提升？"},
+                {"role": "user", "content": "增肌为目标"},
+            ]
+        }
+        fallback = runtime._fallback_intent_from_keywords(request.text)
+        intent = runtime._contextual_plan_intent(request, conversation_context, fallback)
+        assert intent is not None
+        planner = runtime._fallback_planner_from_intent(intent, request)
+
+        decision = runtime._decide_dialogue_turn(request, conversation_context, intent, planner)
+
+        self.assertEqual(decision["mode"], "propose")
+        self.assertTrue(decision["planner"]["requires_proposal"])
+        self.assertIn("create_action_proposal", [tool["name"] for tool in decision["planner"]["tools"]])
+
+    async def test_plan_proposal_uses_recent_plan_slots_for_followup_answer(self) -> None:
+        store = FakeStore()
+        runtime = HealthAgentRuntime(store, FakeTools(), TraceLogger(), FakeLLM())  # type: ignore[arg-type]
+        conversation_context = {
+            "recent_messages": [
+                {"role": "user", "content": "给我生成一个练胸日的计划"},
+                {"role": "assistant", "content": "这份计划更偏增肌、减脂还是力量提升？"},
+                {"role": "user", "content": "增肌为目标"},
+            ]
+        }
+
+        _observations, _tool_events, proposals, warnings = await runtime._execute_planner_tools(
+            "thread-1",
+            "run-1",
+            PostMessageRequest(text="增肌为目标"),
+            {
+                "tools": [{"name": "create_action_proposal", "arguments": {"write_domain": "plan"}, "purpose": "Create plan."}],
+                "write_domain": "plan",
+            },
+            None,
+            conversation_context,
+        )
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(len(proposals), 1)
+        self.assertEqual(proposals[0]["actionType"], "generate_plan")
+        self.assertEqual(proposals[0]["payload"]["goal"], "muscle_gain")
+        self.assertTrue(proposals[0]["payload"].get("days"))
+
     def test_dialogue_allows_clear_workout_log_proposal(self) -> None:
         runtime = make_runtime(FakeLLM())
         intent = {

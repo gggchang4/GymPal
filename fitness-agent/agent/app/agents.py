@@ -501,6 +501,153 @@ class HealthAgentRuntime:
     def _has_digit(text: str) -> bool:
         return any(char.isdigit() for char in text)
 
+    @staticmethod
+    def _conversation_texts_by_role(conversation_context: dict[str, Any], role: str) -> list[str]:
+        messages = conversation_context.get("recent_messages")
+        if not isinstance(messages, list):
+            return []
+        texts: list[str] = []
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            if str(message.get("role") or "").lower() != role:
+                continue
+            content = str(message.get("content") or "").strip()
+            if content:
+                texts.append(content)
+        return texts
+
+    @staticmethod
+    def _detect_plan_goal(text: str) -> str | None:
+        lowered = text.lower()
+        if any(marker in text for marker in ("增肌", "长肌肉", "肌肥大")) or any(marker in lowered for marker in ("muscle", "hypertrophy")):
+            return "muscle_gain"
+        if any(marker in text for marker in ("减脂", "减肥", "掉脂")) or any(marker in lowered for marker in ("fat loss", "lose fat", "cutting")):
+            return "fat_loss"
+        if any(marker in text for marker in ("力量", "大重量")) or "strength" in lowered:
+            return "strength"
+        if any(marker in text for marker in ("耐力", "心肺")) or "endurance" in lowered:
+            return "endurance"
+        if any(marker in text for marker in ("维持", "保持")) or "maintenance" in lowered:
+            return "maintenance"
+        return None
+
+    @staticmethod
+    def _detect_plan_focus(text: str) -> str | None:
+        lowered = text.lower()
+        focus_markers = [
+            ("chest", ("练胸", "胸部", "胸肌", "胸日", "chest", "pec")),
+            ("back", ("练背", "背部", "背阔", "back")),
+            ("legs", ("练腿", "腿部", "臀腿", "leg", "legs")),
+            ("shoulders", ("练肩", "肩部", "shoulder")),
+            ("arms", ("手臂", "二头", "三头", "arms", "biceps", "triceps")),
+            ("push", ("推", "push")),
+            ("pull", ("拉", "pull")),
+            ("full_body", ("全身", "全身训练", "full body")),
+        ]
+        for value, markers in focus_markers:
+            if any(marker in text or marker in lowered for marker in markers):
+                return value
+        return None
+
+    @staticmethod
+    def _detect_plan_frequency(text: str) -> str | None:
+        lowered = text.lower()
+        if any(marker in text for marker in ("今天一次", "一次", "单次", "练胸日", "胸日", "训练日")) or any(
+            marker in lowered for marker in ("today", "single session", "one session")
+        ):
+            return "single_session"
+        match = re.search(r"(\d+)\s*(天|次|day|days|x)", text, flags=re.IGNORECASE)
+        if match:
+            return f"{match.group(1)}_sessions"
+        chinese_number_match = re.search(r"(一|二|两|三|四|五|六|七)\s*(天|次|练)", text)
+        if chinese_number_match:
+            return f"{chinese_number_match.group(1)}_sessions"
+        if any(marker in text for marker in ("每周", "一周", "下周", "本周")) or any(marker in lowered for marker in ("weekly", "week")):
+            return "weekly"
+        return None
+
+    @staticmethod
+    def _detect_plan_equipment(text: str) -> str | None:
+        lowered = text.lower()
+        if any(marker in text for marker in ("都可以", "都行", "不限", "均可")) or "any" in lowered:
+            return "any"
+        if any(marker in text for marker in ("固定器械", "器械", "史密斯")) or "machine" in lowered:
+            return "machines"
+        if any(marker in text for marker in ("杠铃", "哑铃", "自由重量")) or any(marker in lowered for marker in ("barbell", "dumbbell", "free weight")):
+            return "free_weights"
+        if any(marker in text for marker in ("徒手", "自重")) or "bodyweight" in lowered:
+            return "bodyweight"
+        return None
+
+    def _is_plan_generation_request(self, text: str) -> bool:
+        lowered = text.lower()
+        has_plan_marker = any(marker in text for marker in ("计划", "训练日", "练胸日")) or "plan" in lowered
+        has_generate_marker = any(marker in text for marker in ("生成", "创建", "制定", "安排", "整理", "排")) or any(
+            marker in lowered for marker in ("generate", "create", "build", "make")
+        )
+        return has_plan_marker and has_generate_marker
+
+    def _plan_generation_slots(self, current_text: str, conversation_context: dict[str, Any]) -> dict[str, Any]:
+        user_texts = self._conversation_texts_by_role(conversation_context, "user")
+        if current_text.strip() and (not user_texts or user_texts[-1] != current_text):
+            user_texts.append(current_text)
+        user_texts = user_texts[-8:]
+        assistant_texts = self._conversation_texts_by_role(conversation_context, "assistant")[-6:]
+        aggregate_text = "\n".join(user_texts)
+        assistant_text = "\n".join(assistant_texts)
+        active = any(self._is_plan_generation_request(text) for text in user_texts) or (
+            "计划" in assistant_text and any(marker in assistant_text for marker in ("目标", "一周几天", "器械", "确认"))
+        )
+        goal = self._detect_plan_goal(aggregate_text)
+        focus = self._detect_plan_focus(aggregate_text)
+        frequency = self._detect_plan_frequency(aggregate_text)
+        equipment = self._detect_plan_equipment(aggregate_text)
+        if focus and not frequency and any(marker in aggregate_text for marker in ("练胸日", "训练日", "今天")):
+            frequency = "single_session"
+        return {
+            "active": active,
+            "goal": goal,
+            "focus": focus,
+            "frequency": frequency,
+            "equipment": equipment,
+            "aggregate_text": aggregate_text,
+        }
+
+    def _contextual_plan_intent(
+        self,
+        request: PostMessageRequest,
+        conversation_context: dict[str, Any],
+        fallback: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        slots = self._plan_generation_slots(request.text, conversation_context)
+        user_texts = self._conversation_texts_by_role(conversation_context, "user")
+        if user_texts and user_texts[-1] == request.text:
+            user_texts = user_texts[:-1]
+        assistant_text = "\n".join(self._conversation_texts_by_role(conversation_context, "assistant")[-6:])
+        has_prior_plan_turn = any(self._is_plan_generation_request(text) for text in user_texts[-6:]) or (
+            "计划" in assistant_text and any(marker in assistant_text for marker in ("目标", "一周几天", "器械", "确认"))
+        )
+        if not slots["active"] or not has_prior_plan_turn:
+            return None
+        missing_fields: list[str] = []
+        if not slots.get("goal"):
+            missing_fields.append("goal")
+        if not slots.get("frequency") and not slots.get("focus"):
+            missing_fields.append("frequency")
+        return {
+            **fallback,
+            "intent": "plan_generate",
+            "confidence": 0.88 if not missing_fields else 0.74,
+            "referenced_context": ["recent_plan_generation_turn"],
+            "missing_fields": missing_fields,
+            "should_clarify": bool(missing_fields),
+            "clarifying_question": "",
+            "write_domain": "plan",
+            "source": "contextual_plan_flow",
+            "plan_slots": slots,
+        }
+
     def _has_explicit_memory_request(self, text: str) -> bool:
         return self._contains_marker(text, self.MEMORY_EXPLICIT_MARKERS)
 
@@ -591,6 +738,7 @@ class HealthAgentRuntime:
     def _operation_readiness(
         self,
         request: PostMessageRequest,
+        conversation_context: dict[str, Any],
         intent: dict[str, Any],
         planner: dict[str, Any],
         write_domain: str,
@@ -608,14 +756,15 @@ class HealthAgentRuntime:
             return {"ready": False, "mode": mode, "question": question, "chips": chips[:3]}
 
         if intent_name == "plan_generate" or (write_domain == "plan" and intent_name == "unclear"):
-            has_goal = self._contains_marker(text, self.PLAN_GOAL_MARKERS)
-            has_frequency = self._contains_marker(text, self.PLAN_FREQUENCY_MARKERS) or bool(
+            slots = self._plan_generation_slots(text, conversation_context)
+            has_goal = bool(slots.get("goal")) or self._contains_marker(text, self.PLAN_GOAL_MARKERS)
+            has_frequency = bool(slots.get("frequency")) or self._contains_marker(text, self.PLAN_FREQUENCY_MARKERS) or bool(
                 re.search(r"\d+\s*(天|次|day|days|x)", text, flags=re.IGNORECASE)
-            )
+            ) or bool(slots.get("focus"))
             if "goal" in missing_fields or not has_goal:
-                return ask("这份计划先按什么目标来排？", ["减脂，一周3天", "增肌，一周4天", "提升力量，器械房"])
+                return ask("这份计划的目标更偏增肌、减脂还是力量提升？", ["增肌", "减脂", "提升力量"])
             if "frequency" in missing_fields or not has_frequency:
-                return ask("一周大概能练几天？", ["一周3天", "一周4天", "每天30分钟"])
+                return ask("这份计划按单次训练，还是一周几天来排？", ["今天一次", "一周3天", "一周4天"])
             return ready()
 
         if intent_name == "plan_adjust":
@@ -718,6 +867,37 @@ class HealthAgentRuntime:
                 "planner": {**safe_planner, "dialogue_mode": "clarify", "dialogue_reason": "safety_first"},
             }
 
+        if write_domain == "plan" and intent_name in {"plan_generate", "unclear"}:
+            readiness = self._operation_readiness(request, conversation_context, intent, planner, write_domain)
+            if not readiness["ready"]:
+                safe_planner = self._planner_without_write_tools(planner, action="clarify", write_domain=write_domain)
+                return {
+                    **base_decision,
+                    "mode": readiness["mode"],
+                    "question": readiness["question"],
+                    "chips": readiness["chips"],
+                    "planner": {
+                        **safe_planner,
+                        "dialogue_mode": readiness["mode"],
+                        "dialogue_reason": "operation_not_ready",
+                    },
+                }
+            if self._coerce_bool(intent.get("should_clarify")) or planner_action == "clarify":
+                proposal_planner = self._planner_with_write_tool(
+                    {
+                        **planner,
+                        "action": "propose",
+                        "requires_proposal": True,
+                        "write_domain": write_domain,
+                    },
+                    write_domain,
+                )
+                return {
+                    **base_decision,
+                    "mode": "propose",
+                    "planner": {**proposal_planner, "dialogue_mode": "propose", "dialogue_reason": "plan_context_ready"},
+                }
+
         if self._coerce_bool(intent.get("should_clarify")) or planner_action == "clarify":
             question = str(intent.get("clarifying_question") or "").strip()
             if not question:
@@ -732,7 +912,7 @@ class HealthAgentRuntime:
             }
 
         if write_domain and (planner_action == "propose" or self._coerce_bool(planner.get("requires_proposal"))):
-            readiness = self._operation_readiness(request, intent, planner, write_domain)
+            readiness = self._operation_readiness(request, conversation_context, intent, planner, write_domain)
             if not readiness["ready"]:
                 safe_planner = self._planner_without_write_tools(planner, action="clarify", write_domain=write_domain)
                 return {
@@ -803,6 +983,9 @@ class HealthAgentRuntime:
         fallback = self._fallback_intent_from_keywords(request.text)
         if not self.llm.is_enabled():
             return fallback, None, "llm_disabled"
+        contextual_intent = self._contextual_plan_intent(request, conversation_context, fallback)
+        if contextual_intent is not None:
+            return contextual_intent, None, None
 
         system_prompt = (
             "You classify user intent for a fitness coaching agent. Return JSON only. "
@@ -981,6 +1164,8 @@ class HealthAgentRuntime:
         fallback = self._fallback_planner_from_intent(intent, request)
         if degraded_reason or not self.llm.is_enabled():
             return fallback, None, degraded_reason or "llm_disabled"
+        if intent.get("source") == "contextual_plan_flow":
+            return fallback, None, None
 
         system_prompt = (
             "You are the planner for a safe fitness coaching agent. Return JSON only and do not answer the user. "
@@ -1066,6 +1251,7 @@ class HealthAgentRuntime:
         request: PostMessageRequest,
         planner: dict[str, Any],
         authorization: str | None,
+        conversation_context: dict[str, Any] | None = None,
     ) -> tuple[list[dict[str, Any]], list[ToolEvent], list[dict[str, Any]], list[str]]:
         observations: list[dict[str, Any]] = []
         tool_events: list[ToolEvent] = []
@@ -1088,6 +1274,8 @@ class HealthAgentRuntime:
                 if name == "create_action_proposal":
                     write_domain = self._normalize_write_domain(arguments.get("write_domain"), fallback=planner.get("write_domain")) or ""
                     context, write_events = await self._load_write_context(write_domain, authorization)
+                    if conversation_context is not None:
+                        context["conversation_context"] = conversation_context
                     tool_events.extend(write_events)
                     proposed = self._heuristic_write_proposals(write_domain, request.text, context)
                     proposal_drafts, validation_warnings = self._validate_proposals(proposed)
@@ -1306,6 +1494,9 @@ class HealthAgentRuntime:
 
         if degraded_reason or not self.llm.is_enabled():
             return fallback_content, fallback_reasoning, fallback_next_actions, None, degraded_reason or "llm_disabled"
+
+        if mode in {"clarify", "confirm_operation"} or (mode == "propose" and proposal_count > 0):
+            return fallback_content, fallback_reasoning, fallback_next_actions, None, None
 
         system_prompt = (
             "You are GymPal, a training buddy and non-medical fitness coach. "
@@ -3227,32 +3418,113 @@ class HealthAgentRuntime:
             )
         ]
 
+    @staticmethod
+    def _plan_goal_label(goal: str | None) -> str:
+        labels = {
+            "muscle_gain": "增肌",
+            "fat_loss": "减脂",
+            "strength": "力量提升",
+            "endurance": "耐力提升",
+            "maintenance": "维持状态",
+        }
+        return labels.get(str(goal or ""), "综合训练")
+
+    def _single_session_plan_day(self, slots: dict[str, Any]) -> dict[str, Any]:
+        focus = str(slots.get("focus") or "full_body")
+        goal = str(slots.get("goal") or "maintenance")
+        equipment = str(slots.get("equipment") or "any")
+        aggregate_text = str(slots.get("aggregate_text") or "")
+        focus_labels = {
+            "chest": "胸部增肌",
+            "back": "背部训练",
+            "legs": "臀腿训练",
+            "shoulders": "肩部训练",
+            "arms": "手臂训练",
+            "push": "推力训练",
+            "pull": "拉力训练",
+            "full_body": "全身训练",
+        }
+        exercise_map = {
+            "chest": [
+                "上斜哑铃卧推 4组x8-10次",
+                "平板杠铃卧推 3组x6-8次",
+                "器械推胸 3组x10-12次",
+                "绳索飞鸟 3组x12-15次",
+            ],
+            "back": ["高位下拉 4组x8-12次", "坐姿划船 3组x10-12次", "单臂哑铃划船 3组x10次", "面拉 3组x12-15次"],
+            "legs": ["深蹲 4组x6-8次", "罗马尼亚硬拉 3组x8-10次", "腿举 3组x10-12次", "腿弯举 3组x12次"],
+            "shoulders": ["哑铃推举 4组x8-10次", "侧平举 4组x12-15次", "俯身飞鸟 3组x12-15次", "面拉 3组x12-15次"],
+            "arms": ["杠铃弯举 3组x8-10次", "绳索下压 3组x10-12次", "锤式弯举 3组x10次", "臂屈伸 3组x8-12次"],
+            "full_body": ["深蹲 3组x8次", "卧推 3组x8次", "划船 3组x10次", "平板支撑 3组x45秒"],
+        }
+        exercises = list(exercise_map.get(focus, exercise_map["full_body"]))
+        if focus == "chest" and equipment == "bodyweight":
+            exercises = ["标准俯卧撑 4组x接近力竭", "下斜俯卧撑 3组x8-12次", "宽距俯卧撑 3组x10-15次", "慢速离心俯卧撑 2组x6-8次"]
+        goal_label = self._plan_goal_label(goal)
+        day_label = "今天" if "今天" in aggregate_text else ("练胸日" if focus == "chest" else "训练日")
+        return {
+            "dayLabel": day_label,
+            "focus": f"{focus_labels.get(focus, '训练')} · {goal_label}",
+            "duration": "55-65 分钟" if goal == "muscle_gain" else "45-60 分钟",
+            "exercises": exercises,
+            "recoveryTip": "全程保留1-2次余量；如果肩、肘或胸口不适，降低重量并停止高风险动作。",
+        }
+
     def _plan_proposals(self, user_text: str, context: dict[str, Any]) -> list[dict[str, Any]]:
         current_plan = context.get("current_plan")
         days = current_plan.get("days", []) if isinstance(current_plan, dict) else []
         matched_day = self._extract_day_label(user_text, days if isinstance(days, list) else [])
         lowered = user_text.lower()
+        conversation_context = context.get("conversation_context") if isinstance(context.get("conversation_context"), dict) else {}
+        slots = self._plan_generation_slots(user_text, conversation_context)
+        aggregate_text = str(slots.get("aggregate_text") or user_text)
+        aggregate_lowered = aggregate_text.lower()
 
         if not isinstance(current_plan, dict) or not current_plan.get("plan"):
-            if any(keyword in user_text for keyword in ("生成", "创建", "安排", "下周")) or "plan" in lowered:
-                goal = "fat_loss"
-                if "增肌" in user_text or "muscle" in lowered:
+            if slots.get("active") or any(keyword in aggregate_text for keyword in ("生成", "创建", "安排", "下周")) or "plan" in aggregate_lowered:
+                goal = str(slots.get("goal") or "fat_loss")
+                if "增肌" in aggregate_text or "muscle" in aggregate_lowered:
                     goal = "muscle_gain"
-                if "维持" in user_text or "maintenance" in lowered:
+                if "维持" in aggregate_text or "maintenance" in aggregate_lowered:
                     goal = "maintenance"
+                payload: dict[str, Any] = {"goal": goal}
+                preview: dict[str, Any] = {"目标": self._plan_goal_label(goal)}
+                if slots.get("focus") or slots.get("frequency") == "single_session":
+                    day = self._single_session_plan_day({**slots, "goal": goal})
+                    payload.update({"title": f"{day['dayLabel']}训练计划", "days": [day]})
+                    preview.update({"训练日": day["focus"], "时长": day["duration"], "动作数": len(day["exercises"])})
                 return [
                     self._draft_proposal(
                         action_type="generate_plan",
                         entity_type="workout_plan",
                         title=self._proposal_title("generate_plan"),
                         summary="生成一份新的训练计划。",
-                        payload={"goal": goal},
-                        preview={"目标": goal},
+                        payload=payload,
+                        preview=preview,
                     )
                 ]
             return []
 
         snapshot_fields = self._build_plan_snapshot_fields(current_plan, matched_day)
+
+        if slots.get("active") and slots.get("goal") and (slots.get("focus") or slots.get("frequency") == "single_session"):
+            day = self._single_session_plan_day(slots)
+            return [
+                self._draft_proposal(
+                    action_type="create_plan_day",
+                    entity_type="workout_plan_day",
+                    title=self._proposal_title("create_plan_day"),
+                    summary="新增一条单次训练日安排。",
+                    payload=day,
+                    preview={
+                        "日期": day["dayLabel"],
+                        "计划项": day["focus"],
+                        "时长": day["duration"],
+                        "动作数": len(day["exercises"]),
+                    },
+                    snapshot_fields=self._build_plan_snapshot_fields(current_plan),
+                )
+            ]
 
         if any(keyword in user_text for keyword in ("删除", "删掉", "移除")) and matched_day:
             return [
@@ -3965,32 +4237,41 @@ class HealthAgentRuntime:
             degraded_reason=degraded_reason,
         )
 
-        base_extra_steps = [
-            RunStep(
-                id=str(uuid.uuid4()),
-                step_type="llm_call",
-                title="LLM 意图识别",
-                payload=self._llm_metadata_payload(intent_llm, "intent_classifier"),
-            ),
+        base_extra_steps = []
+        if intent_llm is not None:
+            base_extra_steps.append(
+                RunStep(
+                    id=str(uuid.uuid4()),
+                    step_type="llm_call",
+                    title="LLM 意图识别",
+                    payload=self._llm_metadata_payload(intent_llm, "intent_classifier"),
+                )
+            )
+        base_extra_steps.append(
             RunStep(
                 id=str(uuid.uuid4()),
                 step_type="intent_classification",
                 title="意图识别",
                 payload=intent,
-            ),
-            RunStep(
-                id=str(uuid.uuid4()),
-                step_type="llm_call",
-                title="LLM Planner",
-                payload=self._llm_metadata_payload(planner_llm, "planner"),
-            ),
+            )
+        )
+        if planner_llm is not None:
+            base_extra_steps.append(
+                RunStep(
+                    id=str(uuid.uuid4()),
+                    step_type="llm_call",
+                    title="LLM Planner",
+                    payload=self._llm_metadata_payload(planner_llm, "planner"),
+                )
+            )
+        base_extra_steps.append(
             RunStep(
                 id=str(uuid.uuid4()),
                 step_type="planner_decision",
                 title="Planner 决策",
                 payload=planner,
-            ),
-        ]
+            )
+        )
         if degraded_mode:
             base_extra_steps.append(
                 RunStep(
@@ -4099,6 +4380,7 @@ class HealthAgentRuntime:
             request,
             planner,
             authorization,
+            conversation_context,
         )
         compose_llm: StructuredLLMResult | None = None
 

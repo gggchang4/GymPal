@@ -1,4 +1,5 @@
 import * as assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 import { test } from "node:test";
@@ -14,6 +15,30 @@ const scanRoots = [
   "frontend/test"
 ];
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".cjs", ".py", ".css"]);
+const secretScanExtensions = new Set([
+  ".cjs",
+  ".css",
+  ".env",
+  ".example",
+  ".js",
+  ".json",
+  ".md",
+  ".prisma",
+  ".py",
+  ".sql",
+  ".toml",
+  ".ts",
+  ".tsx",
+  ".txt",
+  ".yml",
+  ".yaml"
+]);
+const rawSecretPatterns = [
+  { name: "OpenAI-compatible API key", pattern: /\bsk-[A-Za-z0-9_-]{20,}\b/ },
+  { name: "JWT token", pattern: /\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b/ }
+];
+const sensitiveAssignmentPattern =
+  /^\s*(LLM_API_KEY|OPENAI_API_KEY|DEEPSEEK_API_KEY|AMAP_API_KEY|JWT_SECRET|DATABASE_URL)\s*=\s*([^#\s]+)/;
 const mojibakePattern = /[\uFFFD\uE000-\uF8FF]|锛|銆|甯|澶|浣|鎴|绋|鍛|寤|閿|婢|娴|鈧|涓嬪|鏁欑|璁|鎵ц|宸茬|缁х/u;
 
 function collectSourceFiles(directory: string): string[] {
@@ -42,6 +67,23 @@ function collectSourceFiles(directory: string): string[] {
   return files;
 }
 
+function trackedTextFiles(): string[] {
+  const output = execFileSync("git", ["ls-files"], { cwd: repoRoot, encoding: "utf8" });
+  return output
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .filter((path) => secretScanExtensions.has(extname(path)));
+}
+
+function isPlaceholderSecretValue(value: string): boolean {
+  const cleaned = value.trim().replace(/^['"]|['"]$/g, "");
+  return (
+    cleaned === "" ||
+    /^(replace-me|your[_-].*|example|changeme|dummy)$/i.test(cleaned) ||
+    /replace-me|YOUR_|localhost|127\.0\.0\.1/i.test(cleaned)
+  );
+}
+
 test("source files do not contain mojibake, replacement characters, or private-use glyphs", () => {
   const findings: string[] = [];
 
@@ -55,6 +97,30 @@ test("source files do not contain mojibake, replacement characters, or private-u
         }
       });
     }
+  }
+
+  assert.deepEqual(findings, []);
+});
+
+test("tracked text files do not contain committed secrets", () => {
+  const findings: string[] = [];
+
+  for (const file of trackedTextFiles()) {
+    const content = readFileSync(join(repoRoot, file), "utf8");
+    const lines = content.split(/\r?\n/);
+
+    lines.forEach((line, index) => {
+      for (const { name, pattern } of rawSecretPatterns) {
+        if (pattern.test(line)) {
+          findings.push(`${file}:${index + 1}: ${name}`);
+        }
+      }
+
+      const assignment = line.match(sensitiveAssignmentPattern);
+      if (assignment && !isPlaceholderSecretValue(assignment[2])) {
+        findings.push(`${file}:${index + 1}: hard-coded ${assignment[1]}`);
+      }
+    });
   }
 
   assert.deepEqual(findings, []);
