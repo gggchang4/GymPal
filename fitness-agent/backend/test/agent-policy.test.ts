@@ -3,17 +3,18 @@ import { test } from "node:test";
 import { ConflictException } from "@nestjs/common";
 import { AgentPolicyService } from "../src/services/agent-policy.service";
 
-test("phase3 policy allows known actions and derives package labels", () => {
+test("personalization policy allows known actions and derives package labels", () => {
   const policy = new AgentPolicyService();
 
   assert.ok(policy.getSupportedActionTypes().includes("create_recommendation_feedback"));
+  assert.ok(policy.getSupportedActionTypes().includes("create_diet_log"));
   assert.deepEqual(
     policy.getPolicyLabelsForActions(["generate_next_week_plan", "generate_diet_snapshot"], ["custom_label"]),
     ["custom_label", "plan_rewrite", "nutrition_rewrite", "multi_domain_package"]
   );
 });
 
-test("phase3 policy blocks unsupported actions", () => {
+test("personalization policy blocks unsupported actions", () => {
   const policy = new AgentPolicyService();
 
   assert.throws(
@@ -22,7 +23,7 @@ test("phase3 policy blocks unsupported actions", () => {
   );
 });
 
-test("phase3 policy blocks non-package actions inside coaching packages", () => {
+test("personalization policy blocks non-package actions inside coaching packages", () => {
   const policy = new AgentPolicyService();
 
   assert.throws(
@@ -36,7 +37,7 @@ test("phase3 policy blocks non-package actions inside coaching packages", () => 
   );
 });
 
-test("phase3 policy blocks medical red-flag writes", () => {
+test("personalization policy blocks medical red-flag writes", () => {
   const policy = new AgentPolicyService();
 
   assert.throws(

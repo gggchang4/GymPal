@@ -40,7 +40,7 @@ loadBackendEnv();
 
 const skipWithoutDatabase = process.env.DATABASE_URL
   ? false
-  : "Set backend/.env DATABASE_URL to run real database Phase 4 product event tests.";
+  : "Set backend/.env DATABASE_URL to run real database workspace product event tests.";
 
 function createServices() {
   const { prisma, appStore, agentState, productEvents } = createAgentTestServices();
@@ -60,12 +60,12 @@ async function cleanupTestUsers(prisma: PrismaService, runId: string) {
 }
 
 async function createUser(appStore: AppStoreService, runId: string) {
-  return appStore.createUser(`phase4-product-events-${runId}@example.test`, `password-${runId}`, "Phase4 Product Events");
+  return appStore.createUser(`workspace-product-events-${runId}@example.test`, `password-${runId}`, "Workspace Product Events");
 }
 
 async function createThreadAndRun(agentState: AgentStateService, userId: string) {
-  const thread = await agentState.createThread("Phase 4 product event test", userId);
-  const runId = `phase4-product-events-run-${randomUUID()}`;
+  const thread = await agentState.createThread("workspace product event test", userId);
+  const runId = `workspace-product-events-run-${randomUUID()}`;
   await agentState.createRun(
     thread.id,
     {
@@ -113,7 +113,7 @@ async function createAdvicePackage(agentState: AgentStateService, threadId: stri
             type: "daily_guidance",
             priority: "medium",
             summary: "Keep today's work controlled.",
-            reasoningTags: ["phase4_product_events"],
+            reasoningTags: ["workspace_product_events"],
             actionItems: ["Keep RPE moderate."],
             riskFlags: []
           },
@@ -126,7 +126,7 @@ async function createAdvicePackage(agentState: AgentStateService, threadId: stri
   );
 }
 
-databaseTest("phase4 records package and feedback product events", async () => {
+databaseTest("workspace records package and feedback product events", async () => {
   const runId = randomUUID();
   const { prisma, appStore, agentState, feedbackController } = createServices();
   await prisma.$connect();
@@ -144,7 +144,7 @@ databaseTest("phase4 records package and feedback product events", async () => {
     const { threadId, runId: agentRunId } = await createThreadAndRun(agentState, user.id);
 
     const approvedPackage = await createAdvicePackage(agentState, threadId, agentRunId, user.id, "Approved");
-    const approvalKey = `phase4-product-event-approve-${runId}`;
+    const approvalKey = `workspace-product-event-approve-${runId}`;
     await agentState.confirmProposalGroup(approvedPackage.proposal_group.id, approvalKey, user.id);
 
     const rejectedPackage = await createAdvicePackage(agentState, threadId, agentRunId, user.id, "Rejected");

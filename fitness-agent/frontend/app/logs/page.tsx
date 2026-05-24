@@ -1,4 +1,4 @@
-import { getBodyMetrics, getDailyCheckins, getWorkoutLogs } from "@/lib/api";
+import { getBodyMetrics, getDailyCheckins, getDietLogs, getWorkoutLogs } from "@/lib/api";
 import { PageErrorState } from "@/components/page-error-state";
 import { requireServerAuthToken } from "@/lib/server-auth";
 
@@ -58,12 +58,14 @@ export default async function LogsPage() {
   const authToken = requireServerAuthToken();
   let metrics;
   let checkins;
+  let dietLogs;
   let workouts;
 
   try {
-    [metrics, checkins, workouts] = await Promise.all([
+    [metrics, checkins, dietLogs, workouts] = await Promise.all([
       getBodyMetrics(authToken),
       getDailyCheckins(authToken),
+      getDietLogs(authToken),
       getWorkoutLogs(authToken)
     ]);
   } catch (error) {
@@ -72,6 +74,7 @@ export default async function LogsPage() {
 
   const latestMetric = metrics[0];
   const latestCheckin = checkins[0];
+  const latestDiet = dietLogs[0];
   const latestWorkout = workouts[0];
   const weightHistory = [...metrics].slice(0, 7).reverse();
   const weightTrend = buildWeightTrend(weightHistory.map((item) => item.weightKg));
@@ -224,6 +227,18 @@ export default async function LogsPage() {
                 <p className="muted">
                   {formatLevel(latestWorkout.workoutType)} · {formatLevel(latestWorkout.intensity)} ·{" "}
                   {formatDate(latestWorkout.recordedAt)}
+                </p>
+              </div>
+            ) : null}
+
+            {latestDiet ? (
+              <div className="log-row">
+                <div className="log-row-head">
+                  <span className="metric-label">最近饮食</span>
+                  <strong>{latestDiet.totalCalorie ? `${latestDiet.totalCalorie} kcal` : latestDiet.mealType}</strong>
+                </div>
+                <p className="muted">
+                  {(latestDiet.foods ?? []).join(" / ") || latestDiet.note || "饮食日志"} · {formatDate(latestDiet.recordedAt)}
                 </p>
               </div>
             ) : null}

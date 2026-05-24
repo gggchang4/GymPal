@@ -12,12 +12,12 @@ function createServices() {
 }
 
 async function createUser(appStore: AppStoreService, runId: string, label: string) {
-  return appStore.createUser(`phase3-${label}-${runId}@example.test`, `password-${runId}`, `Phase3 ${label}`);
+  return appStore.createUser(`personalization-${label}-${runId}@example.test`, `password-${runId}`, `Personalization ${label}`);
 }
 
 async function createThreadAndRun(agentState: AgentStateService, userId: string) {
-  const thread = await agentState.createThread("Phase 3 memory test", userId);
-  const runId = `phase3-run-${randomUUID()}`;
+  const thread = await agentState.createThread("personalization memory test", userId);
+  const runId = `personalization-run-${randomUUID()}`;
   await agentState.createRun(
     thread.id,
     {
@@ -69,7 +69,7 @@ async function createMemoryProposal(agentState: AgentStateService, threadId: str
   return proposal;
 }
 
-databaseTest("phase3 memory proposal writes memory and event only after confirmation", async () => {
+databaseTest("personalization memory proposal writes memory and event only after confirmation", async () => {
   const runId = randomUUID();
   const { prisma, appStore, agentState } = createServices();
   await prisma.$connect();
@@ -97,7 +97,7 @@ databaseTest("phase3 memory proposal writes memory and event only after confirma
   }
 });
 
-databaseTest("phase3 rejected memory proposal does not write long-lived memory", async () => {
+databaseTest("personalization rejected memory proposal does not write long-lived memory", async () => {
   const runId = randomUUID();
   const { prisma, appStore, agentState } = createServices();
   await prisma.$connect();
@@ -119,7 +119,7 @@ databaseTest("phase3 rejected memory proposal does not write long-lived memory",
   }
 });
 
-databaseTest("phase3 partial memory updates do not overwrite stable fields", async () => {
+databaseTest("personalization partial memory updates do not overwrite stable fields", async () => {
   const runId = randomUUID();
   const { prisma, appStore } = createServices();
   await prisma.$connect();
@@ -155,7 +155,7 @@ databaseTest("phase3 partial memory updates do not overwrite stable fields", asy
   }
 });
 
-databaseTest("phase3 memory confidence falls back when proposal payload is malformed", async () => {
+databaseTest("personalization memory confidence falls back when proposal payload is malformed", async () => {
   const runId = randomUUID();
   const { prisma, appStore } = createServices();
   await prisma.$connect();
@@ -189,7 +189,7 @@ databaseTest("phase3 memory confidence falls back when proposal payload is malfo
   }
 });
 
-databaseTest("phase3 memories are isolated by account and can be archived by owner only", async () => {
+databaseTest("personalization memories are isolated by account and can be archived by owner only", async () => {
   const runId = randomUUID();
   const { prisma, appStore, agentState } = createServices();
   await prisma.$connect();

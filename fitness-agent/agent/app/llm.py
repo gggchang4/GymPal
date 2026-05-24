@@ -54,6 +54,7 @@ class OpenAICompatibleLLMClient:
                 api_key=settings.llm_api_key,
                 base_url=settings.llm_base_url,
                 timeout=settings.llm_timeout,
+                max_retries=max(0, settings.llm_max_retries),
             )
             if self._enabled
             else None

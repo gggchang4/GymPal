@@ -97,6 +97,17 @@ export class AgentActionExecutorService {
           fatigueLevel: typeof payload.fatigueLevel === "string" ? payload.fatigueLevel : undefined,
           hungerLevel: typeof payload.hungerLevel === "string" ? payload.hungerLevel : undefined
         });
+      case "create_diet_log":
+        return this.appStore.addDietLog({
+          userId,
+          mealType: typeof payload.mealType === "string" ? payload.mealType : "meal",
+          foods: normalizeArray(payload.foods),
+          totalCalorie: payload.totalCalorie === undefined ? undefined : Number(payload.totalCalorie),
+          proteinGrams: payload.proteinGrams === undefined ? undefined : Number(payload.proteinGrams),
+          carbohydrateGrams: payload.carbohydrateGrams === undefined ? undefined : Number(payload.carbohydrateGrams),
+          fatGrams: payload.fatGrams === undefined ? undefined : Number(payload.fatGrams),
+          note: typeof payload.note === "string" ? payload.note : undefined
+        });
       case "create_workout_log":
         return this.appStore.addWorkoutLog({
           userId,

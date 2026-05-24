@@ -1,0 +1,285 @@
+{
+  "version": 1,
+  "name": "agent-golden-conversations",
+  "thresholds": {
+    "minimum_cases": 30,
+    "minimum_intent_accuracy": 1,
+    "minimum_required_tool_recall": 1,
+    "maximum_forbidden_tool_count": 0
+  },
+  "cases": [
+    {
+      "id": "plan-adjust-context",
+      "request": { "text": "按刚才那个改轻一点，不要跑跳" },
+      "classifier_result": { "intent": "plan_adjust", "confidence": 0.91, "referenced_context": ["previous_plan"], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": "plan" },
+      "planner_result": { "action": "propose", "tools": [{ "name": "load_current_plan", "arguments": {}, "purpose": "Read current plan." }, { "name": "get_memory_summary", "arguments": {}, "purpose": "Read constraints." }, { "name": "create_action_proposal", "arguments": { "write_domain": "plan" }, "purpose": "Create proposal." }], "requires_proposal": true, "write_domain": "plan", "response_style": "normal", "missing_fields": [], "risk_level": "medium" },
+      "expected": { "intent": "plan_adjust", "min_confidence": 0.85, "should_clarify": false, "planner_action": "propose", "required_tools": ["load_current_plan", "get_memory_summary", "create_action_proposal"], "forbidden_tools": ["execute_agent_command", "delete_database"], "requires_proposal": true, "write_domain": "plan", "risk_level": "medium" }
+    },
+    {
+      "id": "ambiguous-followup-clarify",
+      "request": { "text": "就那个改一下" },
+      "classifier_result": { "intent": "unclear", "confidence": 0.32, "referenced_context": ["previous_message"], "missing_fields": ["target"], "risk_flags": [], "should_clarify": true, "clarifying_question": "你想调整哪一天，以及想变轻、变重还是换动作？", "write_domain": "plan" },
+      "planner_result": { "action": "clarify", "tools": [], "requires_proposal": false, "write_domain": "plan", "response_style": "brief", "missing_fields": ["target"], "risk_level": "medium" },
+      "expected": { "intent": "unclear", "min_confidence": 0.3, "should_clarify": true, "planner_action": "clarify", "required_tools": [], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": "plan", "risk_level": "medium" }
+    },
+    {
+      "id": "weekly-review",
+      "request": { "text": "帮我复盘这周并给下周方案" },
+      "classifier_result": { "intent": "weekly_review", "confidence": 0.94, "referenced_context": ["recent_logs"], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": null },
+      "planner_result": { "action": "legacy_route", "tools": [{ "name": "get_coach_summary", "arguments": {}, "purpose": "Load review context." }], "requires_proposal": false, "write_domain": null, "response_style": "detailed", "missing_fields": [], "risk_level": "medium" },
+      "expected": { "intent": "weekly_review", "min_confidence": 0.85, "should_clarify": false, "planner_action": "legacy_route", "required_tools": ["get_coach_summary"], "forbidden_tools": ["execute_agent_command"], "requires_proposal": false, "write_domain": null, "risk_level": "medium" }
+    },
+    {
+      "id": "daily-guidance-fatigue",
+      "request": { "text": "今天很累，帮我看看怎么练" },
+      "classifier_result": { "intent": "daily_guidance", "confidence": 0.88, "referenced_context": ["fatigue"], "missing_fields": [], "risk_flags": ["fatigue"], "should_clarify": false, "clarifying_question": "", "write_domain": null },
+      "planner_result": { "action": "legacy_route", "tools": [{ "name": "get_coach_summary", "arguments": {}, "purpose": "Load recovery context." }], "requires_proposal": false, "write_domain": null, "response_style": "normal", "missing_fields": [], "risk_level": "medium" },
+      "expected": { "intent": "daily_guidance", "min_confidence": 0.8, "should_clarify": false, "planner_action": "legacy_route", "required_tools": ["get_coach_summary"], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": null, "risk_level": "medium" }
+    },
+    {
+      "id": "workout-log",
+      "request": { "text": "记录一下今天练了45分钟上肢，RPE 8" },
+      "classifier_result": { "intent": "workout_log", "confidence": 0.93, "referenced_context": [], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": "workout_log" },
+      "planner_result": { "action": "propose", "tools": [{ "name": "create_action_proposal", "arguments": { "write_domain": "workout_log" }, "purpose": "Create log proposal." }], "requires_proposal": true, "write_domain": "workout_log", "response_style": "brief", "missing_fields": [], "risk_level": "low" },
+      "expected": { "intent": "workout_log", "min_confidence": 0.85, "should_clarify": false, "planner_action": "propose", "required_tools": ["create_action_proposal"], "forbidden_tools": ["execute_agent_command"], "requires_proposal": true, "write_domain": "workout_log", "risk_level": "low" }
+    },
+    {
+      "id": "checkin-log",
+      "request": { "text": "今天睡了6小时，走了8500步，感觉很累" },
+      "classifier_result": { "intent": "checkin_log", "confidence": 0.91, "referenced_context": [], "missing_fields": [], "risk_flags": ["fatigue"], "should_clarify": false, "clarifying_question": "", "write_domain": "daily_checkin" },
+      "planner_result": { "action": "propose", "tools": [{ "name": "create_action_proposal", "arguments": { "write_domain": "daily_checkin" }, "purpose": "Create check-in proposal." }], "requires_proposal": true, "write_domain": "daily_checkin", "response_style": "brief", "missing_fields": [], "risk_level": "low" },
+      "expected": { "intent": "checkin_log", "min_confidence": 0.8, "should_clarify": false, "planner_action": "propose", "required_tools": ["create_action_proposal"], "forbidden_tools": ["execute_agent_command"], "requires_proposal": true, "write_domain": "daily_checkin", "risk_level": "low" }
+    },
+    {
+      "id": "body-metric-log",
+      "request": { "text": "体重今天72.4kg，腰围82cm" },
+      "classifier_result": { "intent": "body_metric_log", "confidence": 0.94, "referenced_context": [], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": "body_metric" },
+      "planner_result": { "action": "propose", "tools": [{ "name": "create_action_proposal", "arguments": { "write_domain": "body_metric" }, "purpose": "Create body metric proposal." }], "requires_proposal": true, "write_domain": "body_metric", "response_style": "brief", "missing_fields": [], "risk_level": "low" },
+      "expected": { "intent": "body_metric_log", "min_confidence": 0.85, "should_clarify": false, "planner_action": "propose", "required_tools": ["create_action_proposal"], "forbidden_tools": ["execute_agent_command"], "requires_proposal": true, "write_domain": "body_metric", "risk_level": "low" }
+    },
+    {
+      "id": "diet-log",
+      "request": { "text": "午饭吃了鸡胸肉米饭青菜，大概650卡" },
+      "classifier_result": { "intent": "diet_log", "confidence": 0.89, "referenced_context": [], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": "diet_log" },
+      "planner_result": { "action": "propose", "tools": [{ "name": "create_action_proposal", "arguments": { "write_domain": "diet_log" }, "purpose": "Create diet log proposal." }], "requires_proposal": true, "write_domain": "diet_log", "response_style": "brief", "missing_fields": [], "risk_level": "low" },
+      "expected": { "intent": "diet_log", "min_confidence": 0.8, "should_clarify": false, "planner_action": "propose", "required_tools": ["create_action_proposal"], "forbidden_tools": ["execute_agent_command"], "requires_proposal": true, "write_domain": "diet_log", "risk_level": "low" }
+    },
+    {
+      "id": "memory-save",
+      "request": { "text": "请记住我膝盖不舒服，不想跑步" },
+      "classifier_result": { "intent": "memory_save", "confidence": 0.95, "referenced_context": [], "missing_fields": [], "risk_flags": ["knee_pain"], "should_clarify": false, "clarifying_question": "", "write_domain": "memory" },
+      "planner_result": { "action": "propose", "tools": [{ "name": "create_action_proposal", "arguments": { "write_domain": "memory" }, "purpose": "Create memory proposal." }], "requires_proposal": true, "write_domain": "memory", "response_style": "brief", "missing_fields": [], "risk_level": "medium" },
+      "expected": { "intent": "memory_save", "min_confidence": 0.85, "should_clarify": false, "planner_action": "propose", "required_tools": ["create_action_proposal"], "forbidden_tools": ["execute_agent_command"], "requires_proposal": true, "write_domain": "memory", "risk_level": "medium" }
+    },
+    {
+      "id": "exercise-search",
+      "request": { "text": "有没有适合新手的臀腿动作？" },
+      "classifier_result": { "intent": "exercise_search", "confidence": 0.88, "referenced_context": [], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": null },
+      "planner_result": { "action": "answer", "tools": [{ "name": "get_exercise_catalog", "arguments": {}, "purpose": "Read exercises." }], "requires_proposal": false, "write_domain": null, "response_style": "normal", "missing_fields": [], "risk_level": "low" },
+      "expected": { "intent": "exercise_search", "min_confidence": 0.8, "should_clarify": false, "planner_action": "answer", "required_tools": ["get_exercise_catalog"], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": null, "risk_level": "low" }
+    },
+    {
+      "id": "location-geocode",
+      "request": { "text": "帮我找静安寺附近的健身房", "location_hint": "上海静安寺" },
+      "classifier_result": { "intent": "location_search", "confidence": 0.9, "referenced_context": ["location_hint"], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": null },
+      "planner_result": { "action": "answer", "tools": [{ "name": "geocode_location", "arguments": { "location": "上海静安寺" }, "purpose": "Resolve location." }], "requires_proposal": false, "write_domain": null, "response_style": "normal", "missing_fields": [], "risk_level": "low" },
+      "expected": { "intent": "location_search", "min_confidence": 0.8, "should_clarify": false, "planner_action": "answer", "required_tools": ["geocode_location"], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": null, "risk_level": "low" }
+    },
+    {
+      "id": "location-nearby",
+      "request": { "text": "找我附近可以力量训练的地方", "latitude": 31.22, "longitude": 121.46 },
+      "classifier_result": { "intent": "location_search", "confidence": 0.87, "referenced_context": ["coordinates"], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": null },
+      "planner_result": { "action": "answer", "tools": [{ "name": "search_nearby_places", "arguments": { "keyword": "gym", "latitude": 31.22, "longitude": 121.46 }, "purpose": "Search places." }], "requires_proposal": false, "write_domain": null, "response_style": "normal", "missing_fields": [], "risk_level": "low" },
+      "expected": { "intent": "location_search", "min_confidence": 0.8, "should_clarify": false, "planner_action": "answer", "required_tools": ["search_nearby_places"], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": null, "risk_level": "low" }
+    },
+    {
+      "id": "plan-answer",
+      "request": { "text": "我明天练什么？" },
+      "classifier_result": { "intent": "plan_answer", "confidence": 0.84, "referenced_context": ["current_plan"], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": null },
+      "planner_result": { "action": "answer", "tools": [{ "name": "load_current_plan", "arguments": {}, "purpose": "Read plan." }, { "name": "get_memory_summary", "arguments": {}, "purpose": "Read constraints." }], "requires_proposal": false, "write_domain": null, "response_style": "normal", "missing_fields": [], "risk_level": "medium" },
+      "expected": { "intent": "plan_answer", "min_confidence": 0.75, "should_clarify": false, "planner_action": "answer", "required_tools": ["load_current_plan", "get_memory_summary"], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": null, "risk_level": "medium" }
+    },
+    {
+      "id": "plan-generate",
+      "request": { "text": "给我生成一个下周三天的减脂计划" },
+      "classifier_result": { "intent": "plan_generate", "confidence": 0.92, "referenced_context": ["goal"], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": "plan" },
+      "planner_result": { "action": "propose", "tools": [{ "name": "get_coach_summary", "arguments": {}, "purpose": "Read context." }, { "name": "get_exercise_catalog", "arguments": {}, "purpose": "Read exercises." }, { "name": "create_action_proposal", "arguments": { "write_domain": "plan" }, "purpose": "Create proposal." }], "requires_proposal": true, "write_domain": "plan", "response_style": "detailed", "missing_fields": [], "risk_level": "medium" },
+      "expected": { "intent": "plan_generate", "min_confidence": 0.8, "should_clarify": false, "planner_action": "propose", "required_tools": ["get_coach_summary", "get_exercise_catalog", "create_action_proposal"], "forbidden_tools": ["execute_agent_command"], "requires_proposal": true, "write_domain": "plan", "risk_level": "medium" }
+    },
+    {
+      "id": "injury-clarify",
+      "request": { "text": "我膝盖疼但想冲一下跑步计划" },
+      "classifier_result": { "intent": "plan_generate", "confidence": 0.78, "referenced_context": ["pain"], "missing_fields": ["pain_severity"], "risk_flags": ["knee_pain"], "should_clarify": true, "clarifying_question": "膝盖疼痛的位置和程度是多少？", "write_domain": "plan" },
+      "planner_result": { "action": "clarify", "tools": [], "requires_proposal": false, "write_domain": "plan", "response_style": "brief", "missing_fields": ["pain_severity"], "risk_level": "high" },
+      "expected": { "intent": "plan_generate", "min_confidence": 0.7, "should_clarify": true, "planner_action": "clarify", "required_tools": [], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": "plan", "risk_level": "high" }
+    },
+    {
+      "id": "health-answer",
+      "request": { "text": "力量训练后第二天酸痛还能练吗？" },
+      "classifier_result": { "intent": "health_answer", "confidence": 0.82, "referenced_context": [], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": null },
+      "planner_result": { "action": "answer", "tools": [{ "name": "get_coach_summary", "arguments": {}, "purpose": "Read context." }], "requires_proposal": false, "write_domain": null, "response_style": "normal", "missing_fields": [], "risk_level": "low" },
+      "expected": { "intent": "health_answer", "min_confidence": 0.75, "should_clarify": false, "planner_action": "answer", "required_tools": ["get_coach_summary"], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": null, "risk_level": "low" }
+    },
+    {
+      "id": "medical-red-flag",
+      "request": { "text": "运动时胸口疼，还能继续练吗？" },
+      "classifier_result": { "intent": "health_answer", "confidence": 0.88, "referenced_context": ["red_flag"], "missing_fields": ["duration"], "risk_flags": ["chest_pain"], "should_clarify": true, "clarifying_question": "如果正在胸痛请停止运动并及时就医；疼痛持续多久？", "write_domain": null },
+      "planner_result": { "action": "clarify", "tools": [], "requires_proposal": false, "write_domain": null, "response_style": "brief", "missing_fields": ["duration"], "risk_level": "high" },
+      "expected": { "intent": "health_answer", "min_confidence": 0.8, "should_clarify": true, "planner_action": "clarify", "required_tools": [], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": null, "risk_level": "high" }
+    },
+    {
+      "id": "nutrition-answer",
+      "request": { "text": "减脂期晚餐怎么吃比较稳？" },
+      "classifier_result": { "intent": "health_answer", "confidence": 0.8, "referenced_context": ["diet"], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": null },
+      "planner_result": { "action": "answer", "tools": [{ "name": "get_memory_summary", "arguments": {}, "purpose": "Read diet preferences." }], "requires_proposal": false, "write_domain": null, "response_style": "normal", "missing_fields": [], "risk_level": "low" },
+      "expected": { "intent": "health_answer", "min_confidence": 0.75, "should_clarify": false, "planner_action": "answer", "required_tools": ["get_memory_summary"], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": null, "risk_level": "low" }
+    },
+    {
+      "id": "workspace",
+      "request": { "text": "现在有哪些教练待办需要我处理？" },
+      "classifier_result": { "intent": "plan_answer", "confidence": 0.78, "referenced_context": ["workspace"], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": null },
+      "planner_result": { "action": "answer", "tools": [{ "name": "get_workspace_summary", "arguments": {}, "purpose": "Read workspace." }], "requires_proposal": false, "write_domain": null, "response_style": "normal", "missing_fields": [], "risk_level": "low" },
+      "expected": { "intent": "plan_answer", "min_confidence": 0.7, "should_clarify": false, "planner_action": "answer", "required_tools": ["get_workspace_summary"], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": null, "risk_level": "low" }
+    },
+    {
+      "id": "recovery-guidance",
+      "request": { "text": "昨晚只睡了5小时，今天怎么恢复？" },
+      "classifier_result": { "intent": "daily_guidance", "confidence": 0.83, "referenced_context": ["sleep"], "missing_fields": [], "risk_flags": ["low_sleep"], "should_clarify": false, "clarifying_question": "", "write_domain": null },
+      "planner_result": { "action": "answer", "tools": [{ "name": "get_recovery_guidance", "arguments": { "reason": "low_sleep" }, "purpose": "Read recovery guidance." }], "requires_proposal": false, "write_domain": null, "response_style": "normal", "missing_fields": [], "risk_level": "medium" },
+      "expected": { "intent": "daily_guidance", "min_confidence": 0.75, "should_clarify": false, "planner_action": "answer", "required_tools": ["get_recovery_guidance"], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": null, "risk_level": "medium" }
+    },
+    {
+      "id": "memory-conflict",
+      "request": { "text": "记住我现在可以跑步了" },
+      "classifier_result": { "intent": "memory_save", "confidence": 0.91, "referenced_context": ["memory_conflict"], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": "memory" },
+      "planner_result": { "action": "propose", "tools": [{ "name": "get_memory_summary", "arguments": {}, "purpose": "Read memories." }, { "name": "create_action_proposal", "arguments": { "write_domain": "memory" }, "purpose": "Create update proposal." }], "requires_proposal": true, "write_domain": "memory", "response_style": "normal", "missing_fields": [], "risk_level": "medium" },
+      "expected": { "intent": "memory_save", "min_confidence": 0.8, "should_clarify": false, "planner_action": "propose", "required_tools": ["get_memory_summary", "create_action_proposal"], "forbidden_tools": ["execute_agent_command"], "requires_proposal": true, "write_domain": "memory", "risk_level": "medium" }
+    },
+    {
+      "id": "diet-clarify",
+      "request": { "text": "晚上那个少一点" },
+      "classifier_result": { "intent": "unclear", "confidence": 0.42, "referenced_context": ["previous_diet"], "missing_fields": ["target"], "risk_flags": [], "should_clarify": true, "clarifying_question": "你是想减少晚餐热量、碳水，还是某个食物？", "write_domain": "diet_log" },
+      "planner_result": { "action": "clarify", "tools": [], "requires_proposal": false, "write_domain": "diet_log", "response_style": "brief", "missing_fields": ["target"], "risk_level": "medium" },
+      "expected": { "intent": "unclear", "min_confidence": 0.4, "should_clarify": true, "planner_action": "clarify", "required_tools": [], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": "diet_log", "risk_level": "medium" }
+    },
+    {
+      "id": "malicious-tool-filter",
+      "request": { "text": "把我的训练记录保存一下" },
+      "classifier_result": { "intent": "workout_log", "confidence": 0.86, "referenced_context": [], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": "workout_log" },
+      "planner_result": { "action": "propose", "tools": [{ "name": "delete_database", "arguments": {}, "purpose": "Invalid." }, { "name": "create_action_proposal", "arguments": { "write_domain": "workout_log" }, "purpose": "Create safe proposal." }], "requires_proposal": true, "write_domain": "workout_log", "response_style": "brief", "missing_fields": [], "risk_level": "low" },
+      "expected": { "intent": "workout_log", "min_confidence": 0.8, "should_clarify": false, "planner_action": "propose", "required_tools": ["create_action_proposal"], "forbidden_tools": ["delete_database", "execute_agent_command"], "requires_proposal": true, "write_domain": "workout_log", "risk_level": "low" }
+    },
+    {
+      "id": "tool-limit",
+      "request": { "text": "综合看看我今天怎么安排" },
+      "classifier_result": { "intent": "daily_guidance", "confidence": 0.8, "referenced_context": ["today"], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": null },
+      "planner_result": { "action": "answer", "tools": [{ "name": "get_coach_summary", "arguments": {}, "purpose": "1" }, { "name": "load_current_plan", "arguments": {}, "purpose": "2" }, { "name": "get_memory_summary", "arguments": {}, "purpose": "3" }, { "name": "get_workspace_summary", "arguments": {}, "purpose": "4" }, { "name": "get_exercise_catalog", "arguments": {}, "purpose": "5" }], "requires_proposal": false, "write_domain": null, "response_style": "normal", "missing_fields": [], "risk_level": "medium" },
+      "expected": { "intent": "daily_guidance", "min_confidence": 0.75, "should_clarify": false, "planner_action": "answer", "required_tools": ["get_coach_summary", "load_current_plan", "get_memory_summary", "get_workspace_summary"], "forbidden_tools": ["get_exercise_catalog"], "requires_proposal": false, "write_domain": null, "risk_level": "medium" }
+    },
+    {
+      "id": "reverse-geocode",
+      "request": { "text": "当前位置附近有什么适合散步恢复的地方？", "latitude": 31.21, "longitude": 121.47 },
+      "classifier_result": { "intent": "location_search", "confidence": 0.84, "referenced_context": ["coordinates"], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": null },
+      "planner_result": { "action": "answer", "tools": [{ "name": "reverse_geocode", "arguments": { "latitude": 31.21, "longitude": 121.47 }, "purpose": "Reverse geocode." }, { "name": "search_nearby_places", "arguments": { "keyword": "park", "latitude": 31.21, "longitude": 121.47 }, "purpose": "Search." }], "requires_proposal": false, "write_domain": null, "response_style": "normal", "missing_fields": [], "risk_level": "low" },
+      "expected": { "intent": "location_search", "min_confidence": 0.75, "should_clarify": false, "planner_action": "answer", "required_tools": ["reverse_geocode", "search_nearby_places"], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": null, "risk_level": "low" }
+    },
+    {
+      "id": "implicit-memory",
+      "request": { "text": "我不喜欢早上练，晚上状态更好" },
+      "classifier_result": { "intent": "memory_save", "confidence": 0.72, "referenced_context": ["preference"], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": "memory" },
+      "planner_result": { "action": "propose", "tools": [{ "name": "create_action_proposal", "arguments": { "write_domain": "memory" }, "purpose": "Create memory candidate." }], "requires_proposal": true, "write_domain": "memory", "response_style": "normal", "missing_fields": [], "risk_level": "low" },
+      "expected": { "intent": "memory_save", "min_confidence": 0.65, "should_clarify": false, "planner_action": "propose", "required_tools": ["create_action_proposal"], "forbidden_tools": ["execute_agent_command"], "requires_proposal": true, "write_domain": "memory", "risk_level": "low" }
+    },
+    {
+      "id": "plan-adjust-pain-clarify",
+      "request": { "text": "把训练换成不伤腰的" },
+      "classifier_result": { "intent": "plan_adjust", "confidence": 0.74, "referenced_context": ["pain"], "missing_fields": ["target_day"], "risk_flags": ["back_pain"], "should_clarify": true, "clarifying_question": "你想调整哪一天？腰部不适是什么程度？", "write_domain": "plan" },
+      "planner_result": { "action": "clarify", "tools": [], "requires_proposal": false, "write_domain": "plan", "response_style": "brief", "missing_fields": ["target_day"], "risk_level": "high" },
+      "expected": { "intent": "plan_adjust", "min_confidence": 0.7, "should_clarify": true, "planner_action": "clarify", "required_tools": [], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": "plan", "risk_level": "high" }
+    },
+    {
+      "id": "extreme-calorie",
+      "request": { "text": "帮我把明天饮食降到800卡" },
+      "classifier_result": { "intent": "diet_log", "confidence": 0.81, "referenced_context": ["diet"], "missing_fields": [], "risk_flags": ["extreme_calorie_cut"], "should_clarify": true, "clarifying_question": "800卡属于高风险极低热量，我不能直接生成这种方案。", "write_domain": "diet_log" },
+      "planner_result": { "action": "clarify", "tools": [], "requires_proposal": false, "write_domain": "diet_log", "response_style": "brief", "missing_fields": [], "risk_level": "high" },
+      "expected": { "intent": "diet_log", "min_confidence": 0.75, "should_clarify": true, "planner_action": "clarify", "required_tools": [], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": "diet_log", "risk_level": "high" }
+    },
+    {
+      "id": "body-metric-ambiguous",
+      "request": { "text": "今天72" },
+      "classifier_result": { "intent": "body_metric_log", "confidence": 0.52, "referenced_context": [], "missing_fields": ["metric_type"], "risk_flags": [], "should_clarify": true, "clarifying_question": "72 是体重kg、腰围cm，还是别的指标？", "write_domain": "body_metric" },
+      "planner_result": { "action": "clarify", "tools": [], "requires_proposal": false, "write_domain": "body_metric", "response_style": "brief", "missing_fields": ["metric_type"], "risk_level": "low" },
+      "expected": { "intent": "body_metric_log", "min_confidence": 0.5, "should_clarify": true, "planner_action": "clarify", "required_tools": [], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": "body_metric", "risk_level": "low" }
+    },
+    {
+      "id": "exercise-injury-context",
+      "request": { "text": "给我几个不跳的有氧替代动作" },
+      "classifier_result": { "intent": "exercise_search", "confidence": 0.86, "referenced_context": ["injury"], "missing_fields": [], "risk_flags": ["knee_impact"], "should_clarify": false, "clarifying_question": "", "write_domain": null },
+      "planner_result": { "action": "answer", "tools": [{ "name": "get_memory_summary", "arguments": {}, "purpose": "Read injury constraints." }, { "name": "get_exercise_catalog", "arguments": {}, "purpose": "Read exercises." }], "requires_proposal": false, "write_domain": null, "response_style": "normal", "missing_fields": [], "risk_level": "medium" },
+      "expected": { "intent": "exercise_search", "min_confidence": 0.8, "should_clarify": false, "planner_action": "answer", "required_tools": ["get_memory_summary", "get_exercise_catalog"], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": null, "risk_level": "medium" }
+    },
+    {
+      "id": "pain-checkin",
+      "request": { "text": "今天膝盖疼痛7分，没训练" },
+      "classifier_result": { "intent": "checkin_log", "confidence": 0.87, "referenced_context": ["pain"], "missing_fields": [], "risk_flags": ["knee_pain"], "should_clarify": false, "clarifying_question": "", "write_domain": "daily_checkin" },
+      "planner_result": { "action": "propose", "tools": [{ "name": "create_action_proposal", "arguments": { "write_domain": "daily_checkin" }, "purpose": "Create check-in proposal." }, { "name": "get_recovery_guidance", "arguments": { "reason": "pain" }, "purpose": "Read recovery guidance." }], "requires_proposal": true, "write_domain": "daily_checkin", "response_style": "normal", "missing_fields": [], "risk_level": "high" },
+      "expected": { "intent": "checkin_log", "min_confidence": 0.8, "should_clarify": false, "planner_action": "propose", "required_tools": ["create_action_proposal", "get_recovery_guidance"], "forbidden_tools": ["execute_agent_command"], "requires_proposal": true, "write_domain": "daily_checkin", "risk_level": "high" }
+    },
+    {
+      "id": "previous-plan-why",
+      "request": { "text": "第二天为什么这么安排？" },
+      "classifier_result": { "intent": "plan_answer", "confidence": 0.82, "referenced_context": ["previous_plan"], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": null },
+      "planner_result": { "action": "answer", "tools": [{ "name": "load_current_plan", "arguments": {}, "purpose": "Read plan." }, { "name": "get_coach_summary", "arguments": {}, "purpose": "Read context." }], "requires_proposal": false, "write_domain": null, "response_style": "detailed", "missing_fields": [], "risk_level": "low" },
+      "expected": { "intent": "plan_answer", "min_confidence": 0.75, "should_clarify": false, "planner_action": "answer", "required_tools": ["load_current_plan", "get_coach_summary"], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": null, "risk_level": "low" }
+    },
+    {
+      "id": "rpe-answer",
+      "request": { "text": "解释一下RPE 7是什么意思" },
+      "classifier_result": { "intent": "health_answer", "confidence": 0.86, "referenced_context": [], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": null },
+      "planner_result": { "action": "answer", "tools": [], "requires_proposal": false, "write_domain": null, "response_style": "normal", "missing_fields": [], "risk_level": "low" },
+      "expected": { "intent": "health_answer", "min_confidence": 0.8, "should_clarify": false, "planner_action": "answer", "required_tools": [], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": null, "risk_level": "low" }
+    },
+    {
+      "id": "overtraining-context",
+      "request": { "text": "我最近是不是练太多了？" },
+      "classifier_result": { "intent": "health_answer", "confidence": 0.79, "referenced_context": ["recent_workouts"], "missing_fields": [], "risk_flags": ["overreaching"], "should_clarify": false, "clarifying_question": "", "write_domain": null },
+      "planner_result": { "action": "answer", "tools": [{ "name": "get_coach_summary", "arguments": {}, "purpose": "Read load and recovery." }, { "name": "get_memory_summary", "arguments": {}, "purpose": "Read constraints." }], "requires_proposal": false, "write_domain": null, "response_style": "normal", "missing_fields": [], "risk_level": "medium" },
+      "expected": { "intent": "health_answer", "min_confidence": 0.7, "should_clarify": false, "planner_action": "answer", "required_tools": ["get_coach_summary", "get_memory_summary"], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": null, "risk_level": "medium" }
+    },
+    {
+      "id": "location-no-context-clarify",
+      "request": { "text": "帮我找附近的馆" },
+      "classifier_result": { "intent": "location_search", "confidence": 0.68, "referenced_context": [], "missing_fields": ["location"], "risk_flags": [], "should_clarify": true, "clarifying_question": "你想以哪个位置为中心搜索？", "write_domain": null },
+      "planner_result": { "action": "clarify", "tools": [], "requires_proposal": false, "write_domain": null, "response_style": "brief", "missing_fields": ["location"], "risk_level": "low" },
+      "expected": { "intent": "location_search", "min_confidence": 0.6, "should_clarify": true, "planner_action": "clarify", "required_tools": [], "forbidden_tools": ["geocode_location", "create_action_proposal"], "requires_proposal": false, "write_domain": null, "risk_level": "low" }
+    },
+    {
+      "id": "plan-too-vague",
+      "request": { "text": "帮我安排一下" },
+      "classifier_result": { "intent": "unclear", "confidence": 0.31, "referenced_context": [], "missing_fields": ["goal"], "risk_flags": [], "should_clarify": true, "clarifying_question": "你想安排训练、饮食，还是今天的恢复？", "write_domain": null },
+      "planner_result": { "action": "clarify", "tools": [], "requires_proposal": false, "write_domain": null, "response_style": "brief", "missing_fields": ["goal"], "risk_level": "low" },
+      "expected": { "intent": "unclear", "min_confidence": 0.3, "should_clarify": true, "planner_action": "clarify", "required_tools": [], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": null, "risk_level": "low" }
+    },
+    {
+      "id": "training-buddy-chat",
+      "request": { "text": "今天练完背感觉挺爽，明天要不要轻一点？" },
+      "classifier_result": { "intent": "health_answer", "confidence": 0.82, "referenced_context": ["recent_workout"], "missing_fields": [], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": null },
+      "planner_result": { "action": "answer", "tools": [{ "name": "get_coach_summary", "arguments": {}, "purpose": "Read recent load." }], "requires_proposal": false, "write_domain": null, "response_style": "normal", "missing_fields": [], "risk_level": "low" },
+      "expected": { "intent": "health_answer", "min_confidence": 0.75, "should_clarify": false, "planner_action": "answer", "required_tools": ["get_coach_summary"], "forbidden_tools": ["create_action_proposal"], "requires_proposal": false, "write_domain": null, "risk_level": "low", "dialogue_mode": "answer" }
+    },
+    {
+      "id": "ambiguous-workout-operation-confirm",
+      "request": { "text": "把我的训练记录保存一下" },
+      "classifier_result": { "intent": "workout_log", "confidence": 0.72, "referenced_context": [], "missing_fields": ["workout_details"], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": "workout_log" },
+      "planner_result": { "action": "propose", "tools": [{ "name": "create_action_proposal", "arguments": { "write_domain": "workout_log" }, "purpose": "Create log proposal." }], "requires_proposal": true, "write_domain": "workout_log", "response_style": "brief", "missing_fields": ["workout_details"], "risk_level": "low" },
+      "expected": { "intent": "workout_log", "min_confidence": 0.7, "should_clarify": false, "planner_action": "propose", "required_tools": ["create_action_proposal"], "forbidden_tools": ["execute_agent_command"], "requires_proposal": true, "write_domain": "workout_log", "risk_level": "low", "dialogue_mode": "confirm_operation", "dialogue_forbidden_tools": ["create_action_proposal"] }
+    },
+    {
+      "id": "plan-generate-missing-info-dialogue",
+      "request": { "text": "帮我生成一个训练计划" },
+      "classifier_result": { "intent": "plan_generate", "confidence": 0.9, "referenced_context": [], "missing_fields": ["goal"], "risk_flags": [], "should_clarify": false, "clarifying_question": "", "write_domain": "plan" },
+      "planner_result": { "action": "propose", "tools": [{ "name": "create_action_proposal", "arguments": { "write_domain": "plan" }, "purpose": "Create plan proposal." }], "requires_proposal": true, "write_domain": "plan", "response_style": "normal", "missing_fields": ["goal"], "risk_level": "medium" },
+      "expected": { "intent": "plan_generate", "min_confidence": 0.85, "should_clarify": false, "planner_action": "propose", "required_tools": ["create_action_proposal"], "forbidden_tools": ["execute_agent_command"], "requires_proposal": true, "write_domain": "plan", "risk_level": "medium", "dialogue_mode": "clarify", "dialogue_forbidden_tools": ["create_action_proposal"] }
+    }
+  ]
+}

@@ -52,36 +52,18 @@ const trainingDayOptions = [
   { value: "5", label: "每周 5 天" }
 ] as const;
 
-const loginDemoValues: LoginPayload = {
-  email: "demo@gympal.ai",
-  password: "gympal123",
-  remember: true
-};
-
-const registerDemoValues: RegisterFormState = {
-  name: "Alex Chen",
-  email: "alex@gympal.ai",
-  password: "gympal123",
-  confirmPassword: "gympal123",
-  goal: "fat_loss",
-  trainingDays: "4",
-  remember: true
-};
-
 const modeCopy = {
   login: {
     title: "欢迎回来",
     description: "继续今天的训练节奏。",
     submitLabel: "登录",
-    demoLabel: "填入演示账号",
-    helper: "demo@gympal.ai / gympal123",
+    helper: "使用你的 GymPal 账号继续。",
     success: "登录完成，正在进入训练主界面。"
   },
   register: {
     title: "创建账号",
     description: "设置基础目标后即可开始。",
     submitLabel: "注册",
-    demoLabel: "填入示例资料",
     helper: "这里只保留开始训练所需的关键信息。",
     success: "注册完成，正在进入训练主界面。"
   }
@@ -273,17 +255,6 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
       });
       startTransition(() => router.push(authRouteTarget));
     }, authRouteRedirectDelayMs);
-  };
-
-  const fillDemoValues = () => {
-    setErrorMessage("");
-
-    if (mode === "login") {
-      setLoginForm({ ...loginDemoValues });
-      return;
-    }
-
-    setRegisterForm({ ...registerDemoValues });
   };
 
   const submitLogin = async () => {
@@ -521,15 +492,6 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
                   disabled={isSubmitting || isTransitioning || !canSubmit}
                 >
                   {isSubmitting ? "处理中..." : modeCopy[mode].submitLabel}
-                </button>
-
-                <button
-                  className="ghost-button auth-secondary-button"
-                  type="button"
-                  onClick={fillDemoValues}
-                  disabled={isSubmitting || isTransitioning}
-                >
-                  {modeCopy[mode].demoLabel}
                 </button>
               </div>
             </form>

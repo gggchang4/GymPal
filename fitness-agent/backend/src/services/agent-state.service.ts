@@ -422,7 +422,7 @@ export class AgentStateService {
       riskLevel: "low",
       strategyTemplateId: review.strategyTemplateId ?? undefined,
       strategyVersion: review.strategyVersion ?? undefined,
-      policyLabels: ["phase4_revision", "conservative_adjustment"],
+      policyLabels: ["coaching_revision", "conservative_adjustment"],
       expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 4).toISOString()
     };
     const proposalPayload: CreateAgentProposalDto = {
@@ -434,7 +434,7 @@ export class AgentStateService {
         type: "revision",
         priority: "medium",
         summary: revisionSummary,
-        reasoningTags: ["phase4_revision", revisionReason],
+        reasoningTags: ["coaching_revision", revisionReason],
         actionItems: changes,
         riskFlags: ["conservative_revision"]
       },
@@ -772,7 +772,7 @@ export class AgentStateService {
     });
 
     if (created.status === "blocked") {
-      throw new ConflictException("Coaching package was blocked by the Phase 4 quality gate.");
+      throw new ConflictException("Coaching package was blocked by the coaching quality gate.");
     }
 
     return {

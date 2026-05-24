@@ -158,7 +158,7 @@ export class AgentQualityService {
     let score = 100;
     const blockedReasons: string[] = [];
     const downgradeReasons: string[] = [];
-    const labels = ["phase4_quality_gate", "review_snapshot"];
+    const labels = ["coaching_quality_gate", "review_snapshot"];
     const reviewText = {
       title: input.review.title,
       summary: input.review.summary,
@@ -353,7 +353,7 @@ export class AgentQualityService {
       score,
       blockedReasons,
       downgradeReasons,
-      passedPolicyLabels: ["phase4_quality_gate", ...input.policyLabels],
+      passedPolicyLabels: ["coaching_quality_gate", ...input.policyLabels],
       evidence: {
         actionTypes,
         actionCount: input.packagePayload.proposals.length,

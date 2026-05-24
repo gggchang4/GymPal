@@ -39,7 +39,7 @@ loadBackendEnv();
 
 const skipWithoutDatabase = process.env.DATABASE_URL
   ? false
-  : "Set backend/.env DATABASE_URL to run real database Phase 4 work item tests.";
+  : "Set backend/.env DATABASE_URL to run real database workspace work item tests.";
 
 function createServices() {
   return createAgentTestServices();
@@ -56,10 +56,10 @@ async function cleanupTestUsers(prisma: PrismaService, runId: string) {
 }
 
 async function createUser(appStore: AppStoreService, runId: string, label: string) {
-  return appStore.createUser(`phase4-work-items-${label}-${runId}@example.test`, `password-${runId}`, `Phase4 ${label}`);
+  return appStore.createUser(`workspace-work-items-${label}-${runId}@example.test`, `password-${runId}`, `Workspace ${label}`);
 }
 
-databaseTest("phase4 work item refresh dedupes active items and records product events", async () => {
+databaseTest("workspace work item refresh dedupes active items and records product events", async () => {
   const runId = randomUUID();
   const { prisma, appStore, workItems } = createServices();
   await prisma.$connect();
@@ -70,7 +70,7 @@ databaseTest("phase4 work item refresh dedupes active items and records product 
     const other = await createUser(appStore, runId, "other");
 
     const firstRefresh = await workItems.refreshWorkItems(owner.id, {
-      requestId: `phase4-refresh-${runId}`,
+      requestId: `workspace-refresh-${runId}`,
       source: "dashboard_refresh"
     });
     assert.ok(firstRefresh.created.length >= 1);
@@ -78,7 +78,7 @@ databaseTest("phase4 work item refresh dedupes active items and records product 
     assert.ok(firstRefresh.pending.some((item) => item.type === "log_gap"));
 
     const secondRefresh = await workItems.refreshWorkItems(owner.id, {
-      requestId: `phase4-refresh-repeat-${runId}`,
+      requestId: `workspace-refresh-repeat-${runId}`,
       source: "dashboard_refresh"
     });
     assert.equal(secondRefresh.created.length, 0);
@@ -102,12 +102,12 @@ databaseTest("phase4 work item refresh dedupes active items and records product 
 
     const dismissed = await workItems.dismissWorkItem(target.id, owner.id, {
       reason: "test_dismiss",
-      requestId: `phase4-dismiss-${runId}`
+      requestId: `workspace-dismiss-${runId}`
     });
     assert.equal(dismissed.status, "dismissed");
 
     const afterDismissRefresh = await workItems.refreshWorkItems(owner.id, {
-      requestId: `phase4-after-dismiss-${runId}`,
+      requestId: `workspace-after-dismiss-${runId}`,
       source: "dashboard_refresh"
     });
     assert.ok(afterDismissRefresh.skipped.some((item) => item.type === target.type && item.reason === "recently_dismissed"));
@@ -134,7 +134,7 @@ databaseTest("phase4 work item refresh dedupes active items and records product 
   }
 });
 
-databaseTest("phase4 revision work item converts into one latest pending revision package", async () => {
+databaseTest("workspace revision work item converts into one latest pending revision package", async () => {
   const runId = randomUUID();
   const { prisma, appStore, agentState, workItems } = createServices();
   await prisma.$connect();
@@ -143,8 +143,8 @@ databaseTest("phase4 revision work item converts into one latest pending revisio
     await cleanupTestUsers(prisma, runId);
     const owner = await createUser(appStore, runId, "convert-owner");
     const other = await createUser(appStore, runId, "convert-other");
-    const thread = await agentState.createThread("Phase 4 work item conversion", owner.id);
-    const agentRunId = `phase4-work-item-convert-run-${runId}`;
+    const thread = await agentState.createThread("workspace work item conversion", owner.id);
+    const agentRunId = `workspace-work-item-convert-run-${runId}`;
     await agentState.createRun(
       thread.id,
       {
@@ -188,7 +188,7 @@ databaseTest("phase4 revision work item converts into one latest pending revisio
               type: "daily_guidance",
               priority: "medium",
               summary: "Keep the original advice moderate.",
-              reasoningTags: ["phase4_work_item_conversion"],
+              reasoningTags: ["workspace_work_item_conversion"],
               actionItems: ["Keep intensity moderate."],
               riskFlags: []
             },
@@ -211,7 +211,7 @@ databaseTest("phase4 revision work item converts into one latest pending revisio
         summary: "Convert this item into a safer pending revision package.",
         reason: "Recent feedback was negative or safety-related.",
         payload: { feedbackType: "too_hard" },
-        requestId: `phase4-work-item-convert-${runId}`,
+        requestId: `workspace-work-item-convert-${runId}`,
         relatedThreadId: thread.id,
         relatedReviewId: sourcePackage.review.id,
         relatedProposalGroupId: sourcePackage.proposal_group.id,
@@ -225,7 +225,7 @@ databaseTest("phase4 revision work item converts into one latest pending revisio
     );
 
     const converted = await workItems.convertWorkItem(workItem.id, owner.id, {
-      requestId: `phase4-work-item-convert-explicit-${runId}`,
+      requestId: `workspace-work-item-convert-explicit-${runId}`,
       revisionReason: "too_hard"
     });
     assert.equal(converted.workItem.status, "converted");
@@ -255,7 +255,7 @@ databaseTest("phase4 revision work item converts into one latest pending revisio
         summary: "This item should not be convertible outside pending or opened states.",
         reason: "A future worker has locked the item.",
         payload: { feedbackType: "too_hard" },
-        requestId: `phase4-work-item-locked-${runId}`,
+        requestId: `workspace-work-item-locked-${runId}`,
         relatedThreadId: thread.id,
         relatedReviewId: sourcePackage.review.id,
         relatedProposalGroupId: sourcePackage.proposal_group.id,
@@ -286,7 +286,7 @@ databaseTest("phase4 revision work item converts into one latest pending revisio
         summary: "This item should expire before conversion.",
         reason: "The user waited too long.",
         payload: { feedbackType: "too_hard" },
-        requestId: `phase4-work-item-expired-${runId}`,
+        requestId: `workspace-work-item-expired-${runId}`,
         relatedThreadId: thread.id,
         relatedReviewId: sourcePackage.review.id,
         relatedProposalGroupId: sourcePackage.proposal_group.id,

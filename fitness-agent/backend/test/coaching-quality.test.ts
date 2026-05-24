@@ -38,7 +38,7 @@ loadBackendEnv();
 
 const skipWithoutDatabase = process.env.DATABASE_URL
   ? false
-  : "Set backend/.env DATABASE_URL to run real database Phase 4 quality tests.";
+  : "Set backend/.env DATABASE_URL to run real database workspace quality tests.";
 
 function createServices() {
   return createAgentTestServices();
@@ -55,12 +55,12 @@ async function cleanupTestUsers(prisma: PrismaService, runId: string) {
 }
 
 async function createUser(appStore: AppStoreService, runId: string, label: string) {
-  return appStore.createUser(`phase4-quality-${label}-${runId}@example.test`, `password-${runId}`, `Phase4 Quality ${label}`);
+  return appStore.createUser(`workspace-quality-${label}-${runId}@example.test`, `password-${runId}`, `Workspace Quality ${label}`);
 }
 
 async function createThreadAndRun(agentState: AgentStateService, userId: string) {
-  const thread = await agentState.createThread("Phase 4 quality test", userId);
-  const runId = `phase4-quality-run-${randomUUID()}`;
+  const thread = await agentState.createThread("workspace quality test", userId);
+  const runId = `workspace-quality-run-${randomUUID()}`;
   await agentState.createRun(
     thread.id,
     {
@@ -75,7 +75,7 @@ async function createThreadAndRun(agentState: AgentStateService, userId: string)
   return { threadId: thread.id, runId };
 }
 
-databaseTest("phase4 quality checks are persisted for reviews and coaching packages", async () => {
+databaseTest("workspace quality checks are persisted for reviews and coaching packages", async () => {
   const runId = randomUUID();
   const { prisma, appStore, agentState, qualityService, workItems } = createServices();
   await prisma.$connect();
@@ -139,7 +139,7 @@ databaseTest("phase4 quality checks are persisted for reviews and coaching packa
               type: "daily_guidance",
               priority: "medium",
               summary: "Keep today's session controlled.",
-              reasoningTags: ["phase4_quality"],
+              reasoningTags: ["workspace_quality"],
               actionItems: ["Keep RPE moderate."],
               riskFlags: []
             },
@@ -223,7 +223,7 @@ databaseTest("phase4 quality checks are persisted for reviews and coaching packa
                   type: "daily_guidance",
                   priority: "medium",
                   summary: "Keep today's training conservative.",
-                  reasoningTags: ["phase4_quality"],
+                  reasoningTags: ["workspace_quality"],
                   actionItems: ["Keep RPE moderate."],
                   riskFlags: []
                 },

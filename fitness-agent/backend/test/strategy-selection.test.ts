@@ -36,7 +36,7 @@ loadBackendEnv();
 
 const skipWithoutDatabase = process.env.DATABASE_URL
   ? false
-  : "Set backend/.env DATABASE_URL to run real database Phase 3 strategy tests.";
+  : "Set backend/.env DATABASE_URL to run real database personalization strategy tests.";
 
 function createServices() {
   return createAgentTestServices();
@@ -53,12 +53,12 @@ async function cleanupTestUsers(prisma: PrismaService, runId: string) {
 }
 
 async function createUser(appStore: AppStoreService, runId: string) {
-  return appStore.createUser(`phase3-strategy-${runId}@example.test`, `password-${runId}`, "Phase3 Strategy");
+  return appStore.createUser(`personalization-strategy-${runId}@example.test`, `password-${runId}`, "Personalization Strategy");
 }
 
 async function createThreadAndRun(agentState: AgentStateService, userId: string) {
-  const thread = await agentState.createThread("Phase 3 strategy test", userId);
-  const runId = `phase3-strategy-run-${randomUUID()}`;
+  const thread = await agentState.createThread("personalization strategy test", userId);
+  const runId = `personalization-strategy-run-${randomUUID()}`;
   await agentState.createRun(
     thread.id,
     {
@@ -73,7 +73,7 @@ async function createThreadAndRun(agentState: AgentStateService, userId: string)
   return { threadId: thread.id, runId };
 }
 
-databaseTest("phase3 coaching package persists selected strategy template and carries it into outcome", async () => {
+databaseTest("personalization coaching package persists selected strategy template and carries it into outcome", async () => {
   const runId = randomUUID();
   const { prisma, appStore, agentState } = createServices();
   await prisma.$connect();
@@ -115,7 +115,7 @@ databaseTest("phase3 coaching package persists selected strategy template and ca
               type: "weekly_coaching",
               priority: "high",
               summary: "Prioritize recovery and reduce complexity this week.",
-              reasoningTags: ["phase3_strategy"],
+              reasoningTags: ["personalization_strategy"],
               actionItems: ["Lower intensity", "Track fatigue"],
               riskFlags: ["recent_negative_outcome"]
             },

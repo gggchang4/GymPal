@@ -36,7 +36,7 @@ loadBackendEnv();
 
 const skipWithoutDatabase = process.env.DATABASE_URL
   ? false
-  : "Set backend/.env DATABASE_URL to run real database Phase 3 outcome tests.";
+  : "Set backend/.env DATABASE_URL to run real database personalization outcome tests.";
 
 function createServices() {
   return createAgentTestServices();
@@ -53,12 +53,12 @@ async function cleanupTestUsers(prisma: PrismaService, runId: string) {
 }
 
 async function createUser(appStore: AppStoreService, runId: string, label: string) {
-  return appStore.createUser(`phase3-outcome-${label}-${runId}@example.test`, `password-${runId}`, `Phase3 Outcome ${label}`);
+  return appStore.createUser(`personalization-outcome-${label}-${runId}@example.test`, `password-${runId}`, `Personalization Outcome ${label}`);
 }
 
 async function createThreadAndRun(agentState: AgentStateService, userId: string) {
-  const thread = await agentState.createThread("Phase 3 outcome test", userId);
-  const runId = `phase3-outcome-run-${randomUUID()}`;
+  const thread = await agentState.createThread("personalization outcome test", userId);
+  const runId = `personalization-outcome-run-${randomUUID()}`;
   await agentState.createRun(
     thread.id,
     {
@@ -73,7 +73,7 @@ async function createThreadAndRun(agentState: AgentStateService, userId: string)
   return { threadId: thread.id, runId };
 }
 
-databaseTest("phase3 coaching package execution creates one pending outcome and exposes it in coach summary", async () => {
+databaseTest("personalization coaching package execution creates one pending outcome and exposes it in coach summary", async () => {
   const runId = randomUUID();
   const { prisma, appStore, agentState, outcomeService } = createServices();
   await prisma.$connect();
@@ -115,7 +115,7 @@ databaseTest("phase3 coaching package execution creates one pending outcome and 
               type: "daily_guidance",
               priority: "medium",
               summary: "Keep the session easy.",
-              reasoningTags: ["phase3_outcome"],
+              reasoningTags: ["personalization_outcome"],
               actionItems: ["Keep RPE moderate."],
               riskFlags: []
             },
@@ -228,7 +228,7 @@ databaseTest("phase3 coaching package execution creates one pending outcome and 
   }
 });
 
-databaseTest("phase3 due outcome becomes inconclusive when follow-up data is insufficient", async () => {
+databaseTest("personalization due outcome becomes inconclusive when follow-up data is insufficient", async () => {
   const runId = randomUUID();
   const { prisma, appStore, outcomeService } = createServices();
   await prisma.$connect();

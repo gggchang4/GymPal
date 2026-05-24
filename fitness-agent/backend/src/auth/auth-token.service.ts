@@ -1,5 +1,5 @@
-import { Injectable, UnauthorizedException } from "@nestjs/common";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 export interface AuthTokenClaims {
   sub: string;
@@ -17,8 +17,19 @@ interface AuthTokenUser {
 
 @Injectable()
 export class AuthTokenService {
-  private readonly secret = process.env.JWT_SECRET ?? "dev-only-health-agent-secret";
+  private readonly logger = new Logger(AuthTokenService.name);
+  private readonly secret = this.resolveSecret();
   private readonly expiresInSeconds = Number(process.env.JWT_EXPIRES_IN_SECONDS ?? 60 * 60 * 24 * 7);
+
+  private resolveSecret() {
+    const configuredSecret = process.env.JWT_SECRET?.trim();
+    if (configuredSecret) {
+      return configuredSecret;
+    }
+
+    this.logger.warn("JWT_SECRET is not configured. Using a process-local signing key; existing sessions will reset on restart.");
+    return randomBytes(32).toString("base64url");
+  }
 
   issueToken(user: AuthTokenUser) {
     const now = Math.floor(Date.now() / 1000);

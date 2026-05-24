@@ -48,6 +48,11 @@ export class AgentCommandsController {
     return this.agentState.executeProposal(body.proposalId, body.idempotencyKey, "create_daily_checkin", user.sub);
   }
 
+  @Post("create-diet-log")
+  async createDietLog(@Body() body: ProposalExecutionDto, @CurrentUser() user: AuthTokenClaims) {
+    return this.agentState.executeProposal(body.proposalId, body.idempotencyKey, "create_diet_log", user.sub);
+  }
+
   @Post("create-workout-log")
   async createWorkoutLog(@Body() body: ProposalExecutionDto, @CurrentUser() user: AuthTokenClaims) {
     return this.agentState.executeProposal(body.proposalId, body.idempotencyKey, "create_workout_log", user.sub);

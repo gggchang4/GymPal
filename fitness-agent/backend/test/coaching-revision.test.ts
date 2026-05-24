@@ -38,7 +38,7 @@ loadBackendEnv();
 
 const skipWithoutDatabase = process.env.DATABASE_URL
   ? false
-  : "Set backend/.env DATABASE_URL to run real database Phase 4 revision tests.";
+  : "Set backend/.env DATABASE_URL to run real database workspace revision tests.";
 
 function createServices() {
   return createAgentTestServices();
@@ -55,12 +55,12 @@ async function cleanupTestUsers(prisma: PrismaService, runId: string) {
 }
 
 async function createUser(appStore: AppStoreService, runId: string, label: string) {
-  return appStore.createUser(`phase4-revision-${label}-${runId}@example.test`, `password-${runId}`, `Phase4 Revision ${label}`);
+  return appStore.createUser(`workspace-revision-${label}-${runId}@example.test`, `password-${runId}`, `Workspace Revision ${label}`);
 }
 
 async function createThreadAndRun(agentState: AgentStateService, userId: string) {
-  const thread = await agentState.createThread("Phase 4 revision test", userId);
-  const runId = `phase4-revision-run-${randomUUID()}`;
+  const thread = await agentState.createThread("workspace revision test", userId);
+  const runId = `workspace-revision-run-${randomUUID()}`;
   await agentState.createRun(
     thread.id,
     {
@@ -108,7 +108,7 @@ async function createAdvicePackage(agentState: AgentStateService, threadId: stri
             type: "daily_guidance",
             priority: "medium",
             summary: "Keep today's session controlled.",
-            reasoningTags: ["phase4_revision_source"],
+            reasoningTags: ["workspace_revision_source"],
             actionItems: ["Keep RPE moderate."],
             riskFlags: []
           },
@@ -125,7 +125,7 @@ function jsonObject(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-databaseTest("phase4 revision creates a new pending package and supersedes older executable packages", async () => {
+databaseTest("workspace revision creates a new pending package and supersedes older executable packages", async () => {
   const runId = randomUUID();
   const { prisma, appStore, agentState } = createServices();
   await prisma.$connect();
@@ -136,7 +136,7 @@ databaseTest("phase4 revision creates a new pending package and supersedes older
     const other = await createUser(appStore, runId, "other");
     const { threadId, runId: agentRunId } = await createThreadAndRun(agentState, owner.id);
     const sourcePackage = await createAdvicePackage(agentState, threadId, agentRunId, owner.id);
-    const revisionRequestId = `phase4-revision-${runId}`;
+    const revisionRequestId = `workspace-revision-${runId}`;
 
     const revision = await agentState.reviseCoachingReview(
       sourcePackage.review.id,

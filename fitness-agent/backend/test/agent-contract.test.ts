@@ -14,7 +14,7 @@ test("agent ToolGateway execute_agent_command covers every backend policy action
   assert.deepEqual(missing, []);
 });
 
-test("P0-P2 tool invocation logging endpoint persists planner metadata", () => {
+test("tool invocation logging endpoint persists planner metadata", () => {
   const controllerSource = readFileSync(resolve(__dirname, "..", "src", "controllers", "agent-state.controller.ts"), "utf8");
   const serviceSource = readFileSync(resolve(__dirname, "..", "src", "services", "agent-state.service.ts"), "utf8");
   const dtoSource = readFileSync(resolve(__dirname, "..", "src", "dtos", "agent.dto.ts"), "utf8");
@@ -28,7 +28,7 @@ test("P0-P2 tool invocation logging endpoint persists planner metadata", () => {
   assert.match(dtoSource, /responseData/);
 });
 
-test("P2 planner tool whitelist only references implemented or virtual tools", () => {
+test("planner tool whitelist only references implemented or virtual tools", () => {
   const gatewaySource = readFileSync(resolve(__dirname, "..", "..", "agent", "app", "tool_gateway.py"), "utf8");
   const runtimeSource = readFileSync(resolve(__dirname, "..", "..", "agent", "app", "agents.py"), "utf8");
   const allowedTools = [
@@ -52,7 +52,7 @@ test("P2 planner tool whitelist only references implemented or virtual tools", (
   }
 });
 
-test("P3-P5 memory schema and context APIs expose personalization hooks", () => {
+test("memory schema and context APIs expose personalization hooks", () => {
   const schema = readFileSync(resolve(__dirname, "..", "prisma", "schema.prisma"), "utf8");
   const contextController = readFileSync(resolve(__dirname, "..", "src", "controllers", "agent-context.controller.ts"), "utf8");
   const stateController = readFileSync(resolve(__dirname, "..", "src", "controllers", "agent-state.controller.ts"), "utf8");
@@ -71,7 +71,7 @@ test("P3-P5 memory schema and context APIs expose personalization hooks", () => 
   assert.match(appStore, /markCoachingMemoryUsed/);
 });
 
-test("P3 generated plan and adjust plan payloads have deterministic executor paths", () => {
+test("generated plan and adjust plan payloads have deterministic executor paths", () => {
   const executor = readFileSync(resolve(__dirname, "..", "src", "services", "agent-action-executor.service.ts"), "utf8");
   const appStore = readFileSync(resolve(__dirname, "..", "src", "store", "app-store.service.ts"), "utf8");
   const quality = readFileSync(resolve(__dirname, "..", "src", "services", "agent-quality.service.ts"), "utf8");

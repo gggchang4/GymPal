@@ -5,29 +5,58 @@ import { getProposalActionState, type ProposalStatus } from "@/lib/proposal-stat
 type ToneConfig = { label: string; tone: string };
 
 const toneByType: Record<CardType, ToneConfig> = {
-  health_advice_card: { label: "Health advice", tone: "sage" },
-  workout_plan_card: { label: "Workout plan", tone: "sand" },
-  exercise_card: { label: "Exercise", tone: "slate" },
-  recovery_card: { label: "Recovery", tone: "amber" },
-  place_result_card: { label: "Place result", tone: "marine" },
-  reasoning_summary_card: { label: "Reasoning", tone: "mist" },
-  tool_activity_card: { label: "Tool activity", tone: "mist" },
-  action_proposal_card: { label: "Needs confirmation", tone: "marine" },
-  action_result_card: { label: "Action result", tone: "sage" },
-  weekly_review_card: { label: "Weekly review", tone: "sand" },
-  daily_guidance_card: { label: "Daily guidance", tone: "amber" },
-  coaching_package_card: { label: "Coaching package", tone: "marine" },
-  evidence_card: { label: "Evidence", tone: "mist" },
-  memory_candidate_card: { label: "Memory candidate", tone: "sage" },
-  outcome_summary_card: { label: "Outcome", tone: "sand" },
-  strategy_decision_card: { label: "Strategy", tone: "marine" },
-  work_item_card: { label: "Work item", tone: "amber" },
-  quality_check_card: { label: "Quality check", tone: "slate" },
-  revision_card: { label: "Revision", tone: "marine" },
-  coach_workspace_card: { label: "Workspace", tone: "sage" }
+  health_advice_card: { label: "健康建议", tone: "sage" },
+  workout_plan_card: { label: "训练计划", tone: "sand" },
+  exercise_card: { label: "动作", tone: "slate" },
+  recovery_card: { label: "恢复", tone: "amber" },
+  place_result_card: { label: "地点结果", tone: "marine" },
+  reasoning_summary_card: { label: "思路摘要", tone: "mist" },
+  tool_activity_card: { label: "处理过程", tone: "mist" },
+  action_proposal_card: { label: "需要确认", tone: "marine" },
+  action_result_card: { label: "执行结果", tone: "sage" },
+  weekly_review_card: { label: "周复盘", tone: "sand" },
+  daily_guidance_card: { label: "今日指导", tone: "amber" },
+  coaching_package_card: { label: "教练包", tone: "marine" },
+  evidence_card: { label: "依据", tone: "mist" },
+  memory_candidate_card: { label: "记忆候选", tone: "sage" },
+  outcome_summary_card: { label: "效果摘要", tone: "sand" },
+  strategy_decision_card: { label: "策略", tone: "marine" },
+  work_item_card: { label: "待处理事项", tone: "amber" },
+  quality_check_card: { label: "质量检查", tone: "slate" },
+  revision_card: { label: "调整建议", tone: "marine" },
+  coach_workspace_card: { label: "工作台", tone: "sage" }
 };
 
+const hiddenUserCardTypes = new Set<CardType>(["reasoning_summary_card", "tool_activity_card"]);
+
 const terminalWorkItemStatuses = new Set(["dismissed", "converted", "expired"]);
+
+const statusLabels: Record<string, string> = {
+  pending: "待确认",
+  approved: "已确认",
+  executed: "已执行",
+  rejected: "已拒绝",
+  failed: "执行失败",
+  expired: "已过期",
+  executing: "执行中",
+  dismissed: "已关闭",
+  converted: "已转为提案",
+  blocked: "需要补充信息",
+  downgraded: "保守版本",
+  passed: "可展示"
+};
+
+const priorityLabels: Record<string, string> = {
+  high: "高优先级",
+  medium: "中优先级",
+  low: "低优先级"
+};
+
+const riskLabels: Record<string, string> = {
+  high: "高风险",
+  medium: "中风险",
+  low: "低风险"
+};
 
 function extractProposalId(card: AgentCard) {
   const proposalId = card.data?.proposalId;
@@ -108,17 +137,17 @@ function formatEvidenceValue(value: unknown): string {
 
 function evidenceLabel(key: string) {
   const labels: Record<string, string> = {
-    adherenceScore: "Adherence",
-    memoryCount: "Memory count",
-    recommendationTags: "Recommendation tags",
-    riskFlags: "Risk flags",
-    selectedBecause: "Strategy reason",
-    outcome_evidence: "Outcome evidence",
-    "Recent outcome evidence": "Outcome evidence",
-    "Outcome constraint": "Outcome constraint",
-    dataWindow: "Data window",
-    sourceEntities: "Source entities",
-    policyLabels: "Policy labels"
+    adherenceScore: "执行度",
+    memoryCount: "使用记忆数",
+    recommendationTags: "建议标签",
+    riskFlags: "风险标记",
+    selectedBecause: "策略依据",
+    outcome_evidence: "效果依据",
+    "Recent outcome evidence": "效果依据",
+    "Outcome constraint": "效果约束",
+    dataWindow: "数据窗口",
+    sourceEntities: "来源数据",
+    policyLabels: "策略标签"
   };
 
   return labels[key] ?? key;
@@ -155,6 +184,18 @@ function buildEvidenceLines(card: AgentCard): string[] {
   return lines.slice(0, 5);
 }
 
+function displayStatus(value: string) {
+  return statusLabels[value] ?? value;
+}
+
+function displayPriority(value: string) {
+  return priorityLabels[value] ?? value;
+}
+
+function displayRisk(value: string) {
+  return riskLabels[value] ?? value;
+}
+
 function buildMetaTags(card: AgentCard): string[] {
   const data = asRecord(card.data);
   const tags: string[] = [];
@@ -167,15 +208,15 @@ function buildMetaTags(card: AgentCard): string[] {
   const policyLabels = firstTextList(data, "policyLabels", "policy_labels", "passedPolicyLabels", "passed_policy_labels");
   const uncertaintyFlags = firstTextList(data, "uncertaintyFlags", "uncertainty_flags");
 
-  if (status) tags.push(`Status ${status}`);
-  if (priority) tags.push(`Priority ${priority}`);
-  if (scope) tags.push(`Scope ${scope}`);
-  if (source) tags.push(`Source ${source}`);
-  if (strategyVersion) tags.push(`Strategy ${strategyVersion}`);
-  if (riskLevel) tags.push(`Risk ${riskLevel}`);
+  if (status) tags.push(`状态 ${displayStatus(status)}`);
+  if (priority) tags.push(`优先级 ${displayPriority(priority)}`);
+  if (scope) tags.push(`范围 ${scope}`);
+  if (source) tags.push(`来源 ${source}`);
+  if (strategyVersion) tags.push(`策略 ${strategyVersion}`);
+  if (riskLevel) tags.push(`风险 ${displayRisk(riskLevel)}`);
 
-  tags.push(...policyLabels.map((label) => `Policy ${label}`));
-  tags.push(...uncertaintyFlags.map((flag) => `Uncertainty ${flag}`));
+  tags.push(...policyLabels.map((label) => `策略 ${label}`));
+  tags.push(...uncertaintyFlags.map((flag) => `待确认 ${flag}`));
 
   return tags.slice(0, 8);
 }
@@ -200,8 +241,8 @@ function DetailList({ title, items }: { title: string; items: string[] }) {
   }
 
   return (
-    <div className="phase4-card-detail-section">
-      <span className="phase4-card-detail-title">{title}</span>
+    <div className="agent-card-detail-section">
+      <span className="agent-card-detail-title">{title}</span>
       <ul className="evidence-list">
         {items.map((item) => (
           <li key={item}>{item}</li>
@@ -213,18 +254,18 @@ function DetailList({ title, items }: { title: string; items: string[] }) {
 
 function qualityDisplayLabel(status: string) {
   if (status === "blocked") {
-    return "Needs more data";
+    return "需要补充信息";
   }
 
   if (status === "downgraded") {
-    return "Conservative version";
+    return "保守版本";
   }
 
   if (status === "passed") {
-    return "Ready to show";
+    return "可展示";
   }
 
-  return "Internal check";
+  return "已检查";
 }
 
 function WorkItemDetails({ card }: { card: AgentCard }) {
@@ -233,27 +274,27 @@ function WorkItemDetails({ card }: { card: AgentCard }) {
   const priority = firstText(data, "priority") || "medium";
   const reason = firstText(data, "reason");
   const expiresAt = firstText(data, "expiresAt", "expires_at");
-  const nextAction = firstText(data, "nextAction", "next_action") || "Open in workspace";
+  const nextAction = firstText(data, "nextAction", "next_action") || "打开工作台继续处理";
   const isReadOnly = terminalWorkItemStatuses.has(status);
 
   return (
-    <div className="phase4-card-details work-item-card-details">
-      <div className="phase4-card-status-grid">
+    <div className="agent-card-details work-item-card-details">
+      <div className="agent-card-status-grid">
         <div>
-          <span>Status</span>
-          <strong>{status}</strong>
+          <span>状态</span>
+          <strong>{displayStatus(status)}</strong>
         </div>
         <div>
-          <span>Priority</span>
-          <strong>{priority}</strong>
+          <span>优先级</span>
+          <strong>{displayPriority(priority)}</strong>
         </div>
         <div>
-          <span>Expires</span>
-          <strong>{expiresAt ? formatDateTime(expiresAt) : "No deadline"}</strong>
+          <span>截止</span>
+          <strong>{expiresAt ? formatDateTime(expiresAt) : "无截止时间"}</strong>
         </div>
       </div>
-      {reason ? <p className="phase4-card-note">{reason}</p> : null}
-      <p className="phase4-card-note">{isReadOnly ? "This item is read-only after its final state." : `Next step: ${nextAction}`}</p>
+      {reason ? <p className="agent-card-note">{reason}</p> : null}
+      <p className="agent-card-note">{isReadOnly ? "该事项已结束，仅供回顾。" : `下一步：${nextAction}`}</p>
     </div>
   );
 }
@@ -267,21 +308,21 @@ function QualityCheckDetails({ card }: { card: AgentCard }) {
   const evidenceLines = collectEvidenceLines(data.evidence).slice(0, 6);
 
   return (
-    <div className="phase4-card-details quality-check-card-details">
-      <div className="phase4-card-status-grid">
+    <div className="agent-card-details quality-check-card-details">
+      <div className="agent-card-status-grid">
         <div>
-          <span>Status</span>
-          <strong>{status}</strong>
+          <span>状态</span>
+          <strong>{displayStatus(status)}</strong>
         </div>
         <div>
-          <span>Display meaning</span>
+          <span>含义</span>
           <strong>{qualityDisplayLabel(status)}</strong>
         </div>
       </div>
-      <DetailList title="Blocked reasons" items={blockedReasons} />
-      <DetailList title="Downgrade reasons" items={downgradeReasons} />
-      <DetailList title="Passed policy labels" items={passedLabels} />
-      <DetailList title="Key evidence" items={evidenceLines} />
+      <DetailList title="阻断原因" items={blockedReasons} />
+      <DetailList title="降级原因" items={downgradeReasons} />
+      <DetailList title="通过策略" items={passedLabels} />
+      <DetailList title="关键依据" items={evidenceLines} />
     </div>
   );
 }
@@ -295,30 +336,30 @@ function RevisionDetails({ card }: { card: AgentCard }) {
   const changes = firstTextList(data, "changes", "diff", "revisionChanges", "revision_changes");
 
   return (
-    <div className="phase4-card-details revision-card-details">
-      <div className="phase4-card-status-grid">
+    <div className="agent-card-details revision-card-details">
+      <div className="agent-card-status-grid">
         <div>
-          <span>Source review</span>
-          <strong>{sourceReviewId || "Not linked"}</strong>
+          <span>来源复盘</span>
+          <strong>{sourceReviewId || "未关联"}</strong>
         </div>
         <div>
-          <span>Source package</span>
-          <strong>{sourceProposalGroupId || "Not linked"}</strong>
+          <span>来源教练包</span>
+          <strong>{sourceProposalGroupId || "未关联"}</strong>
         </div>
       </div>
       {oldSummary || newSummary ? (
         <div className="revision-compare-grid">
           <div>
-            <span className="phase4-card-detail-title">Previous</span>
-            <p>{oldSummary || "No previous summary provided."}</p>
+            <span className="agent-card-detail-title">调整前</span>
+            <p>{oldSummary || "暂无调整前摘要。"}</p>
           </div>
           <div>
-            <span className="phase4-card-detail-title">Revised</span>
-            <p>{newSummary || "No revised summary provided."}</p>
+            <span className="agent-card-detail-title">调整后</span>
+            <p>{newSummary || "暂无调整后摘要。"}</p>
           </div>
         </div>
       ) : null}
-      <DetailList title="Revision changes" items={changes} />
+      <DetailList title="调整内容" items={changes} />
     </div>
   );
 }
@@ -331,27 +372,27 @@ function CoachWorkspaceDetails({ card }: { card: AgentCard }) {
   const entryPoints = firstTextList(data, "recommendedEntryPoints", "recommended_entry_points");
 
   return (
-    <div className="phase4-card-details coach-workspace-card-details">
-      <div className="phase4-card-status-grid">
+    <div className="agent-card-details coach-workspace-card-details">
+      <div className="agent-card-status-grid">
         <div>
-          <span>Work items</span>
-          <strong>{pendingWorkItems === null ? "Unknown" : pendingWorkItems}</strong>
+          <span>待处理</span>
+          <strong>{pendingWorkItems === null ? "未知" : pendingWorkItems}</strong>
         </div>
         <div>
-          <span>Package</span>
-          <strong>{pendingPackage || "None pending"}</strong>
+          <span>教练包</span>
+          <strong>{pendingPackage || "无待确认"}</strong>
         </div>
         <div>
-          <span>Quality</span>
-          <strong>{qualityStatus || "No checks yet"}</strong>
+          <span>质量</span>
+          <strong>{qualityStatus ? qualityDisplayLabel(qualityStatus) : "暂无检查"}</strong>
         </div>
       </div>
-      <DetailList title="Recommended entry points" items={entryPoints} />
+      <DetailList title="建议入口" items={entryPoints} />
     </div>
   );
 }
 
-function Phase4CardDetails({ card }: { card: AgentCard }) {
+function ProductCardDetails({ card }: { card: AgentCard }) {
   if (card.type === "work_item_card") {
     return <WorkItemDetails card={card} />;
   }
@@ -380,7 +421,7 @@ function stringifyCompact(value: unknown) {
     return JSON.stringify(value);
   }
 
-  return value === undefined || value === null || value === "" ? "Not set" : String(value);
+  return value === undefined || value === null || value === "" ? "未设置" : String(value);
 }
 
 function buildProposalDiffs(card: AgentCard): ProposalDiff[] {
@@ -391,33 +432,33 @@ function buildProposalDiffs(card: AgentCard): ProposalDiff[] {
 
   if (actionType === "update_plan_day") {
     return [
-      { label: "Focus", before: stringifyCompact(preview.oldFocus), after: stringifyCompact(payload.focus ?? preview.newFocus) },
-      { label: "Duration", before: stringifyCompact(preview.oldDuration), after: stringifyCompact(payload.duration) },
-      { label: "Exercises", before: stringifyCompact(preview.oldExercises), after: stringifyCompact(payload.exercises) }
-    ].filter((item) => item.before !== "Not set" || item.after !== "Not set");
+      { label: "重点", before: stringifyCompact(preview.oldFocus), after: stringifyCompact(payload.focus ?? preview.newFocus) },
+      { label: "时长", before: stringifyCompact(preview.oldDuration), after: stringifyCompact(payload.duration) },
+      { label: "动作", before: stringifyCompact(preview.oldExercises), after: stringifyCompact(payload.exercises) }
+    ].filter((item) => item.before !== "未设置" || item.after !== "未设置");
   }
 
   if (actionType === "generate_diet_snapshot") {
     return [
-      { label: "Calories", before: stringifyCompact(preview.oldTargetCalorie), after: stringifyCompact(payload.targetCalorie ?? preview.targetCalorie) },
-      { label: "Protein", before: stringifyCompact(preview.oldProteinGrams), after: stringifyCompact(payload.proteinGrams ?? preview.proteinGrams) },
-      { label: "Meal strategy", before: stringifyCompact(preview.oldMealStrategy), after: stringifyCompact(payload.mealStrategy ?? preview.mealStrategy) }
-    ].filter((item) => item.before !== "Not set" || item.after !== "Not set");
+      { label: "热量", before: stringifyCompact(preview.oldTargetCalorie), after: stringifyCompact(payload.targetCalorie ?? preview.targetCalorie) },
+      { label: "蛋白质", before: stringifyCompact(preview.oldProteinGrams), after: stringifyCompact(payload.proteinGrams ?? preview.proteinGrams) },
+      { label: "餐次策略", before: stringifyCompact(preview.oldMealStrategy), after: stringifyCompact(payload.mealStrategy ?? preview.mealStrategy) }
+    ].filter((item) => item.before !== "未设置" || item.after !== "未设置");
   }
 
   if (actionType === "create_coaching_memory" || actionType === "update_coaching_memory") {
     return [
-      { label: "Memory", before: stringifyCompact(preview.old), after: stringifyCompact(payload.summary ?? preview.new ?? preview.summary) },
-      { label: "Category", before: stringifyCompact(preview.oldCategory), after: stringifyCompact(payload.category ?? preview.category) }
-    ].filter((item) => item.before !== "Not set" || item.after !== "Not set");
+      { label: "记忆", before: stringifyCompact(preview.old), after: stringifyCompact(payload.summary ?? preview.new ?? preview.summary) },
+      { label: "分类", before: stringifyCompact(preview.oldCategory), after: stringifyCompact(payload.category ?? preview.category) }
+    ].filter((item) => item.before !== "未设置" || item.after !== "未设置");
   }
 
   if (actionType === "generate_plan" || actionType === "generate_next_week_plan" || actionType === "adjust_plan") {
     return [
-      { label: "Goal", before: stringifyCompact(preview.oldGoal), after: stringifyCompact(payload.goal ?? preview.goal) },
-      { label: "Days", before: stringifyCompact(preview.oldDays), after: stringifyCompact(payload.days ?? preview.days) },
-      { label: "Progression", before: stringifyCompact(preview.oldProgression), after: stringifyCompact(payload.progression ?? preview.progression) }
-    ].filter((item) => item.before !== "Not set" || item.after !== "Not set");
+      { label: "目标", before: stringifyCompact(preview.oldGoal), after: stringifyCompact(payload.goal ?? preview.goal) },
+      { label: "训练日", before: stringifyCompact(preview.oldDays), after: stringifyCompact(payload.days ?? preview.days) },
+      { label: "进阶策略", before: stringifyCompact(preview.oldProgression), after: stringifyCompact(payload.progression ?? preview.progression) }
+    ].filter((item) => item.before !== "未设置" || item.after !== "未设置");
   }
 
   return [];
@@ -431,12 +472,12 @@ function ProposalDiffDetails({ card }: { card: AgentCard }) {
 
   return (
     <div className="proposal-diff">
-      <span className="phase4-card-detail-title">Before / after</span>
+      <span className="agent-card-detail-title">调整前 / 调整后</span>
       {diffs.map((diff) => (
         <div className="proposal-diff-row" key={diff.label}>
           <strong>{diff.label}</strong>
-          <span>{diff.before ?? "Not set"}</span>
-          <span>{diff.after ?? "Not set"}</span>
+          <span>{diff.before ?? "未设置"}</span>
+          <span>{diff.after ?? "未设置"}</span>
         </div>
       ))}
     </div>
@@ -496,9 +537,15 @@ export function AgentCardList({
   }) => void;
   pendingProposalId?: string | null;
 }) {
+  const visibleCards = cards.filter((card) => !hiddenUserCardTypes.has(card.type));
+
+  if (visibleCards.length === 0) {
+    return null;
+  }
+
   return (
     <div className="cards-stack">
-      {cards.map((card, index) => {
+      {visibleCards.map((card, index) => {
         const proposalId = extractProposalId(card);
         const proposalGroupId = extractProposalGroupId(card);
         const reviewSnapshotId = extractReviewId(card);
@@ -535,7 +582,7 @@ export function AgentCardList({
             ) : null}
             {evidenceLines.length > 0 ? (
               <div className="evidence-block">
-                <span className="evidence-title">Evidence</span>
+                <span className="evidence-title">依据</span>
                 <ul className="evidence-list">
                   {evidenceLines.map((line) => (
                     <li key={line}>{line}</li>
@@ -543,7 +590,7 @@ export function AgentCardList({
                 </ul>
               </div>
             ) : null}
-            <Phase4CardDetails card={card} />
+            <ProductCardDetails card={card} />
             {isProposal ? <ProposalDiffDetails card={card} /> : null}
             {isProposal ? (
               <div className="action-row">
@@ -599,7 +646,7 @@ export function AgentCardList({
                     })
                   }
                 >
-                  Helpful
+                  有帮助
                 </button>
                 <button
                   type="button"
@@ -613,7 +660,7 @@ export function AgentCardList({
                     })
                   }
                 >
-                  Too hard
+                  太难了
                 </button>
                 <button
                   type="button"
@@ -627,7 +674,7 @@ export function AgentCardList({
                     })
                   }
                 >
-                  Unclear
+                  不清楚
                 </button>
               </div>
             ) : null}

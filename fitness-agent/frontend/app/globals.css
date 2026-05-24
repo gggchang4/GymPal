@@ -831,21 +831,21 @@ select:focus {
   word-break: break-word;
 }
 
-.phase4-card-details {
+.agent-card-details {
   display: grid;
   gap: 12px;
   min-width: 0;
   padding-top: 2px;
 }
 
-.phase4-card-status-grid {
+.agent-card-status-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   gap: 10px;
   min-width: 0;
 }
 
-.phase4-card-status-grid > div {
+.agent-card-status-grid > div {
   display: grid;
   gap: 4px;
   min-width: 0;
@@ -853,24 +853,24 @@ select:focus {
   border-top: 1px solid rgba(20, 20, 20, 0.1);
 }
 
-.phase4-card-status-grid span,
-.phase4-card-detail-title {
+.agent-card-status-grid span,
+.agent-card-detail-title {
   color: rgba(20, 20, 20, 0.58);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
-.phase4-card-status-grid strong,
-.phase4-card-note,
+.agent-card-status-grid strong,
+.agent-card-note,
 .revision-compare-grid p {
   min-width: 0;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
-.phase4-card-status-grid strong {
+.agent-card-status-grid strong {
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -880,18 +880,18 @@ select:focus {
   word-break: break-word;
 }
 
-.phase4-card-note {
+.agent-card-note {
   color: var(--muted);
   line-height: 1.65;
 }
 
-.phase4-card-actions {
+.agent-card-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
 }
 
-.phase4-card-detail-section {
+.agent-card-detail-section {
   display: grid;
   gap: 8px;
   min-width: 0;

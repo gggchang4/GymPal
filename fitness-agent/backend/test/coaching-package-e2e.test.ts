@@ -36,7 +36,7 @@ function loadBackendEnv() {
 loadBackendEnv();
 
 const databaseUrl = process.env.DATABASE_URL;
-const skipWithoutDatabase = databaseUrl ? false : "Set backend/.env DATABASE_URL to run real database Phase 2 e2e tests.";
+const skipWithoutDatabase = databaseUrl ? false : "Set backend/.env DATABASE_URL to run real database coaching package e2e tests.";
 
 function createServices() {
   return createAgentTestServices();
@@ -53,12 +53,12 @@ async function cleanupTestUsers(prisma: PrismaService, runId: string) {
 }
 
 async function createUser(appStore: AppStoreService, runId: string, label: string) {
-  return appStore.createUser(`phase2-${label}-${runId}@example.test`, `password-${runId}`, `Phase2 ${label}`);
+  return appStore.createUser(`coaching-package-${label}-${runId}@example.test`, `password-${runId}`, `CoachingPackage ${label}`);
 }
 
 async function createThreadAndRun(agentState: AgentStateService, userId: string) {
-  const thread = await agentState.createThread("Phase 2 e2e", userId);
-  const runId = `phase2-run-${randomUUID()}`;
+  const thread = await agentState.createThread("coaching package e2e", userId);
+  const runId = `coaching-package-run-${randomUUID()}`;
   await agentState.createRun(
     thread.id,
     {
@@ -74,7 +74,7 @@ async function createThreadAndRun(agentState: AgentStateService, userId: string)
 }
 
 databaseTest(
-  "phase2 coaching package rolls back business writes when one grouped action fails",
+  "coaching-package coaching package rolls back business writes when one grouped action fails",
   async () => {
     const runId = randomUUID();
     const { prisma, appStore, agentState } = createServices();
@@ -208,7 +208,7 @@ databaseTest(
   }
 );
 
-databaseTest("phase2 review and package state is isolated between users", async () => {
+databaseTest("coaching-package review and package state is isolated between users", async () => {
   const runId = randomUUID();
   const { prisma, appStore, agentState } = createServices();
   await prisma.$connect();
@@ -244,7 +244,7 @@ databaseTest("phase2 review and package state is isolated between users", async 
               type: "daily_guidance",
               priority: "medium",
               summary: "Owner-only advice",
-              reasoningTags: ["phase2"],
+              reasoningTags: ["coaching-package"],
               actionItems: ["Keep the account boundary intact."],
               riskFlags: []
             },

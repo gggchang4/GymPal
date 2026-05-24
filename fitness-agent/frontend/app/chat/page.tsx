@@ -4,7 +4,6 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AgentCardList } from "@/components/cards";
-import { AgentRunTimeline } from "@/components/agent-run-timeline";
 import {
   approveProposal,
   approveProposalGroup,
@@ -14,20 +13,19 @@ import {
   postMessage,
   rejectProposal,
   rejectProposalGroup,
-  streamRun,
   submitRecommendationFeedback
 } from "@/lib/api";
 import { clearAgentIntentHint, readAgentIntentHint, readAgentThreadId, writeAgentThreadId } from "@/lib/agent-thread";
 import { readAuthAccessToken, subscribeAuthChange } from "@/lib/auth";
 import { appRoutes } from "@/lib/routes";
-import type { AgentActionProposal, AgentMessage, AgentRunTimelineItem, PostMessageResponse, RecommendationFeedbackType } from "@/lib/types";
+import type { AgentActionProposal, AgentMessage, PostMessageResponse, RecommendationFeedbackType } from "@/lib/types";
 
 const initialMessages: AgentMessage[] = [
   {
     id: "welcome",
     role: "assistant",
     content:
-      "你可以直接询问训练、恢复和饮食建议，也可以让我先整理一条待确认的执行提案。这里的回复会实时依赖后端和 Agent 服务。"
+      "我是 GymPal，可以先像训练搭子一样陪你聊训练、恢复和饮食。你要我记录、调整或生成计划时，我会先确认意图和关键信息，再整理成待确认卡片。"
   }
 ];
 
@@ -75,17 +73,6 @@ function buildAgentMeta(response: PostMessageResponse) {
   };
 }
 
-function mapTimelineItem(runId: string, item: { data: { id: string; step_type: AgentRunTimelineItem["stepType"]; title: string; payload: Record<string, unknown>; created_at?: string } }): AgentRunTimelineItem {
-  return {
-    runId,
-    id: item.data.id,
-    stepType: item.data.step_type,
-    title: item.data.title,
-    payload: item.data.payload,
-    createdAt: item.data.created_at
-  };
-}
-
 export default function ChatPage() {
   const router = useRouter();
   const [threadId, setThreadId] = useState("");
@@ -96,8 +83,6 @@ export default function ChatPage() {
   const [pendingProposalId, setPendingProposalId] = useState<string | null>(null);
   const [hasAuthToken, setHasAuthToken] = useState<boolean | null>(null);
   const [lastAgentMeta, setLastAgentMeta] = useState<ReturnType<typeof buildAgentMeta> | null>(null);
-  const [timelineByRunId, setTimelineByRunId] = useState<Record<string, AgentRunTimelineItem[]>>({});
-  const [activeRunId, setActiveRunId] = useState("");
   const [pendingProposals, setPendingProposals] = useState<AgentActionProposal[]>([]);
   const [intentHint, setIntentHint] = useState("");
 
@@ -227,8 +212,7 @@ export default function ChatPage() {
     const placeholderMessage: AgentMessage = {
       id: `assistant-${crypto.randomUUID()}`,
       role: "assistant",
-      content: "GymPal is working...",
-      reasoningSummary: "Waiting for the agent run timeline."
+      content: "GymPal 正在思考..."
     };
 
     setMessages((current) => [...current, userMessage, placeholderMessage]);
@@ -240,28 +224,15 @@ export default function ChatPage() {
       const activeThreadId = await ensureThread();
       const response = await postMessage(activeThreadId, content);
       setLastAgentMeta(buildAgentMeta(response));
-      setActiveRunId(response.runId);
-      setTimelineByRunId((current) => ({ ...current, [response.runId]: [] }));
-      try {
-        await streamRun(response.runId, (event) => {
-          setTimelineByRunId((current) => ({
-            ...current,
-            [response.runId]: [...(current[response.runId] ?? []), mapTimelineItem(response.runId, event)]
-          }));
-        });
-      } catch {
-        setStatus("Timeline stream unavailable; syncing final messages.");
-      }
       await refreshMessages(activeThreadId);
-      setStatus(response.degradedMode ? "Agent 当前使用受限模式" : "已同步最新消息");
+      setStatus(response.degradedMode ? "GymPal 当前使用受限模式" : "已同步最新消息");
     } catch (error) {
       setMessages((current) => [
         ...current,
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: buildErrorMessage(error, "message"),
-          reasoningSummary: "这次失败反映的是当前后端或 Agent 服务的真实状态。"
+          content: buildErrorMessage(error, "message")
         }
       ]);
       setLastAgentMeta(null);
@@ -296,8 +267,7 @@ export default function ChatPage() {
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: buildErrorMessage(error, "proposal"),
-          reasoningSummary: "提案确认链路失败后，不会把这次操作视为成功执行。"
+          content: buildErrorMessage(error, "proposal")
         }
       ]);
       setStatus("提案处理失败");
@@ -331,8 +301,7 @@ export default function ChatPage() {
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: buildErrorMessage(error, "package"),
-          reasoningSummary: "这次失败发生在教练包确认链路，数据库不会把它视为一次成功应用。"
+          content: buildErrorMessage(error, "package")
         }
       ]);
       setStatus("教练包处理失败");
@@ -364,8 +333,7 @@ export default function ChatPage() {
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: buildErrorMessage(error, "message"),
-          reasoningSummary: "反馈写入失败时，不会影响已有教练包、计划或日志状态。"
+          content: buildErrorMessage(error, "message")
         }
       ]);
       setStatus("反馈保存失败");
@@ -380,17 +348,15 @@ export default function ChatPage() {
     <div className="page chat-page">
       <section className="chat-surface">
         <div className="chat-meta-row">
-          <span className="section-label">Agent</span>
+          <span className="section-label">GymPal</span>
           <div className="chip-row">
             <span className={`status-pill ${busy || pendingProposalId ? "live" : "idle"}`}>{status}</span>
-            <span className="mini-chip">{threadId ? "已连接线程" : "尚未建立线程"}</span>
-            {lastAgentMeta?.intent ? <span className="mini-chip">意图 {lastAgentMeta.intent}</span> : null}
-            {lastAgentMeta?.toolCount ? <span className="mini-chip">工具 {lastAgentMeta.toolCount}</span> : null}
+            <span className="mini-chip">{threadId ? "已连接" : "准备中"}</span>
           </div>
         </div>
         {lastAgentMeta?.hasDetail ? (
           <div className="chat-meta-row">
-            <span className="section-label">{lastAgentMeta.degradedMode ? "受限模式" : "Next"}</span>
+            <span className="section-label">{lastAgentMeta.degradedMode ? "受限模式" : "下一步"}</span>
             <div className="chip-row">
               {lastAgentMeta.degradedMode ? (
                 <span className="mini-chip">{lastAgentMeta.degradedReason || "LLM 暂不可用，已使用安全降级逻辑"}</span>
@@ -406,7 +372,7 @@ export default function ChatPage() {
                 </button>
               ))}
               {lastAgentMeta.usedMemories.length > 0 ? (
-                <span className="mini-chip">Used memories {lastAgentMeta.usedMemories.length}</span>
+                <span className="mini-chip">使用记忆 {lastAgentMeta.usedMemories.length}</span>
               ) : null}
             </div>
           </div>
@@ -415,32 +381,28 @@ export default function ChatPage() {
           <div className="pending-proposal-banner">
             <span>{intentHint}</span>
             <button type="button" className="chip-button" onClick={() => setText(intentHint)}>
-              Use as prompt
+              填入输入框
             </button>
             <button type="button" className="ghost-button subtle" onClick={() => setIntentHint("")}>
-              Dismiss
+              关闭
             </button>
           </div>
         ) : null}
         {pendingProposals.length > 0 ? (
           <div className="pending-proposal-banner">
-            <span>{pendingProposals.length} pending confirmation item(s)</span>
+            <span>{pendingProposals.length} 个待确认事项</span>
             <button
               type="button"
               className="chip-button"
               onClick={() => {
                 scrollAnchorRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-                setStatus("Pending proposal cards are in this conversation.");
+                setStatus("已定位到待确认卡片。");
               }}
             >
-              Jump to cards
+              查看卡片
             </button>
           </div>
         ) : null}
-        {activeRunId && timelineByRunId[activeRunId]?.length ? (
-          <AgentRunTimeline items={timelineByRunId[activeRunId]} />
-        ) : null}
-
         <div className="messages chat-feed">
           {messages.map((message) => (
             <div key={message.id} className={`message-row ${message.role === "user" ? "user" : "assistant"}`}>
@@ -459,7 +421,6 @@ export default function ChatPage() {
                   <div className="message-bubble assistant">
                     <small>GymPal</small>
                     <div>{message.content}</div>
-                    {message.reasoningSummary ? <p className="muted message-meta">{message.reasoningSummary}</p> : null}
                     {message.cards && message.cards.length > 0 ? (
                       <AgentCardList
                         cards={message.cards}

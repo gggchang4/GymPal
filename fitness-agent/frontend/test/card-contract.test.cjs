@@ -25,7 +25,7 @@ const requiredCardTypes = [
   "coach_workspace_card"
 ];
 
-test("frontend and agent share the Phase 1/2/3/4 card contract", () => {
+test("frontend and agent share the agent card contract", () => {
   for (const cardType of requiredCardTypes) {
     assert.match(frontendTypes, new RegExp(`"${cardType}"`), `frontend type union should include ${cardType}`);
     assert.match(agentModels, new RegExp(`"${cardType}"`), `agent CardType should include ${cardType}`);
@@ -33,7 +33,7 @@ test("frontend and agent share the Phase 1/2/3/4 card contract", () => {
   }
 });
 
-test("P0-P2 response metadata and run step types are shared by frontend and agent", () => {
+test("response metadata and run step types are shared by frontend and agent", () => {
   for (const field of ["degradedMode", "degradedReason", "intent", "intentConfidence"]) {
     assert.match(frontendTypes, new RegExp(field), `PostMessageResponse should expose ${field}`);
   }
@@ -48,15 +48,15 @@ test("P0-P2 response metadata and run step types are shared by frontend and agen
   }
 });
 
-test("Phase 4 cards have dedicated render paths", () => {
+test("product cards have dedicated render paths", () => {
   for (const renderer of ["WorkItemDetails", "QualityCheckDetails", "RevisionDetails", "CoachWorkspaceDetails"]) {
     assert.match(frontendCards, new RegExp(`function ${renderer}`), `${renderer} should be implemented explicitly`);
   }
 
-  assert.match(frontendCards, /terminalWorkItemStatuses/, "work item cards should model terminal read-only states");
+  assert.match(frontendCards, /terminalWorkItemStatuses/, "work item cards should model terminal states");
 });
 
-test("P5 chat experience exposes streaming, clarification, pending, and proposal diff contracts", () => {
+test("chat experience exposes user-facing clarification, pending, and proposal diff contracts", () => {
   const chatPage = readFileSync(join(process.cwd(), "app", "chat", "page.tsx"), "utf8");
   const api = readFileSync(join(process.cwd(), "lib", "api.ts"), "utf8");
   const timeline = readFileSync(join(process.cwd(), "components", "agent-run-timeline.tsx"), "utf8");
@@ -70,9 +70,11 @@ test("P5 chat experience exposes streaming, clarification, pending, and proposal
   }
 
   assert.match(api, /getThreadProposals/);
-  assert.match(chatPage, /streamRun/);
-  assert.match(chatPage, /timelineByRunId/);
+  assert.doesNotMatch(chatPage, /streamRun/);
+  assert.doesNotMatch(chatPage, /timelineByRunId/);
+  assert.doesNotMatch(chatPage, /message\.reasoningSummary/);
   assert.match(chatPage, /pendingProposals/);
   assert.match(frontendCards, /ProposalDiffDetails/);
+  assert.match(frontendCards, /hiddenUserCardTypes/);
   assert.match(timeline, /AgentRunTimeline/);
 });

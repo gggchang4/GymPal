@@ -127,7 +127,7 @@ export function DashboardCoachingPanel({
   return (
     <section className="dashboard-coaching-panel">
       <div className="section-copy">
-        <span className="section-label">Phase 2</span>
+        <span className="section-label">Coach</span>
         <h3>闭环教练</h3>
         <p className="muted">
           现在可以从 dashboard 直接触发周复盘和今日建议，不需要先手动切到 chat 再输入固定 prompt。

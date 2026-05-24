@@ -33,6 +33,17 @@ export interface DailyCheckinRecord {
   hungerLevel?: string;
 }
 
+export interface DietLogRecord {
+  userId: string;
+  mealType: string;
+  foods: string[];
+  totalCalorie?: number;
+  proteinGrams?: number;
+  carbohydrateGrams?: number;
+  fatGrams?: number;
+  note?: string;
+}
+
 export interface WorkoutLogRecord {
   userId: string;
   workoutType: string;
@@ -215,6 +226,7 @@ export interface CoachSummaryRecord {
   };
   recentBodyMetrics: Awaited<ReturnType<AppStoreService["getBodyMetrics"]>>;
   recentDailyCheckins: Awaited<ReturnType<AppStoreService["getDailyCheckins"]>>;
+  recentDietLogs: Awaited<ReturnType<AppStoreService["getDietLogs"]>>;
   recentWorkoutLogs: Awaited<ReturnType<AppStoreService["getWorkoutLogs"]>>;
   latestDietRecommendation: Awaited<ReturnType<AppStoreService["getTodayDietRecommendation"]>> | null;
   recentAdviceSnapshots: Awaited<ReturnType<AppStoreService["getRecentAdviceSnapshots"]>>;
@@ -493,6 +505,31 @@ export class AppStoreService {
     });
     this.logger.log(`Loaded ${checkins.length} daily check-in record(s) from PostgreSQL for user=${user.id}`);
     return checkins;
+  }
+
+  async addDietLog(payload: DietLogRecord) {
+    return this.prisma.dietLog.create({
+      data: {
+        userId: payload.userId,
+        mealType: normalizePlanString(payload.mealType, "meal"),
+        foods: sanitizeStringArray(payload.foods),
+        totalCalorie: payload.totalCalorie,
+        proteinGrams: payload.proteinGrams,
+        carbohydrateGrams: payload.carbohydrateGrams,
+        fatGrams: payload.fatGrams,
+        note: payload.note
+      }
+    });
+  }
+
+  async getDietLogs(userId?: string) {
+    const user = await this.getUser(userId);
+    const logs = await this.prisma.dietLog.findMany({
+      where: { userId: user.id },
+      orderBy: { recordedAt: "desc" }
+    });
+    this.logger.log(`Loaded ${logs.length} diet log record(s) from PostgreSQL for user=${user.id}`);
+    return logs;
   }
 
   async addWorkoutLog(payload: WorkoutLogRecord) {
@@ -1215,7 +1252,7 @@ export class AppStoreService {
 
   async getCoachSummary(userId?: string): Promise<CoachSummaryRecord> {
     const user = await this.getUser(userId);
-    const [currentPlan, recentBodyMetrics, recentDailyCheckins, recentWorkoutLogs, latestDietRecommendation, recentAdviceSnapshots, pendingCoachingPackage, memorySummary, recentOutcomes, recentRecommendationFeedback] =
+    const [currentPlan, recentBodyMetrics, recentDailyCheckins, recentDietLogs, recentWorkoutLogs, latestDietRecommendation, recentAdviceSnapshots, pendingCoachingPackage, memorySummary, recentOutcomes, recentRecommendationFeedback] =
       await Promise.all([
         this.getCurrentPlanSnapshot(user.id),
         this.prisma.bodyMetricLog.findMany({
@@ -1224,6 +1261,11 @@ export class AppStoreService {
           take: 8
         }),
         this.prisma.dailyCheckin.findMany({
+          where: { userId: user.id },
+          orderBy: { recordedAt: "desc" },
+          take: 8
+        }),
+        this.prisma.dietLog.findMany({
           where: { userId: user.id },
           orderBy: { recordedAt: "desc" },
           take: 8
@@ -1267,6 +1309,7 @@ export class AppStoreService {
       },
       recentBodyMetrics,
       recentDailyCheckins,
+      recentDietLogs,
       recentWorkoutLogs,
       latestDietRecommendation,
       recentAdviceSnapshots,

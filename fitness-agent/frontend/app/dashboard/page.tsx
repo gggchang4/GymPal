@@ -13,8 +13,8 @@ const goalLabelByType: Record<string, string> = {
   maintenance: "维持"
 };
 
-const staticDietRecommendation: DietRecommendationSnapshot = {
-  id: "static-dashboard-plate",
+const fallbackDietRecommendation: DietRecommendationSnapshot = {
+  id: "fallback-dashboard-plate",
   date: "2026-04-27",
   userGoal: "fat_loss",
   totalCalorie: 1940,
@@ -131,7 +131,7 @@ const staticDietRecommendation: DietRecommendationSnapshot = {
     "三餐平均铺开蛋白质，训练恢复会更容易跟上。",
     "如果夜间饥饿感上升，先增加蔬菜，再增加主食。"
   ],
-  remark: "静态餐盘用于 dashboard 降级展示，后续可直接替换为接口返回数据。",
+  remark: "根据当前目标生成的餐盘建议，实际摄入请以你的日志记录为准。",
   fitTips: "保持高蛋白、适量碳水和稳定蔬菜摄入。"
 };
 
@@ -147,8 +147,8 @@ function buildFallbackDashboardSnapshot(): DashboardSnapshot {
 function buildFallbackPlan(): WorkoutPlanDay[] {
   return [
     {
-      id: "static-dashboard-plan",
-      dayLabel: "Today",
+      id: "fallback-dashboard-plan",
+      dayLabel: "今天",
       focus: "全身稳定训练",
       duration: "45 分钟",
       exercises: ["Goblet squat 4x10", "Seated row 4x10", "Push-up 3x12"],
@@ -178,7 +178,7 @@ export default async function DashboardPage() {
   const [snapshotResult, planResult, recommendationResult, workspaceResult] = await Promise.all([
     resolveSection(getDashboard(authToken), buildFallbackDashboardSnapshot()),
     resolveSection(getCurrentPlan(authToken), buildFallbackPlan()),
-    resolveSection(getTodayDietRecommendation(authToken), staticDietRecommendation),
+    resolveSection(getTodayDietRecommendation(authToken), fallbackDietRecommendation),
     resolveSection<WorkspaceSummarySnapshot | null>(getWorkspaceSummary(authToken), null)
   ]);
 
@@ -222,13 +222,13 @@ export default async function DashboardPage() {
           <span className="section-label">Dashboard</span>
           <h2>今日总览</h2>
           {isDegraded ? (
-            <p className="muted">部分实时数据暂时不可用，当前页面已使用静态兜底数据保持可用。</p>
+            <p className="muted">部分实时数据暂时不可用，当前显示基础建议以保持页面可用。</p>
           ) : null}
         </div>
         <div className="chip-row">
           <span className="mini-chip">{snapshot.weeklyCompletionRate}</span>
           <span className={`status-pill ${isDegraded ? "idle" : "live"}`}>
-            {isDegraded ? "静态兜底" : "已同步"}
+            {isDegraded ? "基础建议" : "已同步"}
           </span>
         </div>
       </div>
@@ -244,7 +244,7 @@ export default async function DashboardPage() {
         <aside className="viz-wrap dashboard-rail">
           <section className="dashboard-summary-panel">
             <div className="section-copy">
-              <span className="section-label">Today</span>
+              <span className="section-label">今天</span>
               <h3>关键状态</h3>
             </div>
 
