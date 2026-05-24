@@ -1,4 +1,4 @@
-import { IsNumber, IsOptional, IsString } from "class-validator";
+import { IsArray, IsNumber, IsOptional, IsString } from "class-validator";
 
 export class BodyMetricDto {
   @IsNumber()
@@ -34,6 +34,35 @@ export class DailyCheckinDto {
   @IsOptional()
   @IsString()
   hungerLevel?: string;
+}
+
+export class DietLogDto {
+  @IsString()
+  mealType!: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  foods!: string[];
+
+  @IsOptional()
+  @IsNumber()
+  totalCalorie?: number;
+
+  @IsOptional()
+  @IsNumber()
+  proteinGrams?: number;
+
+  @IsOptional()
+  @IsNumber()
+  carbohydrateGrams?: number;
+
+  @IsOptional()
+  @IsNumber()
+  fatGrams?: number;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
 }
 
 export class WorkoutLogDto {

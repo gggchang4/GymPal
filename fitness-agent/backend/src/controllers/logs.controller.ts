@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Post } from "@nestjs/common";
 import { CurrentUser } from "../auth/auth.decorators";
 import type { AuthTokenClaims } from "../auth/auth-token.service";
-import { BodyMetricDto, DailyCheckinDto, WorkoutLogDto } from "../dtos/logs.dto";
+import { BodyMetricDto, DailyCheckinDto, DietLogDto, WorkoutLogDto } from "../dtos/logs.dto";
 import { AppStoreService } from "../store/app-store.service";
 
 @Controller("logs")
@@ -26,6 +26,16 @@ export class LogsController {
   @Get("daily-checkins")
   async getDailyCheckins(@CurrentUser() user: AuthTokenClaims) {
     return this.store.getDailyCheckins(user.sub);
+  }
+
+  @Post("diet")
+  async createDietLog(@Body() body: DietLogDto, @CurrentUser() user: AuthTokenClaims) {
+    return this.store.addDietLog({ ...body, userId: user.sub });
+  }
+
+  @Get("diet")
+  async getDietLogs(@CurrentUser() user: AuthTokenClaims) {
+    return this.store.getDietLogs(user.sub);
   }
 
   @Post("workouts")

@@ -154,6 +154,13 @@ class AgentQualityGateTests(unittest.IsolatedAsyncioTestCase):
                 for tool_name in tool_names:
                     self.assertIn(tool_name, runtime.PLANNER_TOOL_WHITELIST)
 
+                if expected.get("dialogue_mode"):
+                    dialogue = runtime._decide_dialogue_turn(request, context, intent, planner)
+                    self.assertEqual(dialogue["mode"], expected["dialogue_mode"])
+                    dialogue_tool_names = [tool["name"] for tool in dialogue["planner"]["tools"]]
+                    for tool_name in expected.get("dialogue_forbidden_tools", []):
+                        self.assertNotIn(tool_name, dialogue_tool_names)
+
     async def test_llm_failure_is_visible_degraded_mode(self) -> None:
         case = load_eval_cases()[0]
         runtime = HealthAgentRuntime(EvalStore(case), EvalTools(case), TraceLogger(), ScriptedEvalLLM(case, ok=False))  # type: ignore[arg-type]

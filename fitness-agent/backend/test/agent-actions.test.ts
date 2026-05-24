@@ -224,6 +224,7 @@ function createService() {
   const appStore = {
     getUser: async (userId?: string) => ({ id: userId ?? "user-1" }),
     getMemorySummary: async () => ({ activeMemories: [] }),
+    addDietLog: async (payload: Record<string, unknown>) => ({ id: "diet-log-1", ...payload }),
     getCurrentPlanSnapshot: async () => ({
       plan: {
         id: "plan-1",
@@ -284,6 +285,34 @@ function createService() {
     )
   };
 }
+
+test("action executor persists diet log proposals", async () => {
+  const { actionExecutor } = createService();
+
+  const result = await actionExecutor.executeSingle(
+    "create_diet_log",
+    {
+      mealType: "lunch",
+      foods: ["chicken breast", "rice"],
+      totalCalorie: 650,
+      proteinGrams: 45,
+      note: "Lunch from chat"
+    },
+    "user-1"
+  );
+
+  assert.deepEqual(result, {
+    id: "diet-log-1",
+    userId: "user-1",
+    mealType: "lunch",
+    foods: ["chicken breast", "rice"],
+    totalCalorie: 650,
+    proteinGrams: 45,
+    carbohydrateGrams: undefined,
+    fatGrams: undefined,
+    note: "Lunch from chat"
+  });
+});
 
 test("confirmProposal resumes execution when the proposal is already approved", async () => {
   const { service, prisma } = createService();

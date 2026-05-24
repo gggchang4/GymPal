@@ -163,12 +163,13 @@ Copy these lines into [agent/.env](/d:/86158/Project/agent/fitness-agent/agent/.
 
 ```env
 BACKEND_BASE_URL=http://localhost:3001
-LLM_MODEL_ID=openrouter/free
-LLM_API_KEY=YOUR_LLM_PROVIDER_KEY
-LLM_BASE_URL=https://openrouter.ai/api/v1
-LLM_TIMEOUT=45
+LLM_MODEL_ID=deepseek-v4-flash
+LLM_API_KEY=YOUR_DEEPSEEK_API_KEY
+LLM_BASE_URL=https://api.deepseek.com
+LLM_TIMEOUT=20
 LLM_TEMPERATURE=0.3
 LLM_MAX_TOKENS=1200
+LLM_MAX_RETRIES=2
 AMAP_API_KEY=
 ```
 
@@ -354,12 +355,13 @@ Current important fields:
 
 ```env
 BACKEND_BASE_URL=http://localhost:3001
-LLM_MODEL_ID=openrouter/free
-LLM_API_KEY=YOUR_PROVIDER_KEY
-LLM_BASE_URL=https://openrouter.ai/api/v1
-LLM_TIMEOUT=45
+LLM_MODEL_ID=deepseek-v4-flash
+LLM_API_KEY=YOUR_DEEPSEEK_API_KEY
+LLM_BASE_URL=https://api.deepseek.com
+LLM_TIMEOUT=20
 LLM_TEMPERATURE=0.3
 LLM_MAX_TOKENS=1200
+LLM_MAX_RETRIES=2
 AMAP_API_KEY=
 ```
 
@@ -512,7 +514,7 @@ The agent no longer returns fake coaching text for LLM failure. It now returns e
 
 ### 6. OpenRouter free model is unstable
 
-If `openrouter/free` or another free model is rate-limited:
+If your configured LLM provider is rate-limited:
 
 - retry later
 - switch to another provider/model

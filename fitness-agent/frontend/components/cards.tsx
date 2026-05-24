@@ -27,6 +27,8 @@ const toneByType: Record<CardType, ToneConfig> = {
   coach_workspace_card: { label: "工作台", tone: "sage" }
 };
 
+const hiddenUserCardTypes = new Set<CardType>(["reasoning_summary_card", "tool_activity_card"]);
+
 const terminalWorkItemStatuses = new Set(["dismissed", "converted", "expired"]);
 
 const statusLabels: Record<string, string> = {
@@ -535,9 +537,15 @@ export function AgentCardList({
   }) => void;
   pendingProposalId?: string | null;
 }) {
+  const visibleCards = cards.filter((card) => !hiddenUserCardTypes.has(card.type));
+
+  if (visibleCards.length === 0) {
+    return null;
+  }
+
   return (
     <div className="cards-stack">
-      {cards.map((card, index) => {
+      {visibleCards.map((card, index) => {
         const proposalId = extractProposalId(card);
         const proposalGroupId = extractProposalGroupId(card);
         const reviewSnapshotId = extractReviewId(card);

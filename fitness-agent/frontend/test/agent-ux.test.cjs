@@ -24,16 +24,22 @@ test("golden evals include UX-facing clarification and proposal cases", () => {
 
 test("Chat UX keeps product-grade agent states visible", () => {
   assert.match(chatPage, /Promise\.all/, "thread messages, proposals, and hints should avoid page-load waterfalls");
-  assert.match(chatPage, /setTimelineByRunId\(\(current\)/, "timeline appends should use functional setState");
-  assert.match(chatPage, /streamRun\(response\.runId/, "chat should subscribe to run timeline events");
-  assert.match(chatPage, /catch\s*\{[\s\S]*进度流暂不可用/, "stream failures should fall back to final sync");
+  assert.match(chatPage, /GymPal 正在思考/, "pending assistant message should show a simple thinking state");
+  assert.doesNotMatch(chatPage, /AgentRunTimeline/, "internal run timelines should stay out of the default user chat");
+  assert.doesNotMatch(chatPage, /streamRun\(response\.runId/, "default chat should not stream internal trace steps to users");
+  assert.doesNotMatch(chatPage, /message\.reasoningSummary/, "reasoning summaries should not render in user-facing bubbles");
   assert.match(chatPage, /pendingProposals/, "pending proposal banner should remain wired");
   assert.match(chatPage, /clarification\?\.chips/, "clarification chips should remain visible");
   assert.match(chatPage, /degradedMode/, "degraded mode should remain visible");
   assert.match(chatPage, /setText\(chip\)/, "chips should fill composer without auto-send");
+  assert.match(cards, /hiddenUserCardTypes/, "internal cards should be filtered before rendering");
+  assert.match(cards, /"reasoning_summary_card", "tool_activity_card"/, "reasoning and tool cards should be hidden by default");
+  assert.match(chatPage, /像训练搭子一样/, "welcome copy should position GymPal as a training buddy");
+  assert.doesNotMatch(chatPage, /意图 \{lastAgentMeta\.intent\}/, "debug intent chips should not be shown in the default chat chrome");
+  assert.doesNotMatch(chatPage, /工具 \{lastAgentMeta\.toolCount\}/, "debug tool-count chips should not be shown in the default chat chrome");
 });
 
-test("Tool timeline renders success, failure, and degraded states", () => {
+test("Tool timeline component remains available for non-chat diagnostics", () => {
   assert.match(timeline, /status-\$\{statusForItem\(item\)\}/);
   assert.match(timeline, /"failed"/);
   assert.match(timeline, /return "limited"/);

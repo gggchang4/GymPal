@@ -116,7 +116,7 @@ class ToolGateway:
         try:
             logger.info("[TOOLS] Requesting recent health data from backend.")
             async with httpx.AsyncClient(timeout=10) as client:
-                metrics, checkins, workouts = await asyncio.gather(
+                metrics, checkins, diet_logs, workouts = await asyncio.gather(
                     client.get(
                         f"{settings.backend_base_url}/logs/body-metrics",
                         headers=self._backend_headers(authorization),
@@ -126,11 +126,15 @@ class ToolGateway:
                         headers=self._backend_headers(authorization),
                     ),
                     client.get(
+                        f"{settings.backend_base_url}/logs/diet",
+                        headers=self._backend_headers(authorization),
+                    ),
+                    client.get(
                         f"{settings.backend_base_url}/logs/workouts",
                         headers=self._backend_headers(authorization),
                     ),
                 )
-                for response in [metrics, checkins, workouts]:
+                for response in [metrics, checkins, diet_logs, workouts]:
                     response.raise_for_status()
                 logger.info("[TOOLS] Recent health data loaded successfully from PostgreSQL-backed API.")
                 return ToolResponse(
@@ -138,6 +142,7 @@ class ToolGateway:
                     data={
                         "body_metrics": metrics.json(),
                         "daily_checkins": checkins.json(),
+                        "diet_logs": diet_logs.json(),
                         "workout_logs": workouts.json(),
                     },
                     human_readable="Loaded recent health data from backend.",
@@ -266,6 +271,7 @@ class ToolGateway:
             "complete_plan_day": "complete-plan-day",
             "create_body_metric": "create-body-metric",
             "create_daily_checkin": "create-daily-checkin",
+            "create_diet_log": "create-diet-log",
             "create_workout_log": "create-workout-log",
             "generate_next_week_plan": "apply-next-week-plan",
             "generate_diet_snapshot": "generate-diet-snapshot",
