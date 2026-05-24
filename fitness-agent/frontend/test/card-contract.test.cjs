@@ -56,7 +56,7 @@ test("product cards have dedicated render paths", () => {
   assert.match(frontendCards, /terminalWorkItemStatuses/, "work item cards should model terminal states");
 });
 
-test("chat experience exposes streaming, clarification, pending, and proposal diff contracts", () => {
+test("chat experience exposes user-facing clarification, pending, and proposal diff contracts", () => {
   const chatPage = readFileSync(join(process.cwd(), "app", "chat", "page.tsx"), "utf8");
   const api = readFileSync(join(process.cwd(), "lib", "api.ts"), "utf8");
   const timeline = readFileSync(join(process.cwd(), "components", "agent-run-timeline.tsx"), "utf8");
@@ -70,9 +70,11 @@ test("chat experience exposes streaming, clarification, pending, and proposal di
   }
 
   assert.match(api, /getThreadProposals/);
-  assert.match(chatPage, /streamRun/);
-  assert.match(chatPage, /timelineByRunId/);
+  assert.doesNotMatch(chatPage, /streamRun/);
+  assert.doesNotMatch(chatPage, /timelineByRunId/);
+  assert.doesNotMatch(chatPage, /message\.reasoningSummary/);
   assert.match(chatPage, /pendingProposals/);
   assert.match(frontendCards, /ProposalDiffDetails/);
+  assert.match(frontendCards, /hiddenUserCardTypes/);
   assert.match(timeline, /AgentRunTimeline/);
 });

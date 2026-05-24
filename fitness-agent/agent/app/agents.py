@@ -433,7 +433,10 @@ class HealthAgentRuntime:
 
     def _fallback_intent_from_keywords(self, text: str) -> dict[str, Any]:
         write_domain = self._detect_write_domain(text)
-        if self._is_weekly_review_request(text):
+        if self._is_exercise_recommendation_request(text):
+            intent = "exercise_search"
+            write_domain = None
+        elif self._is_weekly_review_request(text):
             intent = "weekly_review"
         elif self._is_daily_guidance_request(text):
             intent = "daily_guidance"
@@ -591,6 +594,19 @@ class HealthAgentRuntime:
         )
         return has_plan_marker and has_generate_marker
 
+    def _is_exercise_recommendation_request(self, text: str) -> bool:
+        lowered = text.lower()
+        has_exercise_marker = self._contains_marker(text, self.EXERCISE_KEYWORDS) or any(
+            marker in text for marker in ("练胸", "练背", "练腿", "练肩", "胸部", "背部", "臀腿", "上肢", "下肢")
+        )
+        has_recommend_marker = any(marker in text for marker in ("推荐", "给我一些", "给我几个", "有哪些", "有什么", "动作推荐")) or any(
+            marker in lowered for marker in ("recommend", "suggest", "what exercises", "which exercises")
+        )
+        has_write_marker = any(marker in text for marker in ("记录", "保存", "写入", "生成计划", "新增", "添加到计划")) or any(
+            marker in lowered for marker in ("record", "save", "write", "generate plan", "add to plan")
+        )
+        return has_exercise_marker and has_recommend_marker and not has_write_marker
+
     def _is_delete_all_plan_request(self, text: str) -> bool:
         lowered = text.lower()
         has_plan_marker = self._contains_marker(text, self.PLAN_KEYWORDS)
@@ -669,6 +685,8 @@ class HealthAgentRuntime:
         conversation_context: dict[str, Any],
         fallback: dict[str, Any],
     ) -> dict[str, Any] | None:
+        if self._is_exercise_recommendation_request(request.text):
+            return None
         if self._is_strong_keyword_write_intent(request.text, fallback) and fallback.get("intent") != "plan_generate":
             return None
 
@@ -1099,6 +1117,26 @@ class HealthAgentRuntime:
         if not result.ok:
             return fallback, result, result.error_code or "llm_classifier_failed"
         normalized = self._normalize_intent_result(result.data, fallback)
+        if self._is_exercise_recommendation_request(request.text) and (
+            str(normalized.get("intent") or "") != "exercise_search"
+            or bool(normalized.get("write_domain"))
+            or self._coerce_bool(normalized.get("should_clarify"))
+        ):
+            return {
+                **fallback,
+                "intent": "exercise_search",
+                "confidence": max(float(fallback.get("confidence") or 0.0), 0.82),
+                "write_domain": None,
+                "should_clarify": False,
+                "missing_fields": [],
+                "clarifying_question": "",
+                "source": "keyword_read_override",
+                "overrode_llm_intent": {
+                    "intent": normalized.get("intent"),
+                    "write_domain": normalized.get("write_domain"),
+                    "confidence": normalized.get("confidence"),
+                },
+            }, result, None
         if self._is_strong_keyword_write_intent(request.text, fallback):
             fallback_domain = str(fallback.get("write_domain") or "")
             normalized_domain = str(normalized.get("write_domain") or "")
@@ -1297,6 +1335,28 @@ class HealthAgentRuntime:
             return fallback, result, result.error_code or "llm_planner_failed"
         normalized = self._normalize_planner_decision(result.data, fallback)
         keyword_fallback = self._fallback_intent_from_keywords(request.text)
+        has_write_tool = any(str(tool.get("name") or "") == "create_action_proposal" for tool in normalized.get("tools") or [])
+        if self._is_exercise_recommendation_request(request.text) and (
+            str(normalized.get("action") or "") != "answer"
+            or bool(normalized.get("write_domain"))
+            or self._coerce_bool(normalized.get("requires_proposal"))
+            or has_write_tool
+        ):
+            return {
+                "action": "answer",
+                "tools": [{"name": "get_exercise_catalog", "arguments": {}, "purpose": "Read exercise catalog."}],
+                "requires_proposal": False,
+                "write_domain": None,
+                "response_style": str(fallback.get("response_style") or "normal"),
+                "missing_fields": [],
+                "risk_level": "low",
+                "source": "keyword_read_planner_override",
+                "overrode_llm_planner": {
+                    "action": normalized.get("action"),
+                    "write_domain": normalized.get("write_domain"),
+                    "missing_fields": normalized.get("missing_fields") or [],
+                },
+            }, result, None
         if self._is_strong_keyword_write_intent(request.text, keyword_fallback):
             fallback_domain = str(fallback.get("write_domain") or "")
             normalized_domain = str(normalized.get("write_domain") or "")
@@ -1528,7 +1588,8 @@ class HealthAgentRuntime:
             f"Reply in {self._detect_reply_language(request.text)}. "
             "Return JSON only with keys: content, reasoning_summary, next_actions, card_title, card_description, card_bullets. "
             "Be concise but complete: normal answers should be 2-4 short paragraphs; use more detail when the user asks for planning or explanation. "
-            "Sound warm, direct, and conversational. Stay grounded in tool observations and do not claim that data was written."
+            "Sound warm, direct, and conversational. Stay grounded in tool observations and do not claim that data was written. "
+            "Do not expose internal reasoning, trace labels, LLM/planner/tool names, or process headings in content."
         )
         user_prompt = json.dumps(
             {
@@ -1625,7 +1686,8 @@ class HealthAgentRuntime:
             "Return JSON only with keys: content, reasoning_summary, next_actions. "
             "Sound warm, direct, and concise. Do not overdo slang. "
             "For clarify or confirm_operation, ask exactly one concrete question. "
-            "For propose, say the proposal is pending confirmation and never claim data was written."
+            "For propose, say the proposal is pending confirmation and never claim data was written. "
+            "Do not expose internal reasoning, trace labels, LLM/planner/tool names, or process headings in content."
         )
         user_prompt = json.dumps(
             {
@@ -4626,9 +4688,6 @@ class HealthAgentRuntime:
                 degraded_reason = compose_degraded_reason
                 degraded_mode = True
             cards: list[Card] = []
-            activity_card = self._build_tool_activity_card(tool_events, degraded_reason)
-            if activity_card is not None:
-                cards.append(activity_card)
             risk_level = self._max_risk_level([proposal["riskLevel"] for proposal in proposals]) if proposals else "medium"
         else:
             content, reasoning_summary, next_actions, response_card, compose_llm, compose_degraded_reason = await self._compose_planned_response(
@@ -4643,9 +4702,6 @@ class HealthAgentRuntime:
                 degraded_reason = compose_degraded_reason
                 degraded_mode = True
             cards = []
-            activity_card = self._build_tool_activity_card(tool_events, degraded_reason)
-            if activity_card is not None:
-                cards.append(activity_card)
             if response_card is not None:
                 cards.append(response_card)
             risk_level = str(planner.get("risk_level") or "medium")
