@@ -563,6 +563,30 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(decision["mode"], "propose")
         self.assertIn("create_action_proposal", [tool["name"] for tool in decision["planner"]["tools"]])
 
+    async def test_diet_log_generates_persistable_diet_proposal(self) -> None:
+        store = FakeStore()
+        runtime = HealthAgentRuntime(store, FakeTools(), TraceLogger(), FakeLLM())  # type: ignore[arg-type]
+        request = PostMessageRequest(text="午饭吃了鸡胸肉、米饭、青菜，大概650卡，蛋白45g")
+        intent = runtime._fallback_intent_from_keywords(request.text)
+        planner = runtime._fallback_planner_from_intent(intent, request)
+
+        _observations, _tool_events, proposals, warnings = await runtime._execute_planner_tools(
+            "thread-1",
+            "run-1",
+            request,
+            planner,
+            None,
+        )
+
+        self.assertEqual(intent["intent"], "diet_log")
+        self.assertEqual(intent["write_domain"], "diet_log")
+        self.assertEqual(warnings, [])
+        self.assertEqual(len(proposals), 1)
+        self.assertEqual(proposals[0]["actionType"], "create_diet_log")
+        self.assertEqual(proposals[0]["payload"]["mealType"], "lunch")
+        self.assertEqual(proposals[0]["payload"]["totalCalorie"], 650)
+        self.assertEqual(proposals[0]["payload"]["proteinGrams"], 45)
+
     def test_dialogue_allows_clear_workout_log_proposal(self) -> None:
         runtime = make_runtime(FakeLLM())
         intent = {

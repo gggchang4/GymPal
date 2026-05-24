@@ -16,6 +16,7 @@ import type {
   CreateThreadResponse,
   DashboardSnapshot,
   DailyCheckin,
+  DietLog,
   DietRecommendationSnapshot,
   ExerciseItem,
   HealthProfile,
@@ -262,6 +263,7 @@ interface RawCoachSummarySnapshot {
   };
   recentBodyMetrics: BodyMetricLog[];
   recentDailyCheckins: DailyCheckin[];
+  recentDietLogs: DietLog[];
   recentWorkoutLogs: WorkoutLog[];
   latestDietRecommendation: DietRecommendationSnapshot | null;
   recentAdviceSnapshots: RawAdviceSnapshot[];
@@ -614,6 +616,7 @@ function mapCoachSummary(snapshot: RawCoachSummarySnapshot): CoachSummarySnapsho
     completion: snapshot.completion,
     recentBodyMetrics: snapshot.recentBodyMetrics ?? [],
     recentDailyCheckins: snapshot.recentDailyCheckins ?? [],
+    recentDietLogs: snapshot.recentDietLogs ?? [],
     recentWorkoutLogs: snapshot.recentWorkoutLogs ?? [],
     latestDietRecommendation: snapshot.latestDietRecommendation ?? null,
     recentAdviceSnapshots: (snapshot.recentAdviceSnapshots ?? []).map(mapAdviceSnapshot),
@@ -737,6 +740,10 @@ export async function getBodyMetrics(authToken?: string): Promise<BodyMetricLog[
 
 export async function getDailyCheckins(authToken?: string): Promise<DailyCheckin[]> {
   return requestJson<DailyCheckin[]>(`${backendBaseUrl}/logs/daily-checkins`, undefined, { authToken });
+}
+
+export async function getDietLogs(authToken?: string): Promise<DietLog[]> {
+  return requestJson<DietLog[]>(`${backendBaseUrl}/logs/diet`, undefined, { authToken });
 }
 
 export async function getWorkoutLogs(authToken?: string): Promise<WorkoutLog[]> {

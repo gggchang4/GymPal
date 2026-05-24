@@ -9,6 +9,7 @@ const ACTION_POLICIES: Record<string, { label: string; packageAllowed: boolean; 
   complete_plan_day: { label: "low_risk_write", packageAllowed: false, risk: "low" },
   create_body_metric: { label: "low_risk_write", packageAllowed: false, risk: "low" },
   create_daily_checkin: { label: "low_risk_write", packageAllowed: false, risk: "low" },
+  create_diet_log: { label: "low_risk_write", packageAllowed: false, risk: "low" },
   create_workout_log: { label: "low_risk_write", packageAllowed: false, risk: "low" },
   generate_next_week_plan: { label: "plan_rewrite", packageAllowed: true, risk: "high" },
   generate_diet_snapshot: { label: "nutrition_rewrite", packageAllowed: true, risk: "high" },

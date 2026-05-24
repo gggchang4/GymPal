@@ -213,6 +213,7 @@ export interface CoachSummarySnapshot {
   };
   recentBodyMetrics: BodyMetricLog[];
   recentDailyCheckins: DailyCheckin[];
+  recentDietLogs: DietLog[];
   recentWorkoutLogs: WorkoutLog[];
   latestDietRecommendation: DietRecommendationSnapshot | null;
   recentAdviceSnapshots: AdviceSnapshot[];
@@ -449,6 +450,18 @@ export interface DailyCheckin {
   energyLevel?: string;
   fatigueLevel?: string;
   hungerLevel?: string;
+  recordedAt?: string;
+}
+
+export interface DietLog {
+  id?: string;
+  mealType: string;
+  foods: string[];
+  totalCalorie?: number;
+  proteinGrams?: number;
+  carbohydrateGrams?: number;
+  fatGrams?: number;
+  note?: string;
   recordedAt?: string;
 }
 

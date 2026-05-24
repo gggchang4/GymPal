@@ -17,6 +17,7 @@ model User {
   healthProfile     HealthProfile?
   bodyMetricLogs    BodyMetricLog[]
   dailyCheckins     DailyCheckin[]
+  dietLogs          DietLog[]
   workoutLogs       WorkoutLog[]
   workoutPlans      WorkoutPlan[]
   dietRecommendations DietRecommendationSnapshot[]
@@ -76,6 +77,23 @@ model DailyCheckin {
   recordedAt   DateTime @default(now())
   source       String   @default("manual")
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DietLog {
+  id                String   @id @default(cuid())
+  userId            String
+  mealType          String   @default("meal")
+  foods             String[] @default([])
+  totalCalorie      Int?
+  proteinGrams      Float?
+  carbohydrateGrams Float?
+  fatGrams          Float?
+  note              String?
+  recordedAt        DateTime @default(now())
+  source            String   @default("manual")
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, recordedAt])
 }
 
 model WorkoutLog {

@@ -7,6 +7,7 @@ test("personalization policy allows known actions and derives package labels", (
   const policy = new AgentPolicyService();
 
   assert.ok(policy.getSupportedActionTypes().includes("create_recommendation_feedback"));
+  assert.ok(policy.getSupportedActionTypes().includes("create_diet_log"));
   assert.deepEqual(
     policy.getPolicyLabelsForActions(["generate_next_week_plan", "generate_diet_snapshot"], ["custom_label"]),
     ["custom_label", "plan_rewrite", "nutrition_rewrite", "multi_domain_package"]

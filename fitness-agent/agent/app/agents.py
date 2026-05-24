@@ -30,6 +30,7 @@ class HealthAgentRuntime:
         "complete_plan_day",
         "create_body_metric",
         "create_daily_checkin",
+        "create_diet_log",
         "create_workout_log",
         "generate_next_week_plan",
         "generate_diet_snapshot",
@@ -225,7 +226,7 @@ class HealthAgentRuntime:
         "workout_log": "workout_log",
         "checkin_log": "daily_checkin",
         "body_metric_log": "body_metric",
-        "diet_log": "daily_checkin",
+        "diet_log": "diet_log",
         "memory_save": "memory",
     }
     PLANNER_TOOL_WHITELIST = {
@@ -444,6 +445,8 @@ class HealthAgentRuntime:
             intent = "checkin_log"
         elif write_domain == "workout_log":
             intent = "workout_log"
+        elif write_domain == "diet_log":
+            intent = "diet_log"
         elif write_domain == "plan":
             intent = "plan_generate" if any(verb in text for verb in ("生成", "创建", "新增", "添加")) else "plan_adjust"
         elif self._is_location_query(text):
@@ -1665,6 +1668,7 @@ class HealthAgentRuntime:
             "complete_plan_day": "更新计划完成状态",
             "create_body_metric": "记录身体指标",
             "create_daily_checkin": "记录每日打卡",
+            "create_diet_log": "记录饮食日志",
             "create_workout_log": "记录训练日志",
             "generate_next_week_plan": "生成下周训练计划",
             "generate_diet_snapshot": "生成饮食建议快照",
@@ -1780,6 +1784,11 @@ class HealthAgentRuntime:
             verb in text for verb in ("记录", "录入", "补充", "添加", "写入")
         ):
             return "daily_checkin"
+
+        if self._contains_marker(text, self.DIET_DETAIL_MARKERS) and (
+            has_operation_marker or any(keyword in text for keyword in ("吃了", "喝了", "午饭", "晚饭", "早餐", "加餐"))
+        ):
+            return "diet_log"
 
         if any(keyword in text for keyword in ("训练了", "练了", "workout", "训练日志", "训练记录", "锻炼")) and any(
             verb in text for verb in ("记录", "录入", "添加", "写入")
@@ -3256,6 +3265,8 @@ class HealthAgentRuntime:
             return self._daily_checkin_proposals(user_text)
         if domain == "workout_log":
             return self._workout_log_proposals(user_text)
+        if domain == "diet_log":
+            return self._diet_log_proposals(user_text)
         if domain == "plan":
             return self._plan_proposals(user_text, context)
         if domain == "memory":
@@ -3506,6 +3517,76 @@ class HealthAgentRuntime:
                 entity_type="daily_checkin",
                 title=self._proposal_title("create_daily_checkin"),
                 summary="记录今天的每日打卡数据。",
+                payload=payload,
+                preview=preview,
+            )
+        ]
+
+    def _diet_log_proposals(self, user_text: str) -> list[dict[str, Any]]:
+        lowered = user_text.lower()
+        if any(marker in user_text for marker in ("早餐", "早饭")) or "breakfast" in lowered:
+            meal_type = "breakfast"
+        elif any(marker in user_text for marker in ("午饭", "午餐")) or "lunch" in lowered:
+            meal_type = "lunch"
+        elif any(marker in user_text for marker in ("晚饭", "晚餐")) or "dinner" in lowered:
+            meal_type = "dinner"
+        elif any(marker in user_text for marker in ("加餐", "零食")) or any(marker in lowered for marker in ("snack", "meal prep")):
+            meal_type = "snack"
+        else:
+            meal_type = "meal"
+
+        total_calorie = self._extract_number(
+            [r"(?:热量|大概|约|大约)?[^\d]*(\d+(?:\.\d+)?)\s*(?:卡|千卡|kcal)", r"calorie[^\d]*(\d+(?:\.\d+)?)"],
+            user_text,
+        )
+        protein = self._extract_number([r"蛋白[^\d]*(\d+(?:\.\d+)?)\s*(?:g|克)?", r"protein[^\d]*(\d+(?:\.\d+)?)"], user_text)
+        carbs = self._extract_number([r"碳水[^\d]*(\d+(?:\.\d+)?)\s*(?:g|克)?", r"carb[^\d]*(\d+(?:\.\d+)?)"], user_text)
+        fat = self._extract_number([r"脂肪[^\d]*(\d+(?:\.\d+)?)\s*(?:g|克)?", r"fat[^\d]*(\d+(?:\.\d+)?)"], user_text)
+
+        food_text = re.sub(r"^(帮我|请)?\s*(记录|录入|添加|写入)?\s*(一下|今天)?", "", user_text).strip()
+        food_text = re.sub(r"(早餐|早饭|午饭|午餐|晚饭|晚餐|加餐|零食)?\s*(吃了|喝了|是)\s*", "", food_text).strip()
+        food_text = re.sub(r"(大概|约|大约)?\d+(?:\.\d+)?\s*(卡|千卡|kcal).*", "", food_text, flags=re.IGNORECASE).strip()
+        food_text = re.sub(r"(蛋白|碳水|脂肪)[^\s，,。；;]*", "", food_text).strip()
+        foods = [
+            item.strip(" ，,。；;、")
+            for item in re.split(r"[，,。；;、/]+", food_text)
+            if item.strip(" ，,。；;、")
+        ]
+        if not foods and any(marker in user_text for marker in ("吃了", "喝了", "早餐", "午饭", "晚饭", "加餐")):
+            foods = [food_text or user_text.strip()]
+        foods = foods[:8]
+
+        if not foods and total_calorie is None and protein is None and carbs is None and fat is None:
+            return []
+
+        payload: dict[str, Any] = {
+            "mealType": meal_type,
+            "foods": foods,
+            "note": user_text.strip()[:240],
+        }
+        preview: dict[str, Any] = {
+            "餐次": meal_type,
+            "食物": " / ".join(foods) if foods else "未拆分",
+        }
+        if total_calorie is not None:
+            payload["totalCalorie"] = int(total_calorie)
+            preview["热量(kcal)"] = int(total_calorie)
+        if protein is not None:
+            payload["proteinGrams"] = protein
+            preview["蛋白(g)"] = protein
+        if carbs is not None:
+            payload["carbohydrateGrams"] = carbs
+            preview["碳水(g)"] = carbs
+        if fat is not None:
+            payload["fatGrams"] = fat
+            preview["脂肪(g)"] = fat
+
+        return [
+            self._draft_proposal(
+                action_type="create_diet_log",
+                entity_type="diet_log",
+                title=self._proposal_title("create_diet_log"),
+                summary="记录一条饮食日志。",
                 payload=payload,
                 preview=preview,
             )
