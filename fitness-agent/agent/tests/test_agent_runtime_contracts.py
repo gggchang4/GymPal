@@ -312,7 +312,7 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("具体数值", decision["question"])
         self.assertNotIn("增肌", decision["question"])
 
-    async def test_exercise_recommendation_overrides_plan_llm_result(self) -> None:
+    async def test_exercise_recommendation_uses_read_fast_path(self) -> None:
         llm = FakeLLM(
             data={
                 "intent": "plan_generate",
@@ -338,10 +338,24 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIsNone(degraded_reason)
-        self.assertTrue(metadata and metadata.ok)
+        self.assertIsNone(metadata)
         self.assertEqual(intent["intent"], "exercise_search")
         self.assertIsNone(intent["write_domain"])
-        self.assertEqual(intent["source"], "keyword_read_override")
+        self.assertEqual(intent["source"], "keyword_read_fast_path")
+        self.assertEqual(llm.prompts, [])
+
+        planner, planner_metadata, planner_degraded_reason = await runtime._plan_next_steps(
+            PostMessageRequest(text="给我推荐一些练胸的动作"),
+            context,
+            intent,
+            degraded_reason,
+        )
+
+        self.assertIsNone(planner_metadata)
+        self.assertIsNone(planner_degraded_reason)
+        self.assertEqual(planner["action"], "answer")
+        self.assertFalse(planner["requires_proposal"])
+        self.assertIsNone(planner["write_domain"])
 
     async def test_exercise_recommendation_planner_stays_read_only(self) -> None:
         llm = FakeLLM(
@@ -368,10 +382,10 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(planner["write_domain"])
         self.assertEqual([tool["name"] for tool in planner["tools"]], ["get_exercise_catalog"])
 
-    async def test_exercise_recommendation_clears_contaminated_write_domain(self) -> None:
+    async def test_plain_read_only_question_uses_fast_path(self) -> None:
         llm = FakeLLM(
             data={
-                "intent": "exercise_search",
+                "intent": "plan_generate",
                 "confidence": 0.87,
                 "referenced_context": ["recent_plan_generation_turn"],
                 "missing_fields": [],
@@ -384,15 +398,16 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         runtime = make_runtime(llm)
 
         intent, metadata, degraded_reason = await runtime._classify_intent(
-            PostMessageRequest(text="给我推荐一些练胸的动作"),
+            PostMessageRequest(text="深蹲前怎么热身？"),
             {"recent_messages": []},
         )
 
         self.assertIsNone(degraded_reason)
-        self.assertTrue(metadata and metadata.ok)
+        self.assertIsNone(metadata)
         self.assertEqual(intent["intent"], "exercise_search")
         self.assertIsNone(intent["write_domain"])
-        self.assertEqual(intent["source"], "keyword_read_override")
+        self.assertEqual(intent["source"], "keyword_read_fast_path")
+        self.assertEqual(llm.prompts, [])
 
     async def test_exercise_recommendation_planner_clears_proposal_flags_on_answer(self) -> None:
         llm = FakeLLM(

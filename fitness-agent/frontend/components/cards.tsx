@@ -184,6 +184,19 @@ function buildEvidenceLines(card: AgentCard): string[] {
   return lines.slice(0, 5);
 }
 
+function shouldShowUserCard(card: AgentCard) {
+  if (hiddenUserCardTypes.has(card.type)) {
+    return false;
+  }
+
+  if (card.type === "action_result_card") {
+    const status = firstText(asRecord(card.data), "status");
+    return !["executed", "succeeded"].includes(status);
+  }
+
+  return true;
+}
+
 function displayStatus(value: string) {
   return statusLabels[value] ?? value;
 }
@@ -537,7 +550,7 @@ export function AgentCardList({
   }) => void;
   pendingProposalId?: string | null;
 }) {
-  const visibleCards = cards.filter((card) => !hiddenUserCardTypes.has(card.type));
+  const visibleCards = cards.filter(shouldShowUserCard);
 
   if (visibleCards.length === 0) {
     return null;

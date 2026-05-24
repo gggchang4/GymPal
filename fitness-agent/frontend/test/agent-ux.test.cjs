@@ -34,6 +34,8 @@ test("Chat UX keeps product-grade agent states visible", () => {
   assert.match(chatPage, /setText\(chip\)/, "chips should fill composer without auto-send");
   assert.match(cards, /hiddenUserCardTypes/, "internal cards should be filtered before rendering");
   assert.match(cards, /"reasoning_summary_card", "tool_activity_card"/, "reasoning and tool cards should be hidden by default");
+  assert.match(cards, /shouldShowUserCard/, "card visibility should support product-facing filtering");
+  assert.match(cards, /"executed", "succeeded"/, "successful execution result cards should be hidden from chat");
   assert.match(chatPage, /像训练搭子一样/, "welcome copy should position GymPal as a training buddy");
   assert.doesNotMatch(chatPage, /意图 \{lastAgentMeta\.intent\}/, "debug intent chips should not be shown in the default chat chrome");
   assert.doesNotMatch(chatPage, /工具 \{lastAgentMeta\.toolCount\}/, "debug tool-count chips should not be shown in the default chat chrome");

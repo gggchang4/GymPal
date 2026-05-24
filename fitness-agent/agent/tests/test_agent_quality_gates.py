@@ -135,8 +135,12 @@ class AgentQualityGateTests(unittest.IsolatedAsyncioTestCase):
 
                 self.assertIsNone(degraded_reason)
                 self.assertIsNone(planner_degraded_reason)
-                self.assertTrue(intent_llm and intent_llm.ok)
-                self.assertTrue(planner_llm and planner_llm.ok)
+                if intent.get("source") == "keyword_read_fast_path":
+                    self.assertIsNone(intent_llm)
+                    self.assertIsNone(planner_llm)
+                else:
+                    self.assertTrue(intent_llm and intent_llm.ok)
+                    self.assertTrue(planner_llm and planner_llm.ok)
                 self.assertEqual(intent["intent"], expected["intent"])
                 self.assertGreaterEqual(float(intent["confidence"]), float(expected["min_confidence"]))
                 self.assertEqual(bool(intent["should_clarify"]), bool(expected["should_clarify"]))

@@ -653,6 +653,135 @@ class HealthAgentRuntime:
             )
         return False
 
+    def _is_plain_read_only_question(self, text: str) -> bool:
+        lowered = text.lower()
+        stripped = text.strip()
+        chinese_markers = (
+            "吗",
+            "怎么",
+            "如何",
+            "为什么",
+            "为何",
+            "能不能",
+            "可不可以",
+            "可以",
+            "应该",
+            "建议",
+            "推荐",
+            "有哪些",
+            "有什么",
+            "是什么",
+            "区别",
+            "多少",
+            "多久",
+        )
+        english_markers = (
+            "how",
+            "what",
+            "why",
+            "should",
+            "can i",
+            "could i",
+            "recommend",
+            "suggest",
+            "which",
+            "when",
+            "do i need",
+        )
+        return stripped.endswith(("?", "？")) or any(marker in text for marker in chinese_markers) or any(
+            marker in lowered for marker in english_markers
+        )
+
+    def _has_read_fast_path_blocker(self, text: str, intent_name: str) -> bool:
+        if self._contains_marker(text, self.SAFETY_CLARIFY_MARKERS) or bool(
+            re.search(r"(胸|膝|腰|背|肩).{0,4}(疼|痛|伤|不舒服)|(?:疼|痛|伤).{0,4}(胸|膝|腰|背|肩)", text)
+        ):
+            return True
+        if any(marker in text for marker in ("现在", "当前", "待办", "复盘", "本周", "下周", "刚才", "那个", "第二天")):
+            return True
+        if intent_name == "health_answer" and any(
+            marker in text for marker in ("今天", "明天", "昨晚", "睡", "累", "疲劳", "恢复", "酸痛", "怎么练", "怎么安排", "晚餐", "早餐", "午餐")
+        ):
+            return True
+        if intent_name == "exercise_search" and any(
+            marker in text for marker in ("疼", "痛", "伤", "不跳", "低冲击", "不伤", "膝", "腰", "替代")
+        ):
+            return True
+        return intent_name in {"plan_answer", "location_search"}
+
+    def _is_obvious_read_only_request(self, text: str, fallback: dict[str, Any]) -> bool:
+        intent_name = str(fallback.get("intent") or "")
+        if fallback.get("write_domain"):
+            return False
+        if intent_name in {"weekly_review", "daily_guidance", "unclear"}:
+            return False
+        if self._contains_marker(text, self.HIGH_RISK_KEYWORDS):
+            return False
+        if self._contains_marker(text, self.OPERATION_MARKERS):
+            return False
+        if self._has_read_fast_path_blocker(text, intent_name):
+            return False
+        if self._is_exercise_recommendation_request(text):
+            return True
+        if intent_name == "exercise_search":
+            return True
+        if intent_name != "health_answer" or not self._is_plain_read_only_question(text):
+            return False
+        return any(marker in text.lower() for marker in ("rpe", "rm", "bmi")) or any(
+            marker in text for marker in ("解释", "是什么", "什么意思", "区别")
+        )
+
+    def _static_fast_read_payload(self, text: str, intent_name: str) -> dict[str, Any] | None:
+        language = self._detect_reply_language(text)
+        chinese = language == "Simplified Chinese"
+        lowered = text.lower()
+
+        if "rpe" in lowered:
+            if chinese:
+                return {
+                    "content": "RPE 7 可以理解成“有点吃力，但还留着余力”：这一组做完后，大概还能再做 3 次左右。用在力量训练里，它适合技术练习、增肌主项的中等偏上强度，通常不需要练到力竭。\n\n如果你今天状态一般，就把主项控制在 RPE 6-7；状态很好再偶尔推到 RPE 8。长期训练里，RPE 7 是一个很稳的工作强度。",
+                    "next_actions": ["告诉我你的训练动作", "帮我换算训练强度", "继续解释RPE 8"],
+                    "card_title": "RPE 7",
+                    "card_description": "中等偏上强度，通常还剩约 3 次余力。",
+                    "card_bullets": ["主观感受：吃力但可控", "余力：大约还能做 3 次", "适合：技术稳定、不过度力竭的训练组"],
+                }
+            return {
+                "content": "RPE 7 means the set feels challenging but controlled. You would usually have about 3 reps left in reserve, so it is useful for productive training without pushing to failure.\n\nOn an average day, keeping main work around RPE 6-7 is a steady choice. Save RPE 8+ for days when technique and recovery both feel solid.",
+                "next_actions": ["Tell me your lift", "Convert my training intensity", "Explain RPE 8"],
+                "card_title": "RPE 7",
+                "card_description": "A controlled hard set with roughly 3 reps in reserve.",
+                "card_bullets": ["Feels challenging but controlled", "Around 3 reps in reserve", "Good for productive non-failure work"],
+            }
+
+        if intent_name == "exercise_search" and self._is_exercise_recommendation_request(text):
+            focus = self._detect_plan_focus(text) or "full_body"
+            recommendations: dict[str, list[str]] = {
+                "chest": ["俯卧撑", "杠铃卧推", "上斜哑铃卧推", "绳索夹胸"],
+                "back": ["高位下拉", "坐姿划船", "哑铃划船", "面拉"],
+                "legs": ["高脚杯深蹲", "罗马尼亚硬拉", "臀桥", "保加利亚分腿蹲"],
+                "shoulders": ["哑铃推举", "侧平举", "反向飞鸟", "面拉"],
+                "arms": ["哑铃弯举", "绳索下压", "锤式弯举", "窄距俯卧撑"],
+                "full_body": ["深蹲", "俯卧撑", "划船", "平板支撑"],
+            }
+            names = recommendations.get(focus, recommendations["full_body"])
+            if chinese:
+                return {
+                    "content": f"可以，先给你一组好上手的动作：{names[0]}、{names[1]}、{names[2]}、{names[3]}。\n\n如果你是增肌取向，每个动作做 3-4 组，每组 8-12 次，最后 2-3 次有点吃力但动作不变形就刚好。先从前 3 个动作开始就够了，不用一上来堆太多量。",
+                    "next_actions": ["按器械条件细化", "安排成一次训练", "换成徒手版本"],
+                    "card_title": "动作推荐",
+                    "card_description": "先选 3-4 个动作，控制动作质量和渐进负重。",
+                    "card_bullets": names,
+                }
+            return {
+                "content": f"Sure. A simple set of options: {names[0]}, {names[1]}, {names[2]}, and {names[3]}.\n\nFor muscle gain, use 3-4 sets of 8-12 reps and keep the last few reps challenging without losing form. Start with three movements first; you do not need a huge menu to get a good session.",
+                "next_actions": ["Adapt to my equipment", "Turn it into one session", "Make it bodyweight"],
+                "card_title": "Exercise Picks",
+                "card_description": "Pick 3-4 movements and keep the work controlled.",
+                "card_bullets": names,
+            }
+
+        return None
+
     def _plan_generation_slots(self, current_text: str, conversation_context: dict[str, Any]) -> dict[str, Any]:
         user_texts = self._conversation_texts_by_role(conversation_context, "user")
         if current_text.strip() and (not user_texts or user_texts[-1] != current_text):
@@ -1047,24 +1176,34 @@ class HealthAgentRuntime:
         current_message: str,
         authorization: str | None,
     ) -> dict[str, Any]:
-        messages: list[dict[str, Any]] = []
-        thread_summary = ""
-        memory_summary: dict[str, Any] = {}
-        try:
-            messages = await self.store.list_messages(thread_id, authorization)
-        except Exception as exc:
-            logger.warning("Unable to load thread messages for intent context: %s", exc)
-        try:
-            thread = await self.store.get_thread(thread_id, authorization)
-            thread_summary = str(thread.get("summary") or "")
-        except Exception as exc:
-            logger.warning("Unable to load thread summary for intent context: %s", exc)
-        try:
-            memory = await self.tools.get_memory_summary(authorization=authorization)
-            if memory.ok:
-                memory_summary = memory.data
-        except Exception as exc:
-            logger.warning("Unable to load memory summary for intent context: %s", exc)
+        async def read_messages() -> list[dict[str, Any]]:
+            try:
+                return await self.store.list_messages(thread_id, authorization)
+            except Exception as exc:
+                logger.warning("Unable to load thread messages for intent context: %s", exc)
+                return []
+
+        async def read_thread_summary() -> str:
+            try:
+                thread = await self.store.get_thread(thread_id, authorization)
+                return str(thread.get("summary") or "")
+            except Exception as exc:
+                logger.warning("Unable to load thread summary for intent context: %s", exc)
+                return ""
+
+        async def read_memory_summary() -> dict[str, Any]:
+            try:
+                memory = await self.tools.get_memory_summary(authorization=authorization)
+                return memory.data if memory.ok else {}
+            except Exception as exc:
+                logger.warning("Unable to load memory summary for intent context: %s", exc)
+                return {}
+
+        messages, thread_summary, memory_summary = await asyncio.gather(
+            read_messages(),
+            read_thread_summary(),
+            read_memory_summary(),
+        )
 
         recent_messages = [
             {
@@ -1092,6 +1231,16 @@ class HealthAgentRuntime:
         contextual_intent = self._contextual_plan_intent(request, conversation_context, fallback)
         if contextual_intent is not None:
             return contextual_intent, None, None
+        if self._is_obvious_read_only_request(request.text, fallback):
+            return {
+                **fallback,
+                "confidence": max(float(fallback.get("confidence") or 0.0), 0.82),
+                "write_domain": None,
+                "should_clarify": False,
+                "missing_fields": [],
+                "clarifying_question": "",
+                "source": "keyword_read_fast_path",
+            }, None, None
 
         system_prompt = (
             "You classify user intent for a fitness coaching agent. Return JSON only. "
@@ -1204,13 +1353,6 @@ class HealthAgentRuntime:
                 )
             elif request.location_hint:
                 tools.append({"name": "geocode_location", "arguments": {"location": request.location_hint}, "purpose": "Resolve location."})
-        else:
-            tools.extend(
-                [
-                    {"name": "get_coach_summary", "arguments": {}, "purpose": "Read recent health and coaching context."},
-                    {"name": "get_memory_summary", "arguments": {}, "purpose": "Read long-lived preferences and constraints."},
-                ]
-            )
 
         return {
             "action": action,
@@ -1308,7 +1450,7 @@ class HealthAgentRuntime:
         fallback = self._fallback_planner_from_intent(intent, request)
         if degraded_reason or not self.llm.is_enabled():
             return fallback, None, degraded_reason or "llm_disabled"
-        if intent.get("source") == "contextual_plan_flow":
+        if intent.get("source") in {"contextual_plan_flow", "keyword_read_fast_path"}:
             return fallback, None, None
 
         system_prompt = (
@@ -4844,7 +4986,7 @@ class HealthAgentRuntime:
             content = f"我尝试执行“{proposal['title']}”时失败了，请重新生成这条提案后再试。"
             reasoning_summary = "执行阶段返回失败，因此这次不把它视为成功写库。"
 
-        cards = [self._build_result_card(proposal_id, title, description, result_payload, proposal_status)]
+        cards = [] if ok else [self._build_result_card(proposal_id, title, description, result_payload, proposal_status)]
         message = await self._append_assistant_message(
             str(proposal["thread_id"]),
             content,
