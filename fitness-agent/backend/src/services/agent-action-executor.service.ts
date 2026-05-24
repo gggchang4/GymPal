@@ -17,6 +17,15 @@ function normalizeArray(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function normalizeOptionalDate(value: unknown): Date | undefined {
+  if (!(typeof value === "string" || value instanceof Date)) {
+    return undefined;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
 @Injectable()
 export class AgentActionExecutorService {
   constructor(
@@ -85,7 +94,8 @@ export class AgentActionExecutorService {
           userId,
           weightKg: Number(payload.weightKg ?? 0),
           bodyFatPct: payload.bodyFatPct === undefined ? undefined : Number(payload.bodyFatPct),
-          waistCm: payload.waistCm === undefined ? undefined : Number(payload.waistCm)
+          waistCm: payload.waistCm === undefined ? undefined : Number(payload.waistCm),
+          recordedAt: normalizeOptionalDate(payload.recordedAt)
         });
       case "create_daily_checkin":
         return this.appStore.addDailyCheckin({

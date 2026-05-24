@@ -225,6 +225,7 @@ function createService() {
     getUser: async (userId?: string) => ({ id: userId ?? "user-1" }),
     getMemorySummary: async () => ({ activeMemories: [] }),
     addDietLog: async (payload: Record<string, unknown>) => ({ id: "diet-log-1", ...payload }),
+    addBodyMetric: async (payload: Record<string, unknown>) => ({ id: "body-metric-1", ...payload }),
     getCurrentPlanSnapshot: async () => ({
       plan: {
         id: "plan-1",
@@ -312,6 +313,26 @@ test("action executor persists diet log proposals", async () => {
     fatGrams: undefined,
     note: "Lunch from chat"
   });
+});
+
+test("action executor preserves body metric recordedAt", async () => {
+  const { actionExecutor } = createService();
+
+  const result = (await actionExecutor.executeSingle(
+    "create_body_metric",
+    {
+      weightKg: 70,
+      recordedAt: "2099-04-19T12:00:00.000+08:00"
+    },
+    "user-1"
+  )) as Record<string, unknown>;
+
+  assert.equal(result.id, "body-metric-1");
+  assert.equal(result.userId, "user-1");
+  assert.equal(result.weightKg, 70);
+  const recordedAt = result.recordedAt;
+  assert.ok(recordedAt instanceof Date);
+  assert.equal(recordedAt.toISOString(), "2099-04-19T04:00:00.000Z");
 });
 
 test("confirmProposal resumes execution when the proposal is already approved", async () => {

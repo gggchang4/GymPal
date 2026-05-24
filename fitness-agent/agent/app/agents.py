@@ -3531,6 +3531,10 @@ class HealthAgentRuntime:
 
         payload = {"weightKg": weight}
         preview: dict[str, Any] = {"体重(kg)": weight}
+        recorded_at, date_label = self._body_metric_recorded_at_from_text(user_text)
+        if recorded_at:
+            payload["recordedAt"] = recorded_at
+            preview["日期"] = date_label or recorded_at[:10]
         if body_fat is not None:
             payload["bodyFatPct"] = body_fat
             preview["体脂(%)"] = body_fat
@@ -3538,16 +3542,55 @@ class HealthAgentRuntime:
             payload["waistCm"] = waist
             preview["腰围(cm)"] = waist
 
+        summary_prefix = f"记录{date_label}身体指标" if date_label else "记录身体指标"
         return [
             self._draft_proposal(
                 action_type="create_body_metric",
                 entity_type="body_metric",
                 title=self._proposal_title("create_body_metric"),
-                summary=f"记录最新身体指标，体重 {weight} kg。",
+                summary=f"{summary_prefix}，体重 {weight} kg。",
                 payload=payload,
                 preview=preview,
             )
         ]
+
+    def _body_metric_recorded_at_from_text(self, user_text: str) -> tuple[str | None, str | None]:
+        lowered = user_text.lower()
+        now = datetime.now().astimezone()
+        for markers, day_offset, label in (
+            (("前天", "the day before yesterday"), -2, "前天"),
+            (("昨天", "昨日", "昨晚", "yesterday"), -1, "昨天"),
+            (("今天", "今日", "今早", "今晚", "today"), 0, "今天"),
+        ):
+            if any(marker in lowered for marker in markers):
+                target = now + timedelta(days=day_offset)
+                return self._body_metric_recorded_at_iso(target.year, target.month, target.day), label
+
+        full_date = re.search(r"(?<!\d)(19\d{2}|20\d{2})[年/\-.](\d{1,2})[月/\-.](\d{1,2})(?:日|号)?", user_text)
+        if full_date:
+            recorded_at = self._body_metric_recorded_at_iso(
+                int(full_date.group(1)),
+                int(full_date.group(2)),
+                int(full_date.group(3)),
+            )
+            if recorded_at:
+                return recorded_at, recorded_at[:10]
+
+        month_day = re.search(r"(?<!\d)(\d{1,2})月(\d{1,2})(?:日|号)?", user_text)
+        if month_day:
+            recorded_at = self._body_metric_recorded_at_iso(now.year, int(month_day.group(1)), int(month_day.group(2)))
+            if recorded_at:
+                return recorded_at, recorded_at[:10]
+
+        return None, None
+
+    def _body_metric_recorded_at_iso(self, year: int, month: int, day: int) -> str | None:
+        try:
+            local_now = datetime.now().astimezone()
+            recorded_at = local_now.replace(year=year, month=month, day=day, hour=12, minute=0, second=0, microsecond=0)
+        except ValueError:
+            return None
+        return recorded_at.isoformat()
 
     def _daily_checkin_proposals(self, user_text: str) -> list[dict[str, Any]]:
         sleep = self._extract_number([r"睡[^\d]*(\d+(?:\.\d+)?)\s*(?:小时|h|hour)", r"sleep[^\d]*(\d+(?:\.\d+)?)"], user_text)

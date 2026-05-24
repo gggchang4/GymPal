@@ -1,4 +1,4 @@
-import { IsArray, IsNumber, IsOptional, IsString } from "class-validator";
+import { IsArray, IsDateString, IsNumber, IsOptional, IsString } from "class-validator";
 
 export class BodyMetricDto {
   @IsNumber()
@@ -11,6 +11,10 @@ export class BodyMetricDto {
   @IsOptional()
   @IsNumber()
   waistCm?: number;
+
+  @IsOptional()
+  @IsDateString()
+  recordedAt?: string;
 }
 
 export class DailyCheckinDto {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -230,6 +231,40 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(intent["intent"], "body_metric_log")
         self.assertEqual(intent["write_domain"], "body_metric")
         self.assertEqual(intent["source"], "keyword_override")
+
+    def test_body_metric_proposal_preserves_yesterday_date(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        proposal = runtime._body_metric_proposals("我昨天的体重是70kg，帮我记录一下")[0]
+        payload = proposal["payload"]
+        preview = proposal["preview"]
+
+        recorded_date = datetime.fromisoformat(payload["recordedAt"]).date()
+        expected_date = datetime.now().astimezone().date() - timedelta(days=1)
+
+        self.assertEqual(recorded_date, expected_date)
+        self.assertEqual(preview["日期"], "昨天")
+        self.assertEqual(payload["weightKg"], 70)
+        self.assertIn("昨天", proposal["summary"])
+        self.assertNotIn("最新", proposal["summary"])
+
+    def test_body_metric_proposal_preserves_today_date(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        proposal = runtime._body_metric_proposals("我今天的体重是68kg，帮我记录一下")[0]
+        payload = proposal["payload"]
+
+        recorded_date = datetime.fromisoformat(payload["recordedAt"]).date()
+        expected_date = datetime.now().astimezone().date()
+
+        self.assertEqual(recorded_date, expected_date)
+        self.assertEqual(proposal["preview"]["日期"], "今天")
+
+    def test_body_metric_proposal_preserves_explicit_date(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        proposal = runtime._body_metric_proposals("2026年5月20日体重69kg，帮我记录")[0]
+        payload = proposal["payload"]
+
+        self.assertEqual(datetime.fromisoformat(payload["recordedAt"]).date().isoformat(), "2026-05-20")
+        self.assertEqual(proposal["preview"]["日期"], "2026-05-20")
 
     def test_contextual_plan_flow_does_not_capture_explicit_body_metric(self) -> None:
         runtime = make_runtime(FakeLLM())
