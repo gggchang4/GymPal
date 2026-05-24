@@ -199,6 +199,67 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("message 14", llm.prompts[-1])
         self.assertNotIn("message 0", llm.prompts[-1])
 
+    async def test_explicit_body_metric_overrides_stale_plan_clarification(self) -> None:
+        llm = FakeLLM(
+            data={
+                "intent": "plan_generate",
+                "confidence": 0.88,
+                "referenced_context": ["recent_plan_generation_turn"],
+                "missing_fields": ["goal"],
+                "risk_flags": [],
+                "should_clarify": True,
+                "clarifying_question": "这份计划的目标更偏增肌、减脂还是力量提升？",
+                "write_domain": "plan",
+            }
+        )
+        runtime = make_runtime(llm)
+        context = {
+            "recent_messages": [
+                {"role": "user", "content": "帮我生成一个训练计划"},
+                {"role": "assistant", "content": "这份计划的目标更偏增肌、减脂还是力量提升？"},
+            ]
+        }
+
+        intent, metadata, degraded_reason = await runtime._classify_intent(
+            PostMessageRequest(text="我今天的体重是68kg，帮我记录"),
+            context,
+        )
+
+        self.assertIsNone(degraded_reason)
+        self.assertTrue(metadata and metadata.ok)
+        self.assertEqual(intent["intent"], "body_metric_log")
+        self.assertEqual(intent["write_domain"], "body_metric")
+        self.assertEqual(intent["source"], "keyword_override")
+
+    def test_contextual_plan_flow_does_not_capture_explicit_body_metric(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        request = PostMessageRequest(text="我今天的体重是68kg，帮我记录")
+        context = {
+            "recent_messages": [
+                {"role": "user", "content": "帮我生成一个训练计划"},
+                {"role": "assistant", "content": "这份计划的目标更偏增肌、减脂还是力量提升？"},
+            ]
+        }
+        fallback = runtime._fallback_intent_from_keywords(request.text)
+
+        self.assertIsNone(runtime._contextual_plan_intent(request, context, fallback))
+
+    def test_dialogue_asks_body_metric_value_not_plan_goal(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        intent = runtime._fallback_intent_from_keywords("我想要记录今日体重")
+        planner = runtime._fallback_planner_from_intent(intent, PostMessageRequest(text="我想要记录今日体重"))
+
+        decision = runtime._decide_dialogue_turn(
+            PostMessageRequest(text="我想要记录今日体重"),
+            {"recent_messages": []},
+            intent,
+            planner,
+        )
+
+        self.assertEqual(decision["mode"], "clarify")
+        self.assertIn("具体数值", decision["question"])
+        self.assertNotIn("增肌", decision["question"])
+
     async def test_low_confidence_classifier_clarifies(self) -> None:
         runtime = make_runtime(FakeLLM(data={"intent": "unclear", "confidence": 0.2}))
         intent, _, _ = await runtime._classify_intent(PostMessageRequest(text="那个呢"), {"recent_messages": []})
@@ -465,6 +526,42 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(proposals[0]["actionType"], "generate_plan")
         self.assertEqual(proposals[0]["payload"]["goal"], "muscle_gain")
         self.assertTrue(proposals[0]["payload"].get("days"))
+
+    def test_delete_all_plan_creates_delete_proposals_for_each_day(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        current_plan = {
+            "plan": {
+                "id": "plan-1",
+                "title": "Current plan",
+                "version": 1,
+                "updatedAt": "2026-05-24T08:00:00.000Z",
+            },
+            "days": [
+                {"id": "day-1", "dayLabel": "周一", "focus": "上肢", "duration": "45 分钟"},
+                {"id": "day-2", "dayLabel": "周三", "focus": "下肢", "duration": "45 分钟"},
+            ],
+        }
+
+        proposals = runtime._plan_proposals("我想要删除所有的计划", {"current_plan": current_plan})
+
+        self.assertEqual([proposal["actionType"] for proposal in proposals], ["delete_plan_day", "delete_plan_day"])
+        self.assertEqual([proposal["payload"]["dayId"] for proposal in proposals], ["day-1", "day-2"])
+        self.assertTrue(all("expectedDayId" not in proposal for proposal in proposals))
+
+    def test_delete_all_plan_is_ready_without_target_day(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        intent = runtime._fallback_intent_from_keywords("我想要删除所有的计划")
+        planner = runtime._fallback_planner_from_intent(intent, PostMessageRequest(text="我想要删除所有的计划"))
+
+        decision = runtime._decide_dialogue_turn(
+            PostMessageRequest(text="我想要删除所有的计划"),
+            {"recent_messages": []},
+            intent,
+            planner,
+        )
+
+        self.assertEqual(decision["mode"], "propose")
+        self.assertIn("create_action_proposal", [tool["name"] for tool in decision["planner"]["tools"]])
 
     def test_dialogue_allows_clear_workout_log_proposal(self) -> None:
         runtime = make_runtime(FakeLLM())

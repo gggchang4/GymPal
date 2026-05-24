@@ -588,6 +588,52 @@ class HealthAgentRuntime:
         )
         return has_plan_marker and has_generate_marker
 
+    def _is_delete_all_plan_request(self, text: str) -> bool:
+        lowered = text.lower()
+        has_plan_marker = self._contains_marker(text, self.PLAN_KEYWORDS)
+        has_delete_marker = any(marker in text for marker in ("删除", "删掉", "移除", "清空", "清除", "删光")) or any(
+            marker in lowered for marker in ("delete", "remove", "clear")
+        )
+        has_all_marker = any(marker in text for marker in ("所有", "全部", "整个", "整份", "当前计划")) or any(
+            marker in lowered for marker in ("all", "entire", "whole", "current plan")
+        )
+        has_clear_marker = any(marker in text for marker in ("清空", "清除", "删光")) or "clear" in lowered
+        return has_plan_marker and has_delete_marker and (has_all_marker or has_clear_marker)
+
+    def _is_strong_keyword_write_intent(self, text: str, fallback: dict[str, Any]) -> bool:
+        write_domain = str(fallback.get("write_domain") or "")
+        intent_name = str(fallback.get("intent") or "")
+        if not write_domain:
+            return False
+
+        lowered = text.lower()
+        has_operation_marker = self._contains_marker(text, self.OPERATION_MARKERS)
+
+        if write_domain == "body_metric":
+            return self._contains_marker(text, self.BODY_METRIC_MARKERS) and (has_operation_marker or self._has_digit(text))
+        if write_domain == "daily_checkin":
+            return has_operation_marker and self._contains_marker(text, self.CHECKIN_DETAIL_MARKERS)
+        if write_domain == "workout_log":
+            return has_operation_marker and (
+                self._contains_marker(text, self.WORKOUT_DETAIL_MARKERS) or "训练记录" in text or "workout log" in lowered
+            )
+        if write_domain == "diet_log":
+            return has_operation_marker and self._contains_marker(text, self.DIET_DETAIL_MARKERS)
+        if write_domain == "memory":
+            return self._has_explicit_memory_request(text)
+        if write_domain == "plan":
+            if intent_name == "plan_generate":
+                return self._is_plan_generation_request(text)
+            return self._is_delete_all_plan_request(text) or (
+                self._contains_marker(text, self.PLAN_KEYWORDS)
+                and (
+                    self._contains_marker(text, self.PLAN_ADJUSTMENT_MARKERS)
+                    or any(marker in text for marker in ("删掉", "移除", "清空", "清除", "标记"))
+                    or any(marker in lowered for marker in ("delete plan", "remove plan", "clear plan", "mark complete"))
+                )
+            )
+        return False
+
     def _plan_generation_slots(self, current_text: str, conversation_context: dict[str, Any]) -> dict[str, Any]:
         user_texts = self._conversation_texts_by_role(conversation_context, "user")
         if current_text.strip() and (not user_texts or user_texts[-1] != current_text):
@@ -620,6 +666,9 @@ class HealthAgentRuntime:
         conversation_context: dict[str, Any],
         fallback: dict[str, Any],
     ) -> dict[str, Any] | None:
+        if self._is_strong_keyword_write_intent(request.text, fallback) and fallback.get("intent") != "plan_generate":
+            return None
+
         slots = self._plan_generation_slots(request.text, conversation_context)
         user_texts = self._conversation_texts_by_role(conversation_context, "user")
         if user_texts and user_texts[-1] == request.text:
@@ -768,6 +817,8 @@ class HealthAgentRuntime:
             return ready()
 
         if intent_name == "plan_adjust":
+            if self._is_delete_all_plan_request(text):
+                return ready()
             has_target = bool(self._string_list(intent.get("referenced_context"))) or self._contains_marker(
                 text,
                 ("今天", "明天", "后天", "周一", "周二", "周三", "周四", "周五", "周六", "周日", "第", "刚才", "那个", "day"),
@@ -792,6 +843,8 @@ class HealthAgentRuntime:
             has_metric = self._contains_marker(text, self.BODY_METRIC_MARKERS)
             if has_metric and has_digit:
                 return ready()
+            if has_metric:
+                return ask("今天要记录的具体数值是多少？", ["68kg", "补充体脂率", "先不记录"])
             return ask("这个数字对应哪个身体指标？", ["体重 kg", "腰围 cm", "体脂率 %"])
 
         if intent_name == "checkin_log" or write_domain == "daily_checkin":
@@ -897,6 +950,38 @@ class HealthAgentRuntime:
                     "mode": "propose",
                     "planner": {**proposal_planner, "dialogue_mode": "propose", "dialogue_reason": "plan_context_ready"},
                 }
+
+        if write_domain and write_domain != "plan" and (
+            self._coerce_bool(intent.get("should_clarify")) or planner_action == "clarify"
+        ):
+            readiness = self._operation_readiness(request, conversation_context, intent, planner, write_domain)
+            if not readiness["ready"]:
+                safe_planner = self._planner_without_write_tools(planner, action="clarify", write_domain=write_domain)
+                return {
+                    **base_decision,
+                    "mode": readiness["mode"],
+                    "question": readiness["question"],
+                    "chips": readiness["chips"],
+                    "planner": {
+                        **safe_planner,
+                        "dialogue_mode": readiness["mode"],
+                        "dialogue_reason": "operation_not_ready",
+                    },
+                }
+            proposal_planner = self._planner_with_write_tool(
+                {
+                    **planner,
+                    "action": "propose",
+                    "requires_proposal": True,
+                    "write_domain": write_domain,
+                },
+                write_domain,
+            )
+            return {
+                **base_decision,
+                "mode": "propose",
+                "planner": {**proposal_planner, "dialogue_mode": "propose", "dialogue_reason": "operation_context_ready"},
+            }
 
         if self._coerce_bool(intent.get("should_clarify")) or planner_action == "clarify":
             question = str(intent.get("clarifying_question") or "").strip()
@@ -1010,7 +1095,25 @@ class HealthAgentRuntime:
         result = await asyncio.to_thread(self.llm.generate_structured_with_metadata, system_prompt, user_prompt)
         if not result.ok:
             return fallback, result, result.error_code or "llm_classifier_failed"
-        return self._normalize_intent_result(result.data, fallback), result, None
+        normalized = self._normalize_intent_result(result.data, fallback)
+        if self._is_strong_keyword_write_intent(request.text, fallback):
+            fallback_domain = str(fallback.get("write_domain") or "")
+            normalized_domain = str(normalized.get("write_domain") or "")
+            normalized_intent = str(normalized.get("intent") or "")
+            fallback_intent = str(fallback.get("intent") or "")
+            if normalized_domain != fallback_domain or (
+                fallback_intent == "plan_adjust" and normalized_intent == "plan_generate"
+            ):
+                return {
+                    **fallback,
+                    "source": "keyword_override",
+                    "overrode_llm_intent": {
+                        "intent": normalized_intent,
+                        "write_domain": normalized_domain or None,
+                        "confidence": normalized.get("confidence"),
+                    },
+                }, result, None
+        return normalized, result, None
 
     def _fallback_planner_from_intent(self, intent: dict[str, Any], request: PostMessageRequest) -> dict[str, Any]:
         intent_name = str(intent.get("intent") or "health_answer")
@@ -1189,7 +1292,22 @@ class HealthAgentRuntime:
         result = await asyncio.to_thread(self.llm.generate_structured_with_metadata, system_prompt, user_prompt)
         if not result.ok:
             return fallback, result, result.error_code or "llm_planner_failed"
-        return self._normalize_planner_decision(result.data, fallback), result, None
+        normalized = self._normalize_planner_decision(result.data, fallback)
+        keyword_fallback = self._fallback_intent_from_keywords(request.text)
+        if self._is_strong_keyword_write_intent(request.text, keyword_fallback):
+            fallback_domain = str(fallback.get("write_domain") or "")
+            normalized_domain = str(normalized.get("write_domain") or "")
+            if fallback_domain and (normalized_domain != fallback_domain or normalized.get("action") == "clarify"):
+                return {
+                    **fallback,
+                    "source": "keyword_planner_override",
+                    "overrode_llm_planner": {
+                        "action": normalized.get("action"),
+                        "write_domain": normalized_domain or None,
+                        "missing_fields": normalized.get("missing_fields") or [],
+                    },
+                }, result, None
+        return normalized, result, None
 
     def _build_tool_activity_card(
         self,
@@ -1621,6 +1739,11 @@ class HealthAgentRuntime:
         if any(keyword in text for keyword in self.HIGH_RISK_KEYWORDS):
             return None
 
+        has_operation_marker = self._contains_marker(text, self.OPERATION_MARKERS)
+
+        if self._contains_marker(text, self.BODY_METRIC_MARKERS) and (any(char.isdigit() for char in text) or has_operation_marker):
+            return "body_metric"
+
         explicit_memory_markers = (
             "记住",
             "帮我记",
@@ -1645,20 +1768,20 @@ class HealthAgentRuntime:
             "avoid for me",
         )
         is_question = text.strip().endswith(("?", "？", "吗"))
-        if (any(marker in text for marker in explicit_memory_markers) or any(marker in lowered for marker in explicit_memory_markers_en)) and (
+        has_explicit_memory_marker = any(marker in text for marker in explicit_memory_markers if marker != "帮我记") or (
+            "帮我记" in text and "帮我记录" not in text
+        )
+        if (has_explicit_memory_marker or any(marker in lowered for marker in explicit_memory_markers_en)) and (
             not is_question or "记住" in text or "remember" in lowered
         ):
             return "memory"
-
-        if any(keyword in text for keyword in ("体重", "体脂", "腰围", "weight", "body fat")) and any(char.isdigit() for char in text):
-            return "body_metric"
 
         if any(keyword in text for keyword in ("睡", "步", "喝水", "疲劳", "打卡")) and any(
             verb in text for verb in ("记录", "录入", "补充", "添加", "写入")
         ):
             return "daily_checkin"
 
-        if any(keyword in text for keyword in ("训练了", "练了", "workout", "训练日志", "锻炼")) and any(
+        if any(keyword in text for keyword in ("训练了", "练了", "workout", "训练日志", "训练记录", "锻炼")) and any(
             verb in text for verb in ("记录", "录入", "添加", "写入")
         ):
             return "workout_log"
@@ -3524,6 +3647,28 @@ class HealthAgentRuntime:
                     },
                     snapshot_fields=self._build_plan_snapshot_fields(current_plan),
                 )
+            ]
+
+        if self._is_delete_all_plan_request(user_text):
+            delete_targets = [day for day in days if isinstance(day, dict) and day.get("id")]
+            snapshot_fields = self._build_plan_snapshot_fields(current_plan)
+            return [
+                self._draft_proposal(
+                    action_type="delete_plan_day",
+                    entity_type="workout_plan_day",
+                    entity_id=str(day.get("id")),
+                    title=self._proposal_title("delete_plan_day"),
+                    summary=f"删除计划项“{day.get('dayLabel')} - {day.get('focus')}”。",
+                    payload={"dayId": day.get("id")},
+                    preview={
+                        "批量操作": "删除当前计划的所有训练日",
+                        "总计划项数": len(delete_targets),
+                        "日期": day.get("dayLabel"),
+                        "计划项": day.get("focus"),
+                    },
+                    snapshot_fields=snapshot_fields,
+                )
+                for day in delete_targets
             ]
 
         if any(keyword in user_text for keyword in ("删除", "删掉", "移除")) and matched_day:
