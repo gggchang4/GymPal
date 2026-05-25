@@ -7,7 +7,7 @@ import logging
 import re
 import uuid
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from .config import settings
 from .llm import OpenAICompatibleLLMClient, StructuredLLMResult
@@ -18,6 +18,20 @@ from .trace_logger import TraceLogger
 
 
 logger = logging.getLogger("health_agent.runtime")
+
+
+AgentIntent = Literal[
+    "direct_answer",
+    "fitness_knowledge",
+    "exercise_instruction",
+    "nutrition_advice",
+    "workout_plan",
+    "meal_plan",
+    "user_data_query",
+    "clarification_needed",
+    "safety_sensitive",
+    "out_of_scope",
+]
 
 
 class HealthAgentRuntime:
@@ -46,6 +60,146 @@ class HealthAgentRuntime:
     PLAN_KEYWORDS = ("计划", "安排", "本周", "下周", "todo", "待办", "训练日", "plan")
     EXERCISE_KEYWORDS = ("动作", "替代", "深蹲", "卧推", "拉伸", "exercise")
     HIGH_RISK_KEYWORDS = ("胸痛", "晕厥", "处方", "药物", "极端减肥")
+    MODERN_INTENT_NAMES = {
+        "direct_answer",
+        "fitness_knowledge",
+        "exercise_instruction",
+        "nutrition_advice",
+        "workout_plan",
+        "meal_plan",
+        "user_data_query",
+        "clarification_needed",
+        "safety_sensitive",
+        "out_of_scope",
+    }
+    WORKOUT_PLAN_VERBS = (
+        "制定",
+        "生成",
+        "创建",
+        "规划",
+        "安排",
+        "设计",
+        "做一个",
+        "做一份",
+        "出一个",
+        "冲一下",
+        "排一下",
+        "排一排",
+        "帮我排",
+        "给我排",
+        "定制",
+    )
+    WORKOUT_PLAN_NOUNS = (
+        "训练计划",
+        "健身计划",
+        "运动计划",
+        "增肌计划",
+        "减脂计划",
+        "力量计划",
+        "跑步计划",
+        "训练日程",
+        "训练安排",
+        "怎么练",
+        "每天练",
+        "每周练",
+        "一周练",
+        "4周",
+        "四周",
+    )
+    MEAL_PLAN_VERBS = WORKOUT_PLAN_VERBS
+    MEAL_PLAN_NOUNS = (
+        "饮食计划",
+        "饮食方案",
+        "减脂餐",
+        "增肌餐",
+        "食谱",
+        "餐单",
+        "吃饭计划",
+        "怎么吃",
+        "每天吃",
+        "一周饮食",
+        "meal plan",
+        "nutrition plan",
+        "diet plan",
+    )
+    NUTRITION_QUESTION_MARKERS = (
+        "咖啡",
+        "蛋白粉",
+        "米饭",
+        "碳水",
+        "蛋白",
+        "脂肪",
+        "热量",
+        "饮食",
+        "早餐",
+        "早饭",
+        "午餐",
+        "午饭",
+        "晚餐",
+        "晚饭",
+        "加餐",
+        "食物",
+        "食材",
+        "餐食",
+        "减脂期间",
+        "增肌期间",
+        "吃",
+        "喝",
+        "补剂",
+        "肌酸",
+    )
+    EXERCISE_INSTRUCTION_MARKERS = (
+        "深蹲",
+        "卧推",
+        "硬拉",
+        "划船",
+        "引体",
+        "俯卧撑",
+        "肩推",
+        "动作",
+        "姿势",
+        "发力",
+        "代偿",
+        "避免",
+        "纠正",
+        "标准",
+    )
+    FITNESS_KNOWLEDGE_MARKERS = (
+        "有氧",
+        "无氧",
+        "力量训练",
+        "酸痛",
+        "拉伸",
+        "热身",
+        "恢复",
+        "新手",
+        "一周",
+        "训练频率",
+        "练几次",
+        "先做",
+        "后做",
+        "rpe",
+        "rm",
+        "bmi",
+    )
+    USER_DATA_QUERY_MARKERS = (
+        "我的",
+        "我最近",
+        "最近",
+        "当前",
+        "现在",
+        "今天",
+        "明天",
+        "昨天",
+        "本周",
+        "上周",
+        "历史",
+        "记录",
+        "计划里",
+        "练什么",
+        "吃了什么",
+    )
+    OUT_OF_SCOPE_MARKERS = ("写代码", "股票", "天气", "翻译", "数学题", "电影", "旅游攻略")
     WEEKLY_REVIEW_KEYWORDS = ("复盘", "本周总结", "下周安排", "下周计划", "weekly review", "next week")
     DAILY_GUIDANCE_KEYWORDS = (
         "今日建议",
@@ -205,6 +359,16 @@ class HealthAgentRuntime:
     BODY_METRIC_MARKERS = ("体重", "体脂", "腰围", "kg", "公斤", "斤", "cm", "weight", "body fat")
     DIET_DETAIL_MARKERS = ("早餐", "午饭", "晚饭", "加餐", "吃了", "热量", "卡", "蛋白", "碳水", "meal", "calorie", "protein")
     INTENT_NAMES = {
+        "direct_answer",
+        "fitness_knowledge",
+        "exercise_instruction",
+        "nutrition_advice",
+        "workout_plan",
+        "meal_plan",
+        "user_data_query",
+        "clarification_needed",
+        "safety_sensitive",
+        "out_of_scope",
         "health_answer",
         "plan_answer",
         "plan_generate",
@@ -221,6 +385,8 @@ class HealthAgentRuntime:
         "unclear",
     }
     WRITE_INTENT_TO_DOMAIN = {
+        "workout_plan": "plan",
+        "meal_plan": "meal_plan",
         "plan_generate": "plan",
         "plan_adjust": "plan",
         "workout_log": "workout_log",
@@ -246,6 +412,7 @@ class HealthAgentRuntime:
         "daily_checkin",
         "workout_log",
         "plan",
+        "meal_plan",
         "memory",
         "diet_log",
     }
@@ -330,8 +497,16 @@ class HealthAgentRuntime:
 
         if domain in self.SUPPORTED_WRITE_DOMAINS:
             return domain
+        if domain in {"meal", "nutrition", "diet", "diet_plan", "nutrition_plan"}:
+            if intent_name == "diet_log":
+                return "diet_log"
+            if intent_name == "meal_plan":
+                return "meal_plan"
+            if fallback_domain in self.SUPPORTED_WRITE_DOMAINS:
+                return fallback_domain
+            return "meal_plan"
         if domain in {"fitness", "exercise"}:
-            if intent_name in {"plan_generate", "plan_adjust"}:
+            if intent_name in {"plan_generate", "plan_adjust", "workout_plan"}:
                 return "plan"
             if intent_name == "exercise_search":
                 return None
@@ -433,7 +608,10 @@ class HealthAgentRuntime:
 
     def _fallback_intent_from_keywords(self, text: str) -> dict[str, Any]:
         write_domain = self._detect_write_domain(text)
-        if self._is_exercise_recommendation_request(text):
+        if self._is_explicit_meal_plan_request(text):
+            intent = "meal_plan"
+            write_domain = "meal_plan"
+        elif self._is_exercise_recommendation_request(text):
             intent = "exercise_search"
             write_domain = None
         elif self._is_weekly_review_request(text):
@@ -451,7 +629,7 @@ class HealthAgentRuntime:
         elif write_domain == "diet_log":
             intent = "diet_log"
         elif write_domain == "plan":
-            intent = "plan_generate" if any(verb in text for verb in ("生成", "创建", "新增", "添加")) else "plan_adjust"
+            intent = "plan_generate" if any(verb in text for verb in ("生成", "创建", "制定", "规划", "安排", "排", "新增", "添加")) else "plan_adjust"
         elif self._is_location_query(text):
             intent = "location_search"
         elif self._is_exercise_query(text):
@@ -475,12 +653,23 @@ class HealthAgentRuntime:
 
     def _normalize_intent_result(self, raw: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
         intent = self._coerce_intent(raw.get("intent"))
+        agent_intent = str(raw.get("agent_intent") or "").strip()
+        if intent in self.MODERN_INTENT_NAMES and not agent_intent:
+            agent_intent = intent
+        if agent_intent not in self.MODERN_INTENT_NAMES:
+            agent_intent = str(fallback.get("agent_intent") or "").strip()
+        if agent_intent not in self.MODERN_INTENT_NAMES:
+            agent_intent = "direct_answer" if intent == "health_answer" else ""
+        if intent == "clarification_needed":
+            intent = "unclear"
         confidence = self._coerce_confidence(raw.get("confidence"), fallback=float(fallback.get("confidence") or 0.0))
         write_domain = self._normalize_write_domain(
             raw.get("write_domain"),
             intent=intent,
             fallback=self.WRITE_INTENT_TO_DOMAIN.get(intent) or fallback.get("write_domain"),
         )
+        if intent in {"direct_answer", "fitness_knowledge", "exercise_instruction", "nutrition_advice", "safety_sensitive", "out_of_scope"}:
+            write_domain = None
         should_clarify = self._coerce_bool(raw.get("should_clarify")) or intent == "unclear" or confidence < 0.55
         clarifying_question = str(raw.get("clarifying_question") or "").strip()
         if should_clarify and not clarifying_question:
@@ -488,6 +677,7 @@ class HealthAgentRuntime:
 
         return {
             "intent": intent,
+            "agent_intent": agent_intent or None,
             "confidence": confidence,
             "referenced_context": self._string_list(raw.get("referenced_context")),
             "missing_fields": self._string_list(raw.get("missing_fields")),
@@ -547,8 +737,8 @@ class HealthAgentRuntime:
             ("legs", ("练腿", "腿部", "臀腿", "leg", "legs")),
             ("shoulders", ("练肩", "肩部", "shoulder")),
             ("arms", ("手臂", "二头", "三头", "arms", "biceps", "triceps")),
-            ("push", ("推", "push")),
-            ("pull", ("拉", "pull")),
+            ("push", ("推力", "推日", "推类", "推举", "push")),
+            ("pull", ("拉力", "拉日", "拉类", "下拉", "划船", "pull")),
             ("full_body", ("全身", "全身训练", "full body")),
         ]
         for value, markers in focus_markers:
@@ -594,6 +784,165 @@ class HealthAgentRuntime:
         )
         return has_plan_marker and has_generate_marker
 
+    def _is_explicit_workout_plan_request(self, text: str) -> bool:
+        lowered = text.lower()
+        if self._is_explicit_meal_plan_request(text):
+            return False
+
+        has_plan_noun = self._contains_marker(text, self.WORKOUT_PLAN_NOUNS) or any(
+            marker in lowered for marker in ("workout plan", "training plan", "fitness plan", "program")
+        )
+        has_plan_verb = self._contains_marker(text, self.WORKOUT_PLAN_VERBS) or any(
+            marker in lowered for marker in ("make me", "build me", "create", "generate", "schedule", "program")
+        )
+        has_training_domain = any(marker in text for marker in ("训练", "健身", "增肌", "减脂", "力量", "有氧", "无氧", "练"))
+        explicit_schedule_phrase = any(marker in text for marker in ("帮我排", "给我排", "排一下", "排一排", "每天怎么练"))
+
+        if has_plan_noun and has_plan_verb:
+            return True
+        if explicit_schedule_phrase and has_training_domain:
+            return True
+        return False
+
+    def _is_explicit_meal_plan_request(self, text: str) -> bool:
+        lowered = text.lower()
+        has_plan_noun = self._contains_marker(text, self.MEAL_PLAN_NOUNS)
+        has_plan_verb = self._contains_marker(text, self.MEAL_PLAN_VERBS) or any(
+            marker in lowered for marker in ("make me", "build me", "create", "generate")
+        )
+        return has_plan_noun and has_plan_verb
+
+    def _is_nutrition_advice_request(self, text: str) -> bool:
+        lowered = text.lower()
+        if not self._is_plain_read_only_question(text):
+            return False
+        return self._contains_marker(text, self.NUTRITION_QUESTION_MARKERS) or any(
+            marker in lowered
+            for marker in (
+                "protein",
+                "calorie",
+                "carb",
+                "coffee",
+                "creatine",
+                "breakfast",
+                "lunch",
+                "dinner",
+                "meal",
+                "snack",
+                "food",
+            )
+        )
+
+    def _has_diet_log_write_signal(self, text: str) -> bool:
+        lowered = text.lower()
+        if not self._contains_marker(text, self.DIET_DETAIL_MARKERS):
+            return False
+
+        explicit_log_markers = (
+            "记录",
+            "录入",
+            "保存",
+            "写入",
+            "记一下",
+            "记一条",
+            "帮我记",
+            "log",
+            "record",
+            "save",
+        )
+        consumption_markers = (
+            "吃了",
+            "喝了",
+            "吃的是",
+            "喝的是",
+            "摄入",
+            "早餐吃",
+            "早饭吃",
+            "午餐吃",
+            "午饭吃",
+            "晚餐吃",
+            "晚饭吃",
+            "加餐吃",
+            "早餐是",
+            "早饭是",
+            "午餐是",
+            "午饭是",
+            "晚餐是",
+            "晚饭是",
+            "加餐是",
+        )
+        macro_markers = ("热量", "卡", "千卡", "kcal", "蛋白", "碳水", "脂肪", "calorie", "protein", "carb", "fat")
+        return (
+            any(marker in text or marker in lowered for marker in explicit_log_markers)
+            or any(marker in text for marker in consumption_markers)
+            or (self._has_digit(text) and self._contains_marker(text, macro_markers))
+        )
+
+    def _is_vague_operation_request(self, text: str) -> bool:
+        stripped = text.strip()
+        if stripped.endswith(("?", "？", "吗")):
+            return False
+        vague_markers = ("帮我安排一个", "帮我做一个", "给我安排一个", "安排一个", "做一个", "排一下")
+        has_vague_marker = any(marker in text for marker in vague_markers)
+        has_domain_marker = any(
+            marker in text
+            for marker in (
+                "训练",
+                "健身",
+                "饮食",
+                "餐",
+                "计划",
+                "记录",
+                "体重",
+                "睡眠",
+                "动作",
+            )
+        )
+        return has_vague_marker and not has_domain_marker
+
+    def _is_contextual_plan_followup(self, text: str) -> bool:
+        stripped = text.strip()
+        if not stripped:
+            return False
+        if self._is_explicit_workout_plan_request(stripped) or self._is_plan_generation_request(stripped):
+            return True
+
+        lowered = stripped.lower()
+        followup_markers = (
+            "那个",
+            "这个",
+            "刚才",
+            "上面",
+            "前面",
+            "之前",
+            "这份",
+            "按刚才",
+            "改一下",
+            "调整一下",
+            "换一下",
+            "轻一点",
+            "重一点",
+            "不要跑跳",
+            "不伤",
+        )
+        if self._contains_marker(stripped, followup_markers):
+            return True
+
+        if self._is_plain_read_only_question(stripped):
+            return False
+
+        if len(stripped) <= 24 and (
+            self._contains_marker(stripped, self.PLAN_GOAL_MARKERS)
+            or self._contains_marker(stripped, self.PLAN_FREQUENCY_MARKERS)
+            or self._detect_plan_equipment(stripped) is not None
+            or self._detect_plan_focus(stripped) is not None
+            or bool(re.search(r"\d+\s*(天|次|day|days|x)", stripped, flags=re.IGNORECASE))
+            or any(marker in lowered for marker in ("bodyweight", "dumbbell", "barbell", "machine"))
+        ):
+            return True
+
+        return False
+
     def _is_exercise_recommendation_request(self, text: str) -> bool:
         lowered = text.lower()
         has_exercise_marker = self._contains_marker(text, self.EXERCISE_KEYWORDS) or any(
@@ -637,12 +986,14 @@ class HealthAgentRuntime:
                 self._contains_marker(text, self.WORKOUT_DETAIL_MARKERS) or "训练记录" in text or "workout log" in lowered
             )
         if write_domain == "diet_log":
-            return has_operation_marker and self._contains_marker(text, self.DIET_DETAIL_MARKERS)
+            return self._has_diet_log_write_signal(text)
+        if write_domain == "meal_plan":
+            return self._is_explicit_meal_plan_request(text)
         if write_domain == "memory":
             return self._has_explicit_memory_request(text)
         if write_domain == "plan":
-            if intent_name == "plan_generate":
-                return self._is_plan_generation_request(text)
+            if intent_name in {"plan_generate", "workout_plan"}:
+                return self._is_plan_generation_request(text) or self._is_explicit_workout_plan_request(text)
             return self._is_delete_all_plan_request(text) or (
                 self._contains_marker(text, self.PLAN_KEYWORDS)
                 and (
@@ -652,6 +1003,393 @@ class HealthAgentRuntime:
                 )
             )
         return False
+
+    def _is_plain_read_only_question(self, text: str) -> bool:
+        lowered = text.lower()
+        stripped = text.strip()
+        chinese_markers = (
+            "吗",
+            "怎么",
+            "如何",
+            "为什么",
+            "为何",
+            "谁",
+            "是谁",
+            "能不能",
+            "可不可以",
+            "可以",
+            "应该",
+            "建议",
+            "推荐",
+            "有哪些",
+            "有什么",
+            "是什么",
+            "区别",
+            "多少",
+            "几",
+            "多久",
+            "等于",
+        )
+        english_markers = (
+            "how",
+            "what",
+            "why",
+            "should",
+            "can i",
+            "could i",
+            "recommend",
+            "suggest",
+            "which",
+            "when",
+            "do i need",
+        )
+        return stripped.endswith(("?", "？")) or any(marker in text for marker in chinese_markers) or any(
+            marker in lowered for marker in english_markers
+        )
+
+    def _is_simple_math_question(self, text: str) -> bool:
+        stripped = text.strip()
+        lowered = stripped.lower()
+        if not stripped:
+            return False
+        has_math_expression = bool(re.search(r"\d+\s*[\+\-\*/×÷]\s*\d+", stripped))
+        has_question_marker = any(marker in stripped for marker in ("等于", "多少", "几", "?")) or "what is" in lowered
+        return has_math_expression and has_question_marker
+
+    def _is_general_direct_answer_request(self, text: str) -> bool:
+        if self._is_simple_math_question(text):
+            return True
+        if not self._is_plain_read_only_question(text):
+            return False
+
+        contextual_followup_markers = (
+            "那个",
+            "这个",
+            "刚才",
+            "上面",
+            "前面",
+            "之前",
+            "按刚才",
+            "继续",
+            "改一下",
+            "换一下",
+            "轻一点",
+            "重一点",
+        )
+        if self._contains_marker(text, contextual_followup_markers):
+            return False
+
+        domain_markers = (
+            *self.NUTRITION_QUESTION_MARKERS,
+            *self.EXERCISE_INSTRUCTION_MARKERS,
+            *self.FITNESS_KNOWLEDGE_MARKERS,
+            *self.PLAN_KEYWORDS,
+            *self.EXERCISE_KEYWORDS,
+            *self.LOCATION_KEYWORDS,
+            "健身",
+            "训练",
+            "锻炼",
+            "运动",
+            "动作",
+            "饮食",
+            "营养",
+            "恢复",
+            "疲劳",
+            "很累",
+            "累",
+            "睡眠",
+            "睡",
+            "练",
+            "体重",
+            "体脂",
+            "目标",
+        )
+        if self._contains_marker(text, domain_markers):
+            return False
+
+        write_markers = (
+            "记录",
+            "录入",
+            "保存",
+            "写入",
+            "生成",
+            "创建",
+            "新增",
+            "添加",
+            "调整",
+            "修改",
+            "删除",
+            "标记",
+            "完成",
+        )
+        if self._contains_marker(text, write_markers):
+            return False
+
+        return True
+
+    def _modern_intent_payload(
+        self,
+        *,
+        agent_intent: AgentIntent,
+        legacy_intent: str,
+        confidence: float,
+        write_domain: str | None = None,
+        risk_flags: list[str] | None = None,
+        should_clarify: bool = False,
+        missing_fields: list[str] | None = None,
+        clarifying_question: str = "",
+        source: str = "modern_intent_router",
+    ) -> dict[str, Any]:
+        return {
+            "intent": legacy_intent,
+            "agent_intent": agent_intent,
+            "confidence": confidence,
+            "referenced_context": [],
+            "missing_fields": missing_fields or [],
+            "risk_flags": risk_flags or [],
+            "should_clarify": should_clarify,
+            "clarifying_question": clarifying_question,
+            "write_domain": write_domain,
+            "source": source,
+        }
+
+    def _modern_intent_from_keywords(
+        self,
+        text: str,
+        fallback: dict[str, Any],
+        conversation_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        lowered = text.lower()
+        stripped = text.strip()
+        if not stripped:
+            return self._modern_intent_payload(
+                agent_intent="clarification_needed",
+                legacy_intent="unclear",
+                confidence=0.9,
+                should_clarify=True,
+                clarifying_question="你想先问训练/饮食问题，还是让我帮你整理计划或记录数据？",
+            )
+
+        fallback_intent = str(fallback.get("intent") or "")
+        is_question = self._is_plain_read_only_question(text)
+        red_flag_markers = ("胸痛", "胸口疼", "晕厥", "晕倒", "头晕", "麻木", "刺痛", "处方", "药物", "800卡", "800 卡", "极低热量")
+        if any(marker in text for marker in red_flag_markers) or any(marker in lowered for marker in ("chest pain", "faint", "dizzy", "prescription")):
+            return self._modern_intent_payload(
+                agent_intent="safety_sensitive",
+                legacy_intent="health_answer",
+                confidence=0.9,
+                risk_flags=["red_flag"],
+                should_clarify=True,
+                missing_fields=["symptom_context"],
+                clarifying_question="如果症状正在发生，先停止训练并及时就医。这个不适出现多久了，强度大概 0-10 分是多少？",
+            )
+
+        if (
+            fallback.get("write_domain")
+            and fallback_intent not in {"plan_generate", "meal_plan"}
+            and not self._is_explicit_workout_plan_request(text)
+            and not self._is_nutrition_advice_request(text)
+        ):
+            return None
+        if fallback_intent in {"weekly_review", "daily_guidance"}:
+            return None
+
+        if self._is_general_direct_answer_request(text):
+            return self._modern_intent_payload(
+                agent_intent="direct_answer",
+                legacy_intent="health_answer",
+                confidence=0.86,
+            )
+
+        if self._is_explicit_meal_plan_request(text):
+            return self._modern_intent_payload(
+                agent_intent="meal_plan",
+                legacy_intent="meal_plan",
+                confidence=0.92,
+                write_domain="meal_plan",
+                missing_fields=[] if self._contains_marker(text, self.PLAN_GOAL_MARKERS) else ["goal"],
+            )
+
+        if self._is_explicit_workout_plan_request(text):
+            safety_first = self._contains_marker(text, self.SAFETY_CLARIFY_MARKERS)
+            missing_fields = [] if self._contains_marker(text, self.PLAN_GOAL_MARKERS) else ["goal"]
+            if safety_first:
+                missing_fields = self._dedupe_text_items([*missing_fields, "symptom_context"])
+            return self._modern_intent_payload(
+                agent_intent="workout_plan",
+                legacy_intent="plan_generate",
+                confidence=0.92,
+                write_domain="plan",
+                risk_flags=["pain_or_injury"] if safety_first else [],
+                should_clarify=safety_first,
+                missing_fields=missing_fields,
+                clarifying_question="先确认安全边界：疼痛或不适的位置、程度和持续时间是什么？",
+            )
+
+        pain_markers = ("膝盖疼", "膝盖痛", "肩膀疼", "肩痛", "腰痛", "受伤", "拉伤", "扭伤")
+        if any(marker in text for marker in pain_markers) or "pain" in lowered or "injury" in lowered:
+            return self._modern_intent_payload(
+                agent_intent="safety_sensitive",
+                legacy_intent="health_answer",
+                confidence=0.86,
+                risk_flags=["pain_or_injury"],
+            )
+
+        if fallback_intent in {"exercise_search", "location_search", "plan_answer"}:
+            return None
+
+        if self._is_vague_operation_request(text):
+            return self._modern_intent_payload(
+                agent_intent="clarification_needed",
+                legacy_intent="unclear",
+                confidence=0.78,
+                should_clarify=True,
+                clarifying_question="你想让我安排训练、饮食，还是记录一条健康数据？",
+            )
+
+        if is_question and any(marker in text for marker in self.USER_DATA_QUERY_MARKERS) and any(
+            marker in text for marker in ("我最近", "我的", "当前", "计划里", "历史", "记录", "明天练什么", "今天练什么")
+        ):
+            legacy_intent = "plan_answer" if any(marker in text for marker in ("计划", "练什么", "训练日")) else "health_answer"
+            return self._modern_intent_payload(
+                agent_intent="user_data_query",
+                legacy_intent=legacy_intent,
+                confidence=0.82,
+                source="modern_context_route",
+            )
+
+        context_heavy_markers = ("今天", "明天", "昨晚", "最近", "本周", "当前", "现在", "恢复", "疲劳", "很累", "睡")
+        if is_question and any(marker in text for marker in context_heavy_markers):
+            return None
+
+        if self._is_nutrition_advice_request(text):
+            return self._modern_intent_payload(
+                agent_intent="nutrition_advice",
+                legacy_intent="health_answer",
+                confidence=0.86,
+            )
+
+        if is_question and self._contains_marker(text, self.EXERCISE_INSTRUCTION_MARKERS):
+            return self._modern_intent_payload(
+                agent_intent="exercise_instruction",
+                legacy_intent="health_answer",
+                confidence=0.86,
+            )
+
+        if is_question and (self._contains_marker(text, self.FITNESS_KNOWLEDGE_MARKERS) or "fitness" in lowered or "workout" in lowered):
+            return self._modern_intent_payload(
+                agent_intent="fitness_knowledge",
+                legacy_intent="health_answer",
+                confidence=0.84,
+            )
+
+        if is_question and not self._contains_marker(text, self.OUT_OF_SCOPE_MARKERS):
+            return self._modern_intent_payload(
+                agent_intent="direct_answer",
+                legacy_intent="health_answer",
+                confidence=0.78,
+            )
+
+        if self._contains_marker(text, self.OUT_OF_SCOPE_MARKERS) and not any(
+            marker in text for marker in ("健身", "训练", "饮食", "动作", "恢复")
+        ):
+            return self._modern_intent_payload(
+                agent_intent="out_of_scope",
+                legacy_intent="health_answer",
+                confidence=0.8,
+            )
+
+        return None
+
+    def _has_read_fast_path_blocker(self, text: str, intent_name: str) -> bool:
+        if self._contains_marker(text, self.SAFETY_CLARIFY_MARKERS) or bool(
+            re.search(r"(胸|膝|腰|背|肩).{0,4}(疼|痛|伤|不舒服)|(?:疼|痛|伤).{0,4}(胸|膝|腰|背|肩)", text)
+        ):
+            return True
+        if any(marker in text for marker in ("现在", "当前", "待办", "复盘", "本周", "下周", "刚才", "那个", "第二天")):
+            return True
+        if intent_name == "health_answer" and any(
+            marker in text for marker in ("今天", "明天", "昨晚", "睡", "累", "疲劳", "恢复", "酸痛", "怎么练", "怎么安排", "晚餐", "早餐", "午餐")
+        ):
+            return True
+        if intent_name == "exercise_search" and any(
+            marker in text for marker in ("疼", "痛", "伤", "不跳", "低冲击", "不伤", "膝", "腰", "替代")
+        ):
+            return True
+        return intent_name in {"plan_answer", "location_search"}
+
+    def _is_obvious_read_only_request(self, text: str, fallback: dict[str, Any]) -> bool:
+        intent_name = str(fallback.get("intent") or "")
+        if fallback.get("write_domain"):
+            return False
+        if intent_name in {"weekly_review", "daily_guidance", "unclear"}:
+            return False
+        if self._contains_marker(text, self.HIGH_RISK_KEYWORDS):
+            return False
+        if self._contains_marker(text, self.OPERATION_MARKERS):
+            return False
+        if self._has_read_fast_path_blocker(text, intent_name):
+            return False
+        if self._is_exercise_recommendation_request(text):
+            return True
+        if intent_name == "exercise_search":
+            return True
+        if intent_name != "health_answer" or not self._is_plain_read_only_question(text):
+            return False
+        return any(marker in text.lower() for marker in ("rpe", "rm", "bmi")) or any(
+            marker in text for marker in ("解释", "是什么", "什么意思", "区别")
+        )
+
+    def _static_fast_read_payload(self, text: str, intent_name: str) -> dict[str, Any] | None:
+        language = self._detect_reply_language(text)
+        chinese = language == "Simplified Chinese"
+        lowered = text.lower()
+
+        if "rpe" in lowered:
+            if chinese:
+                return {
+                    "content": "RPE 7 可以理解成“有点吃力，但还留着余力”：这一组做完后，大概还能再做 3 次左右。用在力量训练里，它适合技术练习、增肌主项的中等偏上强度，通常不需要练到力竭。\n\n如果你今天状态一般，就把主项控制在 RPE 6-7；状态很好再偶尔推到 RPE 8。长期训练里，RPE 7 是一个很稳的工作强度。",
+                    "next_actions": ["告诉我你的训练动作", "帮我换算训练强度", "继续解释RPE 8"],
+                    "card_title": "RPE 7",
+                    "card_description": "中等偏上强度，通常还剩约 3 次余力。",
+                    "card_bullets": ["主观感受：吃力但可控", "余力：大约还能做 3 次", "适合：技术稳定、不过度力竭的训练组"],
+                }
+            return {
+                "content": "RPE 7 means the set feels challenging but controlled. You would usually have about 3 reps left in reserve, so it is useful for productive training without pushing to failure.\n\nOn an average day, keeping main work around RPE 6-7 is a steady choice. Save RPE 8+ for days when technique and recovery both feel solid.",
+                "next_actions": ["Tell me your lift", "Convert my training intensity", "Explain RPE 8"],
+                "card_title": "RPE 7",
+                "card_description": "A controlled hard set with roughly 3 reps in reserve.",
+                "card_bullets": ["Feels challenging but controlled", "Around 3 reps in reserve", "Good for productive non-failure work"],
+            }
+
+        if intent_name == "exercise_search" and self._is_exercise_recommendation_request(text):
+            focus = self._detect_plan_focus(text) or "full_body"
+            recommendations: dict[str, list[str]] = {
+                "chest": ["俯卧撑", "杠铃卧推", "上斜哑铃卧推", "绳索夹胸"],
+                "back": ["高位下拉", "坐姿划船", "哑铃划船", "面拉"],
+                "legs": ["高脚杯深蹲", "罗马尼亚硬拉", "臀桥", "保加利亚分腿蹲"],
+                "shoulders": ["哑铃推举", "侧平举", "反向飞鸟", "面拉"],
+                "arms": ["哑铃弯举", "绳索下压", "锤式弯举", "窄距俯卧撑"],
+                "full_body": ["深蹲", "俯卧撑", "划船", "平板支撑"],
+            }
+            names = recommendations.get(focus, recommendations["full_body"])
+            if chinese:
+                return {
+                    "content": f"可以，先给你一组好上手的动作：{names[0]}、{names[1]}、{names[2]}、{names[3]}。\n\n如果你是增肌取向，每个动作做 3-4 组，每组 8-12 次，最后 2-3 次有点吃力但动作不变形就刚好。先从前 3 个动作开始就够了，不用一上来堆太多量。",
+                    "next_actions": ["按器械条件细化", "安排成一次训练", "换成徒手版本"],
+                    "card_title": "动作推荐",
+                    "card_description": "先选 3-4 个动作，控制动作质量和渐进负重。",
+                    "card_bullets": names,
+                }
+            return {
+                "content": f"Sure. A simple set of options: {names[0]}, {names[1]}, {names[2]}, and {names[3]}.\n\nFor muscle gain, use 3-4 sets of 8-12 reps and keep the last few reps challenging without losing form. Start with three movements first; you do not need a huge menu to get a good session.",
+                "next_actions": ["Adapt to my equipment", "Turn it into one session", "Make it bodyweight"],
+                "card_title": "Exercise Picks",
+                "card_description": "Pick 3-4 movements and keep the work controlled.",
+                "card_bullets": names,
+            }
+
+        return None
 
     def _plan_generation_slots(self, current_text: str, conversation_context: dict[str, Any]) -> dict[str, Any]:
         user_texts = self._conversation_texts_by_role(conversation_context, "user")
@@ -685,7 +1423,13 @@ class HealthAgentRuntime:
         conversation_context: dict[str, Any],
         fallback: dict[str, Any],
     ) -> dict[str, Any] | None:
+        if self._is_general_direct_answer_request(request.text):
+            return None
+        if self._is_nutrition_advice_request(request.text):
+            return None
         if self._is_exercise_recommendation_request(request.text):
+            return None
+        if not self._is_contextual_plan_followup(request.text):
             return None
         if self._is_strong_keyword_write_intent(request.text, fallback) and fallback.get("intent") != "plan_generate":
             return None
@@ -744,6 +1488,8 @@ class HealthAgentRuntime:
 
     def _operation_label(self, intent_name: str, write_domain: str | None) -> str:
         labels = {
+            "workout_plan": "生成训练计划",
+            "meal_plan": "生成饮食计划",
             "plan_generate": "生成训练计划",
             "plan_adjust": "调整训练计划",
             "workout_log": "记录训练日志",
@@ -754,6 +1500,7 @@ class HealthAgentRuntime:
         }
         domain_labels = {
             "plan": "整理训练计划操作",
+            "meal_plan": "整理饮食计划操作",
             "workout_log": "记录训练日志",
             "daily_checkin": "记录今日状态",
             "body_metric": "记录身体指标",
@@ -825,7 +1572,7 @@ class HealthAgentRuntime:
         def ask(question: str, chips: list[str], mode: str = "clarify") -> dict[str, Any]:
             return {"ready": False, "mode": mode, "question": question, "chips": chips[:3]}
 
-        if intent_name == "plan_generate" or (write_domain == "plan" and intent_name == "unclear"):
+        if intent_name in {"plan_generate", "workout_plan"} or (write_domain == "plan" and intent_name == "unclear"):
             slots = self._plan_generation_slots(text, conversation_context)
             has_goal = bool(slots.get("goal")) or self._contains_marker(text, self.PLAN_GOAL_MARKERS)
             has_frequency = bool(slots.get("frequency")) or self._contains_marker(text, self.PLAN_FREQUENCY_MARKERS) or bool(
@@ -835,6 +1582,16 @@ class HealthAgentRuntime:
                 return ask("这份计划的目标更偏增肌、减脂还是力量提升？", ["增肌", "减脂", "提升力量"])
             if "frequency" in missing_fields or not has_frequency:
                 return ask("这份计划按单次训练，还是一周几天来排？", ["今天一次", "一周3天", "一周4天"])
+            return ready()
+
+        if intent_name == "meal_plan" or write_domain == "meal_plan":
+            has_goal = self._contains_marker(text, self.PLAN_GOAL_MARKERS) or any(
+                marker in text for marker in ("控体重", "健康饮食", "维持", "减肥", "减重")
+            )
+            if "goal" in missing_fields or not has_goal:
+                return ask("这份饮食计划的目标更偏减脂、增肌，还是维持健康饮食？", ["减脂", "增肌", "维持健康饮食"])
+            if any(marker in text for marker in ("800卡", "极低热量", "不吃主食", "断食")):
+                return ask("这个饮食目标风险偏高，我不能直接生成极端方案。你愿意改成温和热量缺口和高蛋白版本吗？", ["温和减脂", "先给原则建议", "我补充身体数据"])
             return ready()
 
         if intent_name == "plan_adjust":
@@ -930,7 +1687,7 @@ class HealthAgentRuntime:
                 "planner": {**answer_planner, "dialogue_mode": "answer", "implicit_memory_candidate": True},
             }
 
-        if write_domain and write_domain in {"plan", "workout_log", "diet_log"} and self._has_safety_clarification_signal(request.text, intent):
+        if write_domain and write_domain in {"plan", "meal_plan", "workout_log", "diet_log"} and self._has_safety_clarification_signal(request.text, intent):
             question = "先确认安全边界：这个疼痛或不适现在是什么位置、程度和持续时间？"
             safe_planner = self._planner_without_write_tools(planner, action="clarify", write_domain=write_domain)
             return {
@@ -941,7 +1698,7 @@ class HealthAgentRuntime:
                 "planner": {**safe_planner, "dialogue_mode": "clarify", "dialogue_reason": "safety_first"},
             }
 
-        if write_domain == "plan" and intent_name in {"plan_generate", "unclear"}:
+        if write_domain == "plan" and intent_name in {"plan_generate", "workout_plan", "unclear"}:
             readiness = self._operation_readiness(request, conversation_context, intent, planner, write_domain)
             if not readiness["ready"]:
                 safe_planner = self._planner_without_write_tools(planner, action="clarify", write_domain=write_domain)
@@ -1047,24 +1804,34 @@ class HealthAgentRuntime:
         current_message: str,
         authorization: str | None,
     ) -> dict[str, Any]:
-        messages: list[dict[str, Any]] = []
-        thread_summary = ""
-        memory_summary: dict[str, Any] = {}
-        try:
-            messages = await self.store.list_messages(thread_id, authorization)
-        except Exception as exc:
-            logger.warning("Unable to load thread messages for intent context: %s", exc)
-        try:
-            thread = await self.store.get_thread(thread_id, authorization)
-            thread_summary = str(thread.get("summary") or "")
-        except Exception as exc:
-            logger.warning("Unable to load thread summary for intent context: %s", exc)
-        try:
-            memory = await self.tools.get_memory_summary(authorization=authorization)
-            if memory.ok:
-                memory_summary = memory.data
-        except Exception as exc:
-            logger.warning("Unable to load memory summary for intent context: %s", exc)
+        async def read_messages() -> list[dict[str, Any]]:
+            try:
+                return await self.store.list_messages(thread_id, authorization)
+            except Exception as exc:
+                logger.warning("Unable to load thread messages for intent context: %s", exc)
+                return []
+
+        async def read_thread_summary() -> str:
+            try:
+                thread = await self.store.get_thread(thread_id, authorization)
+                return str(thread.get("summary") or "")
+            except Exception as exc:
+                logger.warning("Unable to load thread summary for intent context: %s", exc)
+                return ""
+
+        async def read_memory_summary() -> dict[str, Any]:
+            try:
+                memory = await self.tools.get_memory_summary(authorization=authorization)
+                return memory.data if memory.ok else {}
+            except Exception as exc:
+                logger.warning("Unable to load memory summary for intent context: %s", exc)
+                return {}
+
+        messages, thread_summary, memory_summary = await asyncio.gather(
+            read_messages(),
+            read_thread_summary(),
+            read_memory_summary(),
+        )
 
         recent_messages = [
             {
@@ -1087,20 +1854,38 @@ class HealthAgentRuntime:
         conversation_context: dict[str, Any],
     ) -> tuple[dict[str, Any], StructuredLLMResult | None, str | None]:
         fallback = self._fallback_intent_from_keywords(request.text)
-        if not self.llm.is_enabled():
-            return fallback, None, "llm_disabled"
+        modern_intent = self._modern_intent_from_keywords(request.text, fallback, conversation_context)
+        if modern_intent is not None:
+            return modern_intent, None, None
         contextual_intent = self._contextual_plan_intent(request, conversation_context, fallback)
         if contextual_intent is not None:
             return contextual_intent, None, None
+        if not self.llm.is_enabled():
+            return fallback, None, "llm_disabled"
+        if self._is_obvious_read_only_request(request.text, fallback):
+            return {
+                **fallback,
+                "confidence": max(float(fallback.get("confidence") or 0.0), 0.82),
+                "agent_intent": "exercise_instruction" if fallback.get("intent") == "exercise_search" else "direct_answer",
+                "write_domain": None,
+                "should_clarify": False,
+                "missing_fields": [],
+                "clarifying_question": "",
+                "source": "keyword_read_fast_path",
+            }, None, None
 
         system_prompt = (
             "You classify user intent for a fitness coaching agent. Return JSON only. "
             "Do not answer the user. Use the provided conversation context to resolve follow-ups. "
+            "Default to direct_answer, fitness_knowledge, exercise_instruction, nutrition_advice, or safety_sensitive for ordinary questions. "
+            "Only classify workout_plan/plan_generate or meal_plan when the user explicitly asks you to create, build, arrange, schedule, or plan a training or diet program. "
+            "Do not treat general advice questions as plan requests. "
             "Allowed intent values: health_answer, plan_answer, plan_generate, plan_adjust, workout_log, "
             "checkin_log, body_metric_log, diet_log, memory_save, weekly_review, daily_guidance, "
-            "exercise_search, location_search, unclear. "
+            "exercise_search, location_search, direct_answer, fitness_knowledge, exercise_instruction, "
+            "nutrition_advice, workout_plan, meal_plan, user_data_query, clarification_needed, safety_sensitive, out_of_scope, unclear. "
             "Return keys: intent, confidence, referenced_context, missing_fields, risk_flags, "
-            "should_clarify, clarifying_question, write_domain."
+            "should_clarify, clarifying_question, write_domain, agent_intent."
         )
         user_prompt = json.dumps(
             {
@@ -1117,8 +1902,38 @@ class HealthAgentRuntime:
         if not result.ok:
             return fallback, result, result.error_code or "llm_classifier_failed"
         normalized = self._normalize_intent_result(result.data, fallback)
+        normalized_intent = str(normalized.get("intent") or "")
+        normalized_domain = str(normalized.get("write_domain") or "")
+        if (
+            normalized_intent in {"plan_generate", "workout_plan"}
+            or (normalized_domain == "plan" and normalized_intent not in {"plan_adjust", "unclear"})
+        ) and not self._is_strong_keyword_write_intent(request.text, fallback) and not (
+            self._is_explicit_workout_plan_request(request.text)
+            or self._is_plan_generation_request(request.text)
+        ):
+            guarded_fallback = {**fallback, "write_domain": None}
+            guarded = self._modern_intent_from_keywords(request.text, guarded_fallback, conversation_context) or {
+                **guarded_fallback,
+                "intent": "health_answer",
+                "agent_intent": "direct_answer",
+                "confidence": max(float(fallback.get("confidence") or 0.0), 0.78),
+                "should_clarify": False,
+                "missing_fields": [],
+                "clarifying_question": "",
+                "source": "plan_write_guard",
+            }
+            return {
+                **guarded,
+                "write_domain": None,
+                "source": "plan_write_guard",
+                "overrode_llm_intent": {
+                    "intent": normalized_intent,
+                    "write_domain": normalized_domain or None,
+                    "confidence": normalized.get("confidence"),
+                },
+            }, result, None
         if self._is_exercise_recommendation_request(request.text) and (
-            str(normalized.get("intent") or "") != "exercise_search"
+            normalized_intent != "exercise_search"
             or bool(normalized.get("write_domain"))
             or self._coerce_bool(normalized.get("should_clarify"))
         ):
@@ -1139,8 +1954,6 @@ class HealthAgentRuntime:
             }, result, None
         if self._is_strong_keyword_write_intent(request.text, fallback):
             fallback_domain = str(fallback.get("write_domain") or "")
-            normalized_domain = str(normalized.get("write_domain") or "")
-            normalized_intent = str(normalized.get("intent") or "")
             fallback_intent = str(fallback.get("intent") or "")
             if normalized_domain != fallback_domain or (
                 fallback_intent == "plan_adjust" and normalized_intent == "plan_generate"
@@ -1158,19 +1971,43 @@ class HealthAgentRuntime:
 
     def _fallback_planner_from_intent(self, intent: dict[str, Any], request: PostMessageRequest) -> dict[str, Any]:
         intent_name = str(intent.get("intent") or "health_answer")
+        agent_intent = str(intent.get("agent_intent") or "")
         write_domain = self._normalize_write_domain(
             intent.get("write_domain"),
             intent=intent_name,
             fallback=self.WRITE_INTENT_TO_DOMAIN.get(intent_name),
         )
+        guarded_plan_write = False
+        if (
+            write_domain == "plan"
+            and intent_name in {"plan_generate", "workout_plan"}
+            and str(intent.get("source") or "") != "contextual_plan_flow"
+            and not self._is_explicit_workout_plan_request(request.text)
+            and not self._is_plan_generation_request(request.text)
+        ):
+            write_domain = None
+            intent_name = "health_answer"
+            agent_intent = agent_intent or "direct_answer"
+            guarded_plan_write = True
         tools: list[dict[str, Any]] = []
         action = "answer"
-        risk_level = "medium" if intent_name.startswith("plan") else "low"
+        risk_level = "medium" if intent_name.startswith("plan") or write_domain in {"plan", "meal_plan"} else "low"
+        if agent_intent == "safety_sensitive" or self._has_safety_clarification_signal(request.text, intent):
+            risk_level = "high"
 
         if intent_name in {"weekly_review", "daily_guidance"}:
             action = "legacy_route"
         elif write_domain:
             action = "propose"
+            if write_domain == "plan" and intent_name in {"plan_generate", "workout_plan"}:
+                tools.extend(
+                    [
+                        {"name": "get_coach_summary", "arguments": {}, "purpose": "Read recent coaching context."},
+                        {"name": "get_exercise_catalog", "arguments": {}, "purpose": "Read exercise options."},
+                    ]
+                )
+            elif write_domain == "meal_plan":
+                tools.append({"name": "get_memory_summary", "arguments": {}, "purpose": "Read nutrition preferences and constraints."})
             tools.append(
                 {
                     "name": "create_action_proposal",
@@ -1182,6 +2019,14 @@ class HealthAgentRuntime:
             tools.extend(
                 [
                     {"name": "load_current_plan", "arguments": {}, "purpose": "Read the current active plan."},
+                    {"name": "get_memory_summary", "arguments": {}, "purpose": "Read relevant coaching preferences."},
+                ]
+            )
+            risk_level = "medium"
+        elif agent_intent == "user_data_query":
+            tools.extend(
+                [
+                    {"name": "get_coach_summary", "arguments": {}, "purpose": "Read recent training, recovery, and nutrition context."},
                     {"name": "get_memory_summary", "arguments": {}, "purpose": "Read relevant coaching preferences."},
                 ]
             )
@@ -1204,23 +2049,26 @@ class HealthAgentRuntime:
                 )
             elif request.location_hint:
                 tools.append({"name": "geocode_location", "arguments": {"location": request.location_hint}, "purpose": "Resolve location."})
-        else:
-            tools.extend(
-                [
-                    {"name": "get_coach_summary", "arguments": {}, "purpose": "Read recent health and coaching context."},
-                    {"name": "get_memory_summary", "arguments": {}, "purpose": "Read long-lived preferences and constraints."},
-                ]
-            )
+
+        if write_domain and self._has_safety_clarification_signal(request.text, intent):
+            action = "clarify"
+            tools = []
+            risk_level = "high"
+
+        if self._coerce_bool(intent.get("should_clarify")) and not write_domain:
+            action = "clarify"
+            tools = []
+            risk_level = "high" if agent_intent == "safety_sensitive" else risk_level
 
         return {
             "action": action,
             "tools": tools[:4],
-            "requires_proposal": bool(write_domain),
+            "requires_proposal": bool(write_domain) and action == "propose",
             "write_domain": write_domain,
             "response_style": "normal",
             "missing_fields": intent.get("missing_fields") or [],
             "risk_level": risk_level,
-            "source": "fallback_planner",
+            "source": "plan_write_guard" if guarded_plan_write else "fallback_planner",
         }
 
     def _normalize_planner_decision(self, raw: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
@@ -1308,12 +2156,14 @@ class HealthAgentRuntime:
         fallback = self._fallback_planner_from_intent(intent, request)
         if degraded_reason or not self.llm.is_enabled():
             return fallback, None, degraded_reason or "llm_disabled"
-        if intent.get("source") == "contextual_plan_flow":
+        if intent.get("source") in {"contextual_plan_flow", "keyword_read_fast_path", "modern_intent_router", "modern_context_route"}:
             return fallback, None, None
 
         system_prompt = (
             "You are the planner for a safe fitness coaching agent. Return JSON only and do not answer the user. "
             "Choose from actions: answer, clarify, propose, legacy_route. "
+            "Default to answer for direct_answer, fitness_knowledge, exercise_instruction, nutrition_advice, safety_sensitive, and out_of_scope. "
+            "Use propose only when write_domain is present from an explicit write or explicit plan request. "
             "Allowed tools: get_coach_summary, load_current_plan, get_memory_summary, get_workspace_summary, "
             "get_exercise_catalog, get_recovery_guidance, geocode_location, reverse_geocode, search_nearby_places, "
             "create_action_proposal. "
@@ -1336,6 +2186,33 @@ class HealthAgentRuntime:
         normalized = self._normalize_planner_decision(result.data, fallback)
         keyword_fallback = self._fallback_intent_from_keywords(request.text)
         has_write_tool = any(str(tool.get("name") or "") == "create_action_proposal" for tool in normalized.get("tools") or [])
+        read_only_agent_intents = {
+            "direct_answer",
+            "fitness_knowledge",
+            "exercise_instruction",
+            "nutrition_advice",
+            "safety_sensitive",
+            "out_of_scope",
+        }
+        if str(intent.get("agent_intent") or intent.get("intent") or "") in read_only_agent_intents and (
+            bool(normalized.get("write_domain"))
+            or self._coerce_bool(normalized.get("requires_proposal"))
+            or has_write_tool
+            or str(normalized.get("action") or "") == "propose"
+        ):
+            return {
+                **fallback,
+                "action": "answer" if not self._coerce_bool(intent.get("should_clarify")) else "clarify",
+                "tools": [],
+                "requires_proposal": False,
+                "write_domain": None,
+                "source": "read_only_planner_override",
+                "overrode_llm_planner": {
+                    "action": normalized.get("action"),
+                    "write_domain": normalized.get("write_domain"),
+                    "missing_fields": normalized.get("missing_fields") or [],
+                },
+            }, result, None
         if self._is_exercise_recommendation_request(request.text) and (
             str(normalized.get("action") or "") != "answer"
             or bool(normalized.get("write_domain"))
@@ -1558,9 +2435,9 @@ class HealthAgentRuntime:
         return observations, tool_events, proposal_drafts, validation_warnings
 
     def _card_type_for_intent(self, intent: str) -> str:
-        if intent.startswith("plan"):
+        if intent.startswith("plan") or intent in {"workout_plan", "meal_plan"}:
             return "workout_plan_card"
-        if intent == "exercise_search":
+        if intent in {"exercise_search", "exercise_instruction"}:
             return "exercise_card"
         if intent == "location_search":
             return "place_result_card"
@@ -1842,20 +2719,24 @@ class HealthAgentRuntime:
         ):
             return "memory"
 
+        if self._is_explicit_meal_plan_request(text):
+            return "meal_plan"
+
         if any(keyword in text for keyword in ("睡", "步", "喝水", "疲劳", "打卡")) and any(
             verb in text for verb in ("记录", "录入", "补充", "添加", "写入")
         ):
             return "daily_checkin"
 
-        if self._contains_marker(text, self.DIET_DETAIL_MARKERS) and (
-            has_operation_marker or any(keyword in text for keyword in ("吃了", "喝了", "午饭", "晚饭", "早餐", "加餐"))
-        ):
+        if self._has_diet_log_write_signal(text):
             return "diet_log"
 
         if any(keyword in text for keyword in ("训练了", "练了", "workout", "训练日志", "训练记录", "锻炼")) and any(
             verb in text for verb in ("记录", "录入", "添加", "写入")
         ):
             return "workout_log"
+
+        if self._is_explicit_workout_plan_request(text):
+            return "plan"
 
         if any(keyword in text for keyword in self.PLAN_KEYWORDS) and any(
             verb in text for verb in ("修改", "调整", "删除", "删掉", "生成", "创建", "新增", "添加", "标记", "完成", "替换")
@@ -3329,6 +4210,8 @@ class HealthAgentRuntime:
             return self._workout_log_proposals(user_text)
         if domain == "diet_log":
             return self._diet_log_proposals(user_text)
+        if domain == "meal_plan":
+            return self._meal_plan_proposals(user_text)
         if domain == "plan":
             return self._plan_proposals(user_text, context)
         if domain == "memory":
@@ -3531,6 +4414,10 @@ class HealthAgentRuntime:
 
         payload = {"weightKg": weight}
         preview: dict[str, Any] = {"体重(kg)": weight}
+        recorded_at, date_label = self._body_metric_recorded_at_from_text(user_text)
+        if recorded_at:
+            payload["recordedAt"] = recorded_at
+            preview["日期"] = date_label or recorded_at[:10]
         if body_fat is not None:
             payload["bodyFatPct"] = body_fat
             preview["体脂(%)"] = body_fat
@@ -3538,16 +4425,55 @@ class HealthAgentRuntime:
             payload["waistCm"] = waist
             preview["腰围(cm)"] = waist
 
+        summary_prefix = f"记录{date_label}身体指标" if date_label else "记录身体指标"
         return [
             self._draft_proposal(
                 action_type="create_body_metric",
                 entity_type="body_metric",
                 title=self._proposal_title("create_body_metric"),
-                summary=f"记录最新身体指标，体重 {weight} kg。",
+                summary=f"{summary_prefix}，体重 {weight} kg。",
                 payload=payload,
                 preview=preview,
             )
         ]
+
+    def _body_metric_recorded_at_from_text(self, user_text: str) -> tuple[str | None, str | None]:
+        lowered = user_text.lower()
+        now = datetime.now().astimezone()
+        for markers, day_offset, label in (
+            (("前天", "the day before yesterday"), -2, "前天"),
+            (("昨天", "昨日", "昨晚", "yesterday"), -1, "昨天"),
+            (("今天", "今日", "今早", "今晚", "today"), 0, "今天"),
+        ):
+            if any(marker in lowered for marker in markers):
+                target = now + timedelta(days=day_offset)
+                return self._body_metric_recorded_at_iso(target.year, target.month, target.day), label
+
+        full_date = re.search(r"(?<!\d)(19\d{2}|20\d{2})[年/\-.](\d{1,2})[月/\-.](\d{1,2})(?:日|号)?", user_text)
+        if full_date:
+            recorded_at = self._body_metric_recorded_at_iso(
+                int(full_date.group(1)),
+                int(full_date.group(2)),
+                int(full_date.group(3)),
+            )
+            if recorded_at:
+                return recorded_at, recorded_at[:10]
+
+        month_day = re.search(r"(?<!\d)(\d{1,2})月(\d{1,2})(?:日|号)?", user_text)
+        if month_day:
+            recorded_at = self._body_metric_recorded_at_iso(now.year, int(month_day.group(1)), int(month_day.group(2)))
+            if recorded_at:
+                return recorded_at, recorded_at[:10]
+
+        return None, None
+
+    def _body_metric_recorded_at_iso(self, year: int, month: int, day: int) -> str | None:
+        try:
+            local_now = datetime.now().astimezone()
+            recorded_at = local_now.replace(year=year, month=month, day=day, hour=12, minute=0, second=0, microsecond=0)
+        except ValueError:
+            return None
+        return recorded_at.isoformat()
 
     def _daily_checkin_proposals(self, user_text: str) -> list[dict[str, Any]]:
         sleep = self._extract_number([r"睡[^\d]*(\d+(?:\.\d+)?)\s*(?:小时|h|hour)", r"sleep[^\d]*(\d+(?:\.\d+)?)"], user_text)
@@ -3651,6 +4577,74 @@ class HealthAgentRuntime:
                 summary="记录一条饮食日志。",
                 payload=payload,
                 preview=preview,
+            )
+        ]
+
+    def _meal_plan_proposals(self, user_text: str) -> list[dict[str, Any]]:
+        goal = self._detect_plan_goal(user_text) or "maintenance"
+        if any(marker in user_text for marker in ("减肥", "减重", "控体重")):
+            goal = "fat_loss"
+
+        calorie = self._extract_number(
+            [r"(\d+(?:\.\d+)?)\s*(?:卡|千卡|kcal)", r"calorie[^\d]*(\d+(?:\.\d+)?)"],
+            user_text,
+        )
+        if calorie is None:
+            calorie = 1800 if goal == "fat_loss" else 2400 if goal == "muscle_gain" else 2100
+        target_calorie = max(1200, int(calorie))
+        protein = 130 if goal == "fat_loss" else 150 if goal == "muscle_gain" else 120
+        today = datetime.now().astimezone().date().isoformat()
+
+        if goal == "fat_loss":
+            meal_strategy = "温和热量缺口，优先保证蛋白质、蔬菜和训练日前后的碳水。"
+            dinner_calorie = max(450, target_calorie - 1150)
+        elif goal == "muscle_gain":
+            meal_strategy = "小幅热量盈余，三餐都有蛋白质，训练前后补足碳水。"
+            dinner_calorie = max(650, target_calorie - 1450)
+        else:
+            meal_strategy = "稳定总热量，蛋白质足量，主食和蔬菜按训练量灵活调整。"
+            dinner_calorie = max(550, target_calorie - 1250)
+
+        meals = [
+            {"mealType": "breakfast", "totalCalorie": 450, "foods": ["高蛋白主食", "水果或蔬菜"]},
+            {"mealType": "lunch", "totalCalorie": 700 if goal != "muscle_gain" else 850, "foods": ["优质蛋白", "米饭或杂粮", "蔬菜"]},
+            {"mealType": "dinner", "totalCalorie": dinner_calorie, "foods": ["瘦肉/鱼/豆制品", "蔬菜", "适量主食"]},
+        ]
+        payload = {
+            "date": today,
+            "userGoal": goal,
+            "totalCalorie": target_calorie,
+            "targetCalorie": target_calorie,
+            "proteinGrams": protein,
+            "nutritionRatio": {"carbohydrate": 45, "protein": 30, "fat": 25},
+            "nutritionDetail": {
+                "protein": {"target": protein, "recommend": protein, "remaining": 0},
+                "carbohydrate": {"target": int(target_calorie * 0.45 / 4), "recommend": int(target_calorie * 0.45 / 4), "remaining": 0},
+                "fat": {"target": int(target_calorie * 0.25 / 9), "recommend": int(target_calorie * 0.25 / 9), "remaining": 0},
+            },
+            "meals": meals,
+            "agentTips": [
+                "不要采用极端低热量方案。",
+                "每餐先保证蛋白质，再按训练量分配主食。",
+                "如果有疾病、用药或饮食禁忌，需要按医生或营养师建议调整。",
+            ],
+            "restrictionNotes": [],
+            "mealStrategy": meal_strategy,
+        }
+        return [
+            self._draft_proposal(
+                action_type="generate_diet_snapshot",
+                entity_type="diet_snapshot",
+                title=self._proposal_title("generate_diet_snapshot"),
+                summary="生成一份待确认的饮食计划快照。",
+                payload=payload,
+                preview={
+                    "目标": self._plan_goal_label(goal),
+                    "热量目标": target_calorie,
+                    "蛋白目标(g)": protein,
+                    "餐次": len(meals),
+                    "策略": meal_strategy,
+                },
             )
         ]
 
@@ -3953,6 +4947,14 @@ class HealthAgentRuntime:
             if not isinstance(preview, dict):
                 warnings.append(f"忽略了 preview 非法的提案：{proposal.get('title', action_type)}。")
                 continue
+            if action_type == "generate_diet_snapshot":
+                try:
+                    target_calorie = float(payload.get("targetCalorie") or payload.get("totalCalorie") or 0)
+                except (TypeError, ValueError):
+                    target_calorie = 0
+                if target_calorie and target_calorie < 1200:
+                    warnings.append("已忽略极低热量饮食方案，建议改成更温和、安全的热量缺口。")
+                    continue
 
             valid.append(proposal)
 
@@ -4801,7 +5803,7 @@ class HealthAgentRuntime:
             content = f"我尝试执行“{proposal['title']}”时失败了，请重新生成这条提案后再试。"
             reasoning_summary = "执行阶段返回失败，因此这次不把它视为成功写库。"
 
-        cards = [self._build_result_card(proposal_id, title, description, result_payload, proposal_status)]
+        cards = [] if ok else [self._build_result_card(proposal_id, title, description, result_payload, proposal_status)]
         message = await self._append_assistant_message(
             str(proposal["thread_id"]),
             content,

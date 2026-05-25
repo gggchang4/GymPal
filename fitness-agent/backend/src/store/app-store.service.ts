@@ -21,6 +21,7 @@ export interface BodyMetricRecord {
   weightKg: number;
   bodyFatPct?: number;
   waistCm?: number;
+  recordedAt?: Date | string;
 }
 
 export interface DailyCheckinRecord {
@@ -476,7 +477,8 @@ export class AppStoreService {
         userId: payload.userId,
         weightKg: payload.weightKg,
         bodyFatPct: payload.bodyFatPct,
-        waistCm: payload.waistCm
+        waistCm: payload.waistCm,
+        recordedAt: normalizeOptionalDate(payload.recordedAt)
       }
     });
   }
