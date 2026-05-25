@@ -18,7 +18,7 @@ import {
 import { clearAgentIntentHint, readAgentIntentHint, readAgentThreadId, writeAgentThreadId } from "@/lib/agent-thread";
 import { readAuthAccessToken, subscribeAuthChange } from "@/lib/auth";
 import { appRoutes } from "@/lib/routes";
-import type { AgentActionProposal, AgentMessage, PostMessageResponse, RecommendationFeedbackType } from "@/lib/types";
+import type { AgentActionProposal, AgentCard, AgentMessage, PostMessageResponse, RecommendationFeedbackType } from "@/lib/types";
 
 const initialMessages: AgentMessage[] = [
   {
@@ -71,6 +71,32 @@ function buildAgentMeta(response: PostMessageResponse) {
     hasDetail: response.degradedMode || nextActions.length > 0 || Boolean(response.clarification) || response.usedMemories.length > 0,
     toolCount: response.toolEvents.filter((event) => event.event === "tool_call_completed").length
   };
+}
+
+function isOpenProposalStatus(status: string) {
+  return status === "pending" || status === "approved";
+}
+
+function markCardStatus(cards: AgentCard[] | undefined, targetId: string, status: string, target: "proposal" | "proposalGroup") {
+  if (!cards?.length) {
+    return cards;
+  }
+
+  const idField = target === "proposal" ? "proposalId" : "proposalGroupId";
+  return cards.map((card) => {
+    const cardId = card.data?.[idField];
+    if (cardId !== targetId) {
+      return card;
+    }
+
+    return {
+      ...card,
+      data: {
+        ...(card.data ?? {}),
+        status
+      }
+    };
+  });
 }
 
 export default function ChatPage() {
@@ -224,17 +250,52 @@ export default function ChatPage() {
       const activeThreadId = await ensureThread();
       const response = await postMessage(activeThreadId, content);
       setLastAgentMeta(buildAgentMeta(response));
-      await refreshMessages(activeThreadId);
+      setMessages((current) =>
+        current.some((message) => message.id === placeholderMessage.id)
+          ? current.map((message) =>
+              message.id === placeholderMessage.id
+                ? {
+                    id: response.id,
+                    role: response.role,
+                    content: response.content,
+                    cards: response.cards
+                  }
+                : message
+            )
+          : [
+              ...current,
+              userMessage,
+              {
+                id: response.id,
+                role: response.role,
+                content: response.content,
+                cards: response.cards
+              }
+            ]
+      );
+      void getThreadProposals(activeThreadId)
+        .then((proposals) => {
+          if (mountedRef.current) {
+            setPendingProposals(proposals.filter((proposal) => isOpenProposalStatus(proposal.status)));
+          }
+        })
+        .catch(() => {
+          if (mountedRef.current) {
+            setStatus("回复已收到，待确认事项稍后同步");
+          }
+        });
       setStatus(response.degradedMode ? "GymPal 当前使用受限模式" : "已同步最新消息");
     } catch (error) {
-      setMessages((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: buildErrorMessage(error, "message")
-        }
-      ]);
+      const errorMessage: AgentMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: buildErrorMessage(error, "message")
+      };
+      setMessages((current) =>
+        current.some((message) => message.id === placeholderMessage.id)
+          ? current.map((message) => (message.id === placeholderMessage.id ? errorMessage : message))
+          : [...current, errorMessage]
+      );
       setLastAgentMeta(null);
       setStatus("消息发送失败");
     } finally {
@@ -253,13 +314,32 @@ export default function ChatPage() {
     setStatus(decision === "approve" ? "正在执行提案" : "正在拒绝提案");
 
     try {
+      const response =
+        decision === "approve"
+          ? await approveProposal(proposalId)
+          : await rejectProposal(proposalId);
       if (decision === "approve") {
-        await approveProposal(proposalId);
-      } else {
-        await rejectProposal(proposalId);
+        setPendingProposals((current) => current.filter((proposal) => proposal.id !== proposalId));
       }
-
-      await refreshMessages(threadId);
+      setMessages((current) => [
+        ...current.map((message) => ({
+          ...message,
+          cards: markCardStatus(message.cards, proposalId, response.status, "proposal")
+        })),
+        {
+          id: response.id,
+          role: response.role,
+          content: response.content,
+          cards: response.cards
+        }
+      ]);
+      void getThreadProposals(threadId)
+        .then((proposals) => {
+          if (mountedRef.current) {
+            setPendingProposals(proposals.filter((proposal) => isOpenProposalStatus(proposal.status)));
+          }
+        })
+        .catch(() => undefined);
       setStatus("提案状态已更新");
     } catch (error) {
       setMessages((current) => [
@@ -287,13 +367,32 @@ export default function ChatPage() {
     setStatus(decision === "approve" ? "正在执行教练包" : "正在拒绝教练包");
 
     try {
+      const response =
+        decision === "approve"
+          ? await approveProposalGroup(proposalGroupId)
+          : await rejectProposalGroup(proposalGroupId);
       if (decision === "approve") {
-        await approveProposalGroup(proposalGroupId);
-      } else {
-        await rejectProposalGroup(proposalGroupId);
+        setPendingProposals([]);
       }
-
-      await refreshMessages(threadId);
+      setMessages((current) => [
+        ...current.map((message) => ({
+          ...message,
+          cards: markCardStatus(message.cards, proposalGroupId, response.status, "proposalGroup")
+        })),
+        {
+          id: response.id,
+          role: response.role,
+          content: response.content,
+          cards: response.cards
+        }
+      ]);
+      void getThreadProposals(threadId)
+        .then((proposals) => {
+          if (mountedRef.current) {
+            setPendingProposals(proposals.filter((proposal) => isOpenProposalStatus(proposal.status)));
+          }
+        })
+        .catch(() => undefined);
       setStatus("教练包状态已更新");
     } catch (error) {
       setMessages((current) => [

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -231,6 +232,40 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(intent["write_domain"], "body_metric")
         self.assertEqual(intent["source"], "keyword_override")
 
+    def test_body_metric_proposal_preserves_yesterday_date(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        proposal = runtime._body_metric_proposals("我昨天的体重是70kg，帮我记录一下")[0]
+        payload = proposal["payload"]
+        preview = proposal["preview"]
+
+        recorded_date = datetime.fromisoformat(payload["recordedAt"]).date()
+        expected_date = datetime.now().astimezone().date() - timedelta(days=1)
+
+        self.assertEqual(recorded_date, expected_date)
+        self.assertEqual(preview["日期"], "昨天")
+        self.assertEqual(payload["weightKg"], 70)
+        self.assertIn("昨天", proposal["summary"])
+        self.assertNotIn("最新", proposal["summary"])
+
+    def test_body_metric_proposal_preserves_today_date(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        proposal = runtime._body_metric_proposals("我今天的体重是68kg，帮我记录一下")[0]
+        payload = proposal["payload"]
+
+        recorded_date = datetime.fromisoformat(payload["recordedAt"]).date()
+        expected_date = datetime.now().astimezone().date()
+
+        self.assertEqual(recorded_date, expected_date)
+        self.assertEqual(proposal["preview"]["日期"], "今天")
+
+    def test_body_metric_proposal_preserves_explicit_date(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        proposal = runtime._body_metric_proposals("2026年5月20日体重69kg，帮我记录")[0]
+        payload = proposal["payload"]
+
+        self.assertEqual(datetime.fromisoformat(payload["recordedAt"]).date().isoformat(), "2026-05-20")
+        self.assertEqual(proposal["preview"]["日期"], "2026-05-20")
+
     def test_contextual_plan_flow_does_not_capture_explicit_body_metric(self) -> None:
         runtime = make_runtime(FakeLLM())
         request = PostMessageRequest(text="我今天的体重是68kg，帮我记录")
@@ -277,7 +312,7 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("具体数值", decision["question"])
         self.assertNotIn("增肌", decision["question"])
 
-    async def test_exercise_recommendation_overrides_plan_llm_result(self) -> None:
+    async def test_exercise_recommendation_uses_read_fast_path(self) -> None:
         llm = FakeLLM(
             data={
                 "intent": "plan_generate",
@@ -303,10 +338,24 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIsNone(degraded_reason)
-        self.assertTrue(metadata and metadata.ok)
+        self.assertIsNone(metadata)
         self.assertEqual(intent["intent"], "exercise_search")
         self.assertIsNone(intent["write_domain"])
-        self.assertEqual(intent["source"], "keyword_read_override")
+        self.assertEqual(intent["source"], "keyword_read_fast_path")
+        self.assertEqual(llm.prompts, [])
+
+        planner, planner_metadata, planner_degraded_reason = await runtime._plan_next_steps(
+            PostMessageRequest(text="给我推荐一些练胸的动作"),
+            context,
+            intent,
+            degraded_reason,
+        )
+
+        self.assertIsNone(planner_metadata)
+        self.assertIsNone(planner_degraded_reason)
+        self.assertEqual(planner["action"], "answer")
+        self.assertFalse(planner["requires_proposal"])
+        self.assertIsNone(planner["write_domain"])
 
     async def test_exercise_recommendation_planner_stays_read_only(self) -> None:
         llm = FakeLLM(
@@ -333,10 +382,10 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(planner["write_domain"])
         self.assertEqual([tool["name"] for tool in planner["tools"]], ["get_exercise_catalog"])
 
-    async def test_exercise_recommendation_clears_contaminated_write_domain(self) -> None:
+    async def test_plain_read_only_question_uses_fast_path(self) -> None:
         llm = FakeLLM(
             data={
-                "intent": "exercise_search",
+                "intent": "plan_generate",
                 "confidence": 0.87,
                 "referenced_context": ["recent_plan_generation_turn"],
                 "missing_fields": [],
@@ -349,15 +398,338 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         runtime = make_runtime(llm)
 
         intent, metadata, degraded_reason = await runtime._classify_intent(
-            PostMessageRequest(text="给我推荐一些练胸的动作"),
+            PostMessageRequest(text="深蹲前怎么热身？"),
             {"recent_messages": []},
         )
 
         self.assertIsNone(degraded_reason)
-        self.assertTrue(metadata and metadata.ok)
+        self.assertIsNone(metadata)
         self.assertEqual(intent["intent"], "exercise_search")
         self.assertIsNone(intent["write_domain"])
-        self.assertEqual(intent["source"], "keyword_read_override")
+        self.assertEqual(intent["source"], "keyword_read_fast_path")
+        self.assertEqual(llm.prompts, [])
+
+    async def test_modern_router_keeps_common_questions_read_only(self) -> None:
+        llm = FakeLLM(
+            data={
+                "intent": "plan_generate",
+                "confidence": 0.95,
+                "referenced_context": [],
+                "missing_fields": [],
+                "risk_flags": [],
+                "should_clarify": False,
+                "clarifying_question": "",
+                "write_domain": "plan",
+            }
+        )
+        runtime = make_runtime(llm)
+        examples = [
+            "健身前能喝咖啡吗？",
+            "蛋白粉什么时候喝比较好？",
+            "深蹲膝盖疼怎么办？",
+            "练胸后第二天酸痛正常吗？",
+            "减脂期间能不能吃米饭？",
+            "有氧和无氧应该先做哪个？",
+            "卧推怎么避免肩膀疼？",
+            "新手一周练几次比较合适？",
+        ]
+
+        for text in examples:
+            with self.subTest(text=text):
+                intent, metadata, degraded_reason = await runtime._classify_intent(PostMessageRequest(text=text), {"recent_messages": []})
+                planner, planner_metadata, planner_degraded_reason = await runtime._plan_next_steps(
+                    PostMessageRequest(text=text),
+                    {"recent_messages": []},
+                    intent,
+                    degraded_reason,
+                )
+
+                self.assertIsNone(metadata)
+                self.assertIsNone(planner_metadata)
+                self.assertIsNone(degraded_reason)
+                self.assertIsNone(planner_degraded_reason)
+                self.assertIsNone(intent.get("write_domain"))
+                self.assertIn(intent.get("agent_intent"), {
+                    "direct_answer",
+                    "fitness_knowledge",
+                    "exercise_instruction",
+                    "nutrition_advice",
+                    "safety_sensitive",
+                })
+                self.assertEqual(planner["action"], "answer")
+                self.assertFalse(planner["requires_proposal"])
+                self.assertIsNone(planner["write_domain"])
+                self.assertNotIn("create_action_proposal", [tool["name"] for tool in planner["tools"]])
+
+        self.assertEqual(llm.prompts, [])
+
+    async def test_nutrition_recommendation_ignores_stale_plan_context(self) -> None:
+        llm = FakeLLM(
+            data={
+                "intent": "plan_generate",
+                "confidence": 0.95,
+                "referenced_context": ["recent_plan_generation_turn"],
+                "missing_fields": [],
+                "risk_flags": [],
+                "should_clarify": False,
+                "clarifying_question": "",
+                "write_domain": "plan",
+            }
+        )
+        runtime = make_runtime(llm)
+        request = PostMessageRequest(text="给我推荐一些增肌的早餐选择")
+        context = {
+            "recent_messages": [
+                {"role": "user", "content": "1+1等于多少"},
+                {"role": "assistant", "content": "收到，我先按“生成训练计划”理解，整理成了 1 条待确认卡片。"},
+                {"role": "assistant", "content": "我已经拒绝了“新增训练计划项”，数据库不会发生任何改动。"},
+            ]
+        }
+
+        fallback = runtime._fallback_intent_from_keywords(request.text)
+        intent, metadata, degraded_reason = await runtime._classify_intent(request, context)
+        planner, planner_metadata, planner_degraded_reason = await runtime._plan_next_steps(
+            request,
+            context,
+            intent,
+            degraded_reason,
+        )
+
+        self.assertEqual(fallback["intent"], "health_answer")
+        self.assertIsNone(fallback["write_domain"])
+        self.assertIsNone(metadata)
+        self.assertIsNone(planner_metadata)
+        self.assertIsNone(degraded_reason)
+        self.assertIsNone(planner_degraded_reason)
+        self.assertEqual(intent["intent"], "health_answer")
+        self.assertEqual(intent["agent_intent"], "nutrition_advice")
+        self.assertEqual(intent["source"], "modern_intent_router")
+        self.assertIsNone(intent["write_domain"])
+        self.assertEqual(planner["action"], "answer")
+        self.assertFalse(planner["requires_proposal"])
+        self.assertIsNone(planner["write_domain"])
+        self.assertNotIn("create_action_proposal", [tool["name"] for tool in planner["tools"]])
+        self.assertEqual(llm.prompts, [])
+
+    async def test_general_math_question_ignores_stale_plan_context(self) -> None:
+        llm = FakeLLM(
+            data={
+                "intent": "plan_generate",
+                "confidence": 0.96,
+                "referenced_context": ["recent_plan_generation_turn"],
+                "missing_fields": [],
+                "risk_flags": [],
+                "should_clarify": False,
+                "clarifying_question": "",
+                "write_domain": "plan",
+            }
+        )
+        runtime = make_runtime(llm)
+        request = PostMessageRequest(text="1+1等于几")
+        context = {
+            "recent_messages": [
+                {"role": "assistant", "content": "收到，我先按“生成训练计划”理解，整理成了 1 条待确认卡片。"},
+                {"role": "assistant", "content": "我已经拒绝了“新增训练计划项”。"},
+            ]
+        }
+
+        intent, metadata, degraded_reason = await runtime._classify_intent(request, context)
+        planner, planner_metadata, planner_degraded_reason = await runtime._plan_next_steps(
+            request,
+            context,
+            intent,
+            degraded_reason,
+        )
+
+        self.assertIsNone(metadata)
+        self.assertIsNone(planner_metadata)
+        self.assertIsNone(degraded_reason)
+        self.assertIsNone(planner_degraded_reason)
+        self.assertEqual(intent["intent"], "health_answer")
+        self.assertEqual(intent["agent_intent"], "direct_answer")
+        self.assertEqual(intent["source"], "modern_intent_router")
+        self.assertIsNone(runtime._contextual_plan_intent(request, context, runtime._fallback_intent_from_keywords(request.text)))
+        self.assertIsNone(intent["write_domain"])
+        self.assertEqual(planner["action"], "answer")
+        self.assertFalse(planner["requires_proposal"])
+        self.assertIsNone(planner["write_domain"])
+        self.assertEqual(planner["tools"], [])
+        self.assertEqual(llm.prompts, [])
+
+    async def test_non_fitness_questions_ignore_stale_plan_context(self) -> None:
+        llm = FakeLLM(
+            data={
+                "intent": "plan_generate",
+                "confidence": 0.96,
+                "referenced_context": ["recent_plan_generation_turn"],
+                "missing_fields": [],
+                "risk_flags": [],
+                "should_clarify": False,
+                "clarifying_question": "",
+                "write_domain": "plan",
+            }
+        )
+        runtime = make_runtime(llm)
+        context = {
+            "recent_messages": [
+                {"role": "assistant", "content": "收到，我先按“生成训练计划”理解，整理成了 1 条待确认卡片。"},
+                {"role": "assistant", "content": "我已经拒绝了“新增训练计划项”。"},
+            ]
+        }
+        examples = ["凯里欧文是谁", "今天天气怎么样", "股票是什么"]
+
+        for text in examples:
+            with self.subTest(text=text):
+                request = PostMessageRequest(text=text)
+                intent, metadata, degraded_reason = await runtime._classify_intent(request, context)
+                planner, planner_metadata, planner_degraded_reason = await runtime._plan_next_steps(
+                    request,
+                    context,
+                    intent,
+                    degraded_reason,
+                )
+
+                self.assertIsNone(metadata)
+                self.assertIsNone(planner_metadata)
+                self.assertIsNone(degraded_reason)
+                self.assertIsNone(planner_degraded_reason)
+                self.assertEqual(intent["intent"], "health_answer")
+                self.assertEqual(intent["agent_intent"], "direct_answer")
+                self.assertEqual(intent["source"], "modern_intent_router")
+                self.assertIsNone(intent["write_domain"])
+                self.assertIsNone(runtime._contextual_plan_intent(request, context, runtime._fallback_intent_from_keywords(text)))
+                self.assertEqual(planner["action"], "answer")
+                self.assertFalse(planner["requires_proposal"])
+                self.assertIsNone(planner["write_domain"])
+                self.assertEqual(planner["tools"], [])
+
+        self.assertEqual(llm.prompts, [])
+
+    async def test_fitness_advice_question_does_not_become_contextual_plan(self) -> None:
+        llm = FakeLLM(
+            data={
+                "intent": "plan_generate",
+                "confidence": 0.96,
+                "referenced_context": ["recent_plan_generation_turn"],
+                "missing_fields": [],
+                "risk_flags": [],
+                "should_clarify": False,
+                "clarifying_question": "",
+                "write_domain": "plan",
+            }
+        )
+        runtime = make_runtime(llm)
+        request = PostMessageRequest(text="今天很累，帮我看看怎么练")
+        context = {
+            "recent_messages": [
+                {"role": "assistant", "content": "收到，我先按“生成训练计划”理解，整理成了 1 条待确认卡片。"},
+            ]
+        }
+
+        fallback = runtime._fallback_intent_from_keywords(request.text)
+        intent, metadata, degraded_reason = await runtime._classify_intent(request, context)
+        planner, planner_metadata, planner_degraded_reason = await runtime._plan_next_steps(
+            request,
+            context,
+            intent,
+            degraded_reason,
+        )
+
+        self.assertIsNone(runtime._contextual_plan_intent(request, context, fallback))
+        self.assertTrue(metadata and metadata.ok)
+        self.assertTrue(planner_metadata and planner_metadata.ok)
+        self.assertIsNone(degraded_reason)
+        self.assertIsNone(planner_degraded_reason)
+        self.assertEqual(intent["intent"], "health_answer")
+        self.assertEqual(intent["agent_intent"], "direct_answer")
+        self.assertEqual(intent["source"], "plan_write_guard")
+        self.assertIsNone(intent["write_domain"])
+        self.assertEqual(planner["action"], "answer")
+        self.assertFalse(planner["requires_proposal"])
+        self.assertIsNone(planner["write_domain"])
+        self.assertEqual(planner["tools"], [])
+
+    def test_breakfast_recommendation_is_not_diet_log_write(self) -> None:
+        runtime = make_runtime(FakeLLM())
+
+        self.assertIsNone(runtime._detect_write_domain("给我推荐一些增肌的早餐选择"))
+        self.assertEqual(runtime._detect_write_domain("早餐吃了鸡蛋和牛奶，帮我记录"), "diet_log")
+
+    def test_non_explicit_plan_generation_is_guarded_before_proposal(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        request = PostMessageRequest(text="给我推荐一些增肌的早餐选择")
+        intent = {
+            "intent": "plan_generate",
+            "agent_intent": "workout_plan",
+            "confidence": 0.95,
+            "write_domain": "plan",
+            "source": "llm_classifier",
+            "missing_fields": [],
+        }
+
+        planner = runtime._fallback_planner_from_intent(intent, request)
+
+        self.assertEqual(planner["action"], "answer")
+        self.assertEqual(planner["source"], "plan_write_guard")
+        self.assertFalse(planner["requires_proposal"])
+        self.assertIsNone(planner["write_domain"])
+        self.assertEqual(planner["tools"], [])
+
+    async def test_explicit_workout_plan_is_the_only_plan_generation_path(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        request = PostMessageRequest(text="给我安排一周三天的减脂健身计划")
+
+        intent, metadata, degraded_reason = await runtime._classify_intent(request, {"recent_messages": []})
+        planner, planner_metadata, planner_degraded_reason = await runtime._plan_next_steps(
+            request,
+            {"recent_messages": []},
+            intent,
+            degraded_reason,
+        )
+        dialogue = runtime._decide_dialogue_turn(request, {"recent_messages": []}, intent, planner)
+
+        self.assertIsNone(metadata)
+        self.assertIsNone(planner_metadata)
+        self.assertIsNone(degraded_reason)
+        self.assertIsNone(planner_degraded_reason)
+        self.assertEqual(intent["intent"], "plan_generate")
+        self.assertEqual(intent["agent_intent"], "workout_plan")
+        self.assertEqual(intent["write_domain"], "plan")
+        self.assertEqual(dialogue["mode"], "propose")
+        self.assertIn("create_action_proposal", [tool["name"] for tool in dialogue["planner"]["tools"]])
+
+    async def test_explicit_meal_plan_uses_nutrition_plan_domain(self) -> None:
+        store = FakeStore()
+        runtime = HealthAgentRuntime(store, FakeTools(), TraceLogger(), FakeLLM())  # type: ignore[arg-type]
+        request = PostMessageRequest(text="我想减脂，帮我做一个饮食计划")
+
+        intent, metadata, degraded_reason = await runtime._classify_intent(request, {"recent_messages": []})
+        planner, planner_metadata, planner_degraded_reason = await runtime._plan_next_steps(
+            request,
+            {"recent_messages": []},
+            intent,
+            degraded_reason,
+        )
+        _observations, _tool_events, proposals, warnings = await runtime._execute_planner_tools(
+            "thread-1",
+            "run-1",
+            request,
+            planner,
+            None,
+            {"recent_messages": []},
+        )
+
+        self.assertIsNone(metadata)
+        self.assertIsNone(planner_metadata)
+        self.assertIsNone(degraded_reason)
+        self.assertIsNone(planner_degraded_reason)
+        self.assertEqual(intent["agent_intent"], "meal_plan")
+        self.assertEqual(intent["write_domain"], "meal_plan")
+        self.assertEqual(planner["action"], "propose")
+        self.assertEqual(warnings, [])
+        self.assertEqual(len(proposals), 1)
+        self.assertEqual(proposals[0]["actionType"], "generate_diet_snapshot")
+        self.assertGreaterEqual(proposals[0]["payload"]["targetCalorie"], 1200)
 
     async def test_exercise_recommendation_planner_clears_proposal_flags_on_answer(self) -> None:
         llm = FakeLLM(
