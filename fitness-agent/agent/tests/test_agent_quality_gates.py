@@ -135,7 +135,13 @@ class AgentQualityGateTests(unittest.IsolatedAsyncioTestCase):
 
                 self.assertIsNone(degraded_reason)
                 self.assertIsNone(planner_degraded_reason)
-                if intent.get("source") == "keyword_read_fast_path":
+                deterministic_sources = {
+                    "keyword_read_fast_path",
+                    "modern_intent_router",
+                    "modern_context_route",
+                    "contextual_plan_flow",
+                }
+                if intent.get("source") in deterministic_sources:
                     self.assertIsNone(intent_llm)
                     self.assertIsNone(planner_llm)
                 else:
