@@ -35,6 +35,13 @@ AgentIntent = Literal[
 
 
 class HealthAgentRuntime:
+    CONTEXT_RECENT_MESSAGE_LIMIT = 12
+    CONTEXT_TOTAL_CHAR_BUDGET = 6000
+    CONTEXT_MESSAGE_CHAR_LIMIT = 900
+    THREAD_SUMMARY_CHAR_LIMIT = 1000
+    SUMMARY_SOURCE_CHAR_BUDGET = 6000
+    SUMMARY_MIN_OLDER_MESSAGES = 4
+
     ACTION_TYPES = {
         "generate_plan",
         "adjust_plan",
@@ -1833,20 +1840,139 @@ class HealthAgentRuntime:
             read_memory_summary(),
         )
 
-        recent_messages = [
-            {
-                "role": str(message.get("role") or ""),
-                "content": str(message.get("content") or ""),
-                "created_at": message.get("created_at"),
-            }
-            for message in messages[-12:]
-        ]
+        recent_messages = self._select_recent_messages_for_context(messages)
+        older_messages = messages[: max(0, len(messages) - len(recent_messages))]
+        thread_summary = await self._refresh_thread_summary_if_needed(
+            thread_id,
+            thread_summary,
+            older_messages,
+            authorization,
+        )
+
         return {
             "current_message": current_message,
             "recent_messages": recent_messages,
             "thread_summary": thread_summary,
             "memory_summary": memory_summary,
+            "context_window": {
+                "strategy": "thread_summary_plus_budgeted_recent_messages",
+                "total_message_count": len(messages),
+                "recent_message_count": len(recent_messages),
+                "summarized_message_count": len(older_messages),
+                "recent_char_budget": self.CONTEXT_TOTAL_CHAR_BUDGET,
+                "message_char_limit": self.CONTEXT_MESSAGE_CHAR_LIMIT,
+            },
         }
+
+    @classmethod
+    def _trim_context_text(cls, text: Any, limit: int) -> str:
+        normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+        if len(normalized) <= limit:
+            return normalized
+        return f"{normalized[: max(0, limit - 3)]}..."
+
+    @classmethod
+    def _message_context_item(cls, message: dict[str, Any], char_limit: int | None = None) -> dict[str, Any]:
+        return {
+            "role": str(message.get("role") or ""),
+            "content": cls._trim_context_text(message.get("content"), char_limit or cls.CONTEXT_MESSAGE_CHAR_LIMIT),
+            "created_at": message.get("created_at"),
+        }
+
+    @classmethod
+    def _select_recent_messages_for_context(cls, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        selected: list[dict[str, Any]] = []
+        total_chars = 0
+
+        for message in reversed(messages):
+            item = cls._message_context_item(message)
+            message_cost = len(item["role"]) + len(item["content"]) + 32
+            if selected and (
+                len(selected) >= cls.CONTEXT_RECENT_MESSAGE_LIMIT
+                or total_chars + message_cost > cls.CONTEXT_TOTAL_CHAR_BUDGET
+            ):
+                break
+            selected.append(item)
+            total_chars += message_cost
+
+        return list(reversed(selected))
+
+    @classmethod
+    def _summary_source_messages(cls, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        selected: list[dict[str, Any]] = []
+        total_chars = 0
+
+        for message in reversed(messages):
+            item = cls._message_context_item(message, 700)
+            message_cost = len(item["role"]) + len(item["content"]) + 32
+            if selected and total_chars + message_cost > cls.SUMMARY_SOURCE_CHAR_BUDGET:
+                break
+            selected.append(item)
+            total_chars += message_cost
+
+        return list(reversed(selected))
+
+    def _fallback_thread_summary(self, existing_summary: str, older_messages: list[dict[str, Any]]) -> str:
+        snippets = [
+            f"{message['role']}: {message['content']}"
+            for message in self._summary_source_messages(older_messages)[-8:]
+            if message.get("content")
+        ]
+        parts = []
+        if existing_summary.strip():
+            parts.append(self._trim_context_text(existing_summary, 700))
+        if snippets:
+            parts.append("Earlier turns: " + " | ".join(snippets))
+        return self._trim_context_text("\n".join(parts), self.THREAD_SUMMARY_CHAR_LIMIT)
+
+    async def _build_thread_summary(self, existing_summary: str, older_messages: list[dict[str, Any]]) -> str:
+        fallback_summary = self._fallback_thread_summary(existing_summary, older_messages)
+        if not self.llm.is_enabled():
+            return fallback_summary
+
+        system_prompt = (
+            "You maintain compact per-chat context for GymPal, a fitness coaching chat app. "
+            "Return JSON only with key summary. Summarize only this one thread. "
+            "Preserve durable user goals, constraints, preferences, decisions, unresolved questions, and pending plans. "
+            "Drop greetings, repetition, and transient wording. Keep summary under 900 characters."
+        )
+        user_prompt = json.dumps(
+            {
+                "existing_summary": existing_summary,
+                "older_messages_to_fold_in": self._summary_source_messages(older_messages),
+                "fallback_summary": fallback_summary,
+            },
+            ensure_ascii=False,
+        )
+        result = await asyncio.to_thread(self.llm.generate_structured_with_metadata, system_prompt, user_prompt)
+        if not result.ok:
+            logger.warning("Thread summary compression failed: %s", result.error_code)
+            return fallback_summary
+
+        summary = self._trim_context_text(result.data.get("summary"), self.THREAD_SUMMARY_CHAR_LIMIT)
+        return summary or fallback_summary
+
+    async def _refresh_thread_summary_if_needed(
+        self,
+        thread_id: str,
+        existing_summary: str,
+        older_messages: list[dict[str, Any]],
+        authorization: str | None,
+    ) -> str:
+        if len(older_messages) < self.SUMMARY_MIN_OLDER_MESSAGES:
+            return existing_summary
+
+        summary = await self._build_thread_summary(existing_summary, older_messages)
+        if not summary or summary.strip() == existing_summary.strip():
+            return existing_summary
+
+        try:
+            await self.store.update_thread(thread_id, summary=summary, authorization=authorization)
+        except Exception as exc:
+            logger.warning("Unable to persist thread summary: %s", exc)
+            return existing_summary
+
+        return summary
 
     async def _classify_intent(
         self,

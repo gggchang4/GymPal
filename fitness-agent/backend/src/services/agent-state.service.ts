@@ -9,7 +9,8 @@ import {
   CreateCoachingReviewSnapshotDto,
   CreateAgentRunDto,
   CreateToolInvocationLogDto,
-  ReviseCoachingReviewDto
+  ReviseCoachingReviewDto,
+  UpdateAgentThreadDto
 } from "../dtos/agent.dto";
 import { AppStoreService } from "../store/app-store.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -53,6 +54,19 @@ function asJson(value: unknown): Prisma.InputJsonValue {
 
 function readJsonObject(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function buildThreadTitle(content: string) {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "Health Agent Chat";
+  }
+
+  return normalized.length > 48 ? `${normalized.slice(0, 48)}...` : normalized;
+}
+
+function isDefaultThreadTitle(title: string) {
+  return title === "Health Agent Chat" || title === "New chat";
 }
 
 @Injectable()
@@ -172,6 +186,29 @@ export class AgentStateService {
       reasoning_summary: message.reasoning,
       cards: Array.isArray(message.cards) ? message.cards : [],
       created_at: message.createdAt.toISOString()
+    };
+  }
+
+  private mapThread(thread: {
+    id: string;
+    title: string;
+    summary: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+    messages?: Array<{ role: string; content: string; createdAt: Date }>;
+    _count?: { messages: number };
+  }) {
+    const lastMessage = thread.messages?.[0];
+    return {
+      id: thread.id,
+      title: thread.title,
+      summary: thread.summary,
+      message_count: thread._count?.messages ?? 0,
+      last_message_preview: lastMessage?.content.slice(0, 140) ?? null,
+      last_message_role: lastMessage?.role ?? null,
+      last_message_at: lastMessage?.createdAt.toISOString() ?? null,
+      created_at: thread.createdAt.toISOString(),
+      updated_at: thread.updatedAt.toISOString()
     };
   }
 
@@ -460,23 +497,100 @@ export class AgentStateService {
 
   async createThread(title?: string, userId?: string) {
     const actor = await this.getActor(userId);
-    return this.prisma.agentThread.create({
+    const thread = await this.prisma.agentThread.create({
       data: {
         userId: actor.id,
         title: title?.trim() || "Health Agent Chat"
+      },
+      include: {
+        _count: {
+          select: { messages: true }
+        },
+        messages: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { role: true, content: true, createdAt: true }
+        }
       }
     });
+
+    return this.mapThread(thread);
+  }
+
+  async listThreads(userId?: string) {
+    const actor = await this.getActor(userId);
+    const threads = await this.prisma.agentThread.findMany({
+      where: { userId: actor.id },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+      include: {
+        _count: {
+          select: { messages: true }
+        },
+        messages: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { role: true, content: true, createdAt: true }
+        }
+      }
+    });
+
+    return threads.map((thread) => this.mapThread(thread));
   }
 
   async getThread(threadId: string, userId?: string) {
+    await this.getThreadForActor(threadId, userId);
+    const thread = await this.prisma.agentThread.findUniqueOrThrow({
+      where: { id: threadId },
+      include: {
+        _count: {
+          select: { messages: true }
+        },
+        messages: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { role: true, content: true, createdAt: true }
+        }
+      }
+    });
+    return this.mapThread(thread);
+  }
+
+  async updateThread(threadId: string, payload: UpdateAgentThreadDto, userId?: string) {
     const { thread } = await this.getThreadForActor(threadId, userId);
-    return {
-      id: thread.id,
-      title: thread.title,
-      summary: thread.summary,
-      created_at: thread.createdAt.toISOString(),
-      updated_at: thread.updatedAt.toISOString()
+    const title = payload.title?.replace(/\s+/g, " ").trim();
+    const summary = payload.summary?.trim();
+    const data: Prisma.AgentThreadUpdateInput = {
+      updatedAt: new Date()
     };
+
+    if (title !== undefined) {
+      data.title = title || "Health Agent Chat";
+    }
+
+    if (summary !== undefined) {
+      data.summary = summary || null;
+    }
+
+    if (title === undefined && summary === undefined) {
+      throw new BadRequestException("No thread fields were provided.");
+    }
+
+    const updated = await this.prisma.agentThread.update({
+      where: { id: thread.id },
+      data,
+      include: {
+        _count: {
+          select: { messages: true }
+        },
+        messages: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { role: true, content: true, createdAt: true }
+        }
+      }
+    });
+
+    return this.mapThread(updated);
   }
 
   async listMessages(threadId: string, userId?: string) {
@@ -539,14 +653,37 @@ export class AgentStateService {
 
   async appendMessage(threadId: string, payload: CreateAgentMessageDto, userId?: string) {
     const { thread } = await this.getThreadForActor(threadId, userId);
-    const message = await this.prisma.agentMessage.create({
-      data: {
-        threadId: thread.id,
-        role: payload.role,
-        content: payload.content,
-        reasoning: payload.reasoning,
-        cards: payload.cards ? asJson(payload.cards) : Prisma.JsonNull
-      }
+    const existingUserMessageCount =
+      payload.role === "user"
+        ? await this.prisma.agentMessage.count({
+            where: { threadId: thread.id, role: "user" }
+          })
+        : 0;
+    const nextTitle =
+      payload.role === "user" && existingUserMessageCount === 0 && isDefaultThreadTitle(thread.title)
+        ? buildThreadTitle(payload.content)
+        : undefined;
+
+    const message = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.agentMessage.create({
+        data: {
+          threadId: thread.id,
+          role: payload.role,
+          content: payload.content,
+          reasoning: payload.reasoning,
+          cards: payload.cards ? asJson(payload.cards) : Prisma.JsonNull
+        }
+      });
+
+      await tx.agentThread.update({
+        where: { id: thread.id },
+        data: {
+          ...(nextTitle ? { title: nextTitle } : {}),
+          updatedAt: new Date()
+        }
+      });
+
+      return created;
     });
 
     return this.mapMessage(message);

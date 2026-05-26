@@ -1,6 +1,7 @@
 import type {
   AdviceSnapshot,
   AgentCard,
+  AgentThreadSummary,
   AgentMessage,
   AgentActionProposal,
   AgentProposalGroup,
@@ -81,6 +82,18 @@ interface RawAgentMessage {
   reasoning_summary?: string | null;
   cards?: RawAgentCard[];
   created_at?: string;
+}
+
+interface RawAgentThreadSummary {
+  id: string;
+  title: string;
+  summary?: string | null;
+  message_count?: number;
+  last_message_preview?: string | null;
+  last_message_role?: "user" | "assistant" | string | null;
+  last_message_at?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 interface RawProposalDecisionResponse {
@@ -428,6 +441,20 @@ function mapAgentMessage(message: RawAgentMessage): AgentMessage {
     content: message.content,
     reasoningSummary: message.reasoning_summary ?? undefined,
     cards: (message.cards ?? []).map(mapCard)
+  };
+}
+
+function mapAgentThread(thread: RawAgentThreadSummary): AgentThreadSummary {
+  return {
+    id: thread.id,
+    title: thread.title,
+    summary: thread.summary ?? null,
+    messageCount: thread.message_count ?? 0,
+    lastMessagePreview: thread.last_message_preview ?? null,
+    lastMessageRole: thread.last_message_role ?? null,
+    lastMessageAt: thread.last_message_at ?? null,
+    createdAt: thread.created_at,
+    updatedAt: thread.updated_at
   };
 }
 
@@ -943,6 +970,11 @@ export async function createThread(): Promise<CreateThreadResponse> {
   });
 
   return { threadId: result.thread_id };
+}
+
+export async function listThreads(): Promise<AgentThreadSummary[]> {
+  const result = await requestJson<RawAgentThreadSummary[]>(`${agentBaseUrl}/agent/threads`);
+  return result.map(mapAgentThread);
 }
 
 export async function getThreadMessages(threadId: string): Promise<AgentMessage[]> {

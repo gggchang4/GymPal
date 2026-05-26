@@ -107,6 +107,11 @@ class CreateThreadResponse(BaseModel):
     thread_id: str
 
 
+class UpdateThreadRequest(BaseModel):
+    title: str | None = None
+    summary: str | None = None
+
+
 class PostMessageRequest(BaseModel):
     text: str
     location_hint: str | None = None

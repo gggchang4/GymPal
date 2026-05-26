@@ -30,6 +30,38 @@ class SessionStore:
                 title=payload.get("title") or title or "Health Agent Chat",
             )
 
+    async def list_threads(self, authorization: str | None = None) -> list[dict[str, Any]]:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                f"{settings.backend_base_url}/agent/state/threads",
+                headers=self._headers(authorization),
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def update_thread(
+        self,
+        thread_id: str,
+        *,
+        title: str | None = None,
+        summary: str | None = None,
+        authorization: str | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {}
+        if title is not None:
+            body["title"] = title
+        if summary is not None:
+            body["summary"] = summary
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.patch(
+                f"{settings.backend_base_url}/agent/state/threads/{thread_id}",
+                headers=self._headers(authorization),
+                json=body,
+            )
+            response.raise_for_status()
+            return response.json()
+
     async def append_message(
         self,
         thread_id: str,

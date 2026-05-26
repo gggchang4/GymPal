@@ -35,6 +35,16 @@ export class CreateAgentThreadDto {
   title?: string;
 }
 
+export class UpdateAgentThreadDto {
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  summary?: string;
+}
+
 export class CreateAgentMessageDto {
   @IsIn(["user", "assistant"])
   role!: "user" | "assistant";
