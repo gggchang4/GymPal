@@ -356,6 +356,8 @@ model AgentThread {
   proposals   AgentActionProposal[]
   coachingReviews CoachingReviewSnapshot[]
   proposalGroups AgentProposalGroup[]
+
+  @@index([userId, updatedAt])
 }
 
 model AgentMessage {
@@ -367,6 +369,8 @@ model AgentMessage {
   cards          Json?
   createdAt      DateTime    @default(now())
   thread         AgentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
 }
 
 model AgentRun {

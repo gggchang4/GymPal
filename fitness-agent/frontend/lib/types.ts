@@ -55,6 +55,18 @@ export interface AgentMessage {
   cards?: AgentCard[];
 }
 
+export interface AgentThreadSummary {
+  id: string;
+  title: string;
+  summary?: string | null;
+  messageCount: number;
+  lastMessagePreview?: string | null;
+  lastMessageRole?: "user" | "assistant" | string | null;
+  lastMessageAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ProposalDecisionResponse {
   id: string;
   role: "assistant";
