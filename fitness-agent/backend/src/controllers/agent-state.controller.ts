@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post } from "@nestjs/common";
 import { CurrentUser } from "../auth/auth.decorators";
 import type { AuthTokenClaims } from "../auth/auth-token.service";
 import {
@@ -11,7 +11,8 @@ import {
   CreateAgentRunDto,
   CreateAgentThreadDto,
   CreateToolInvocationLogDto,
-  ProposalDecisionDto
+  ProposalDecisionDto,
+  UpdateAgentThreadDto
 } from "../dtos/agent.dto";
 import { AgentStateService } from "../services/agent-state.service";
 import { CoachingOutcomeService } from "../services/coaching-outcome.service";
@@ -28,9 +29,23 @@ export class AgentStateController {
     return this.agentState.createThread(body.title, user.sub);
   }
 
+  @Get("threads")
+  async listThreads(@CurrentUser() user: AuthTokenClaims) {
+    return this.agentState.listThreads(user.sub);
+  }
+
   @Get("threads/:threadId")
   async getThread(@Param("threadId") threadId: string, @CurrentUser() user: AuthTokenClaims) {
     return this.agentState.getThread(threadId, user.sub);
+  }
+
+  @Patch("threads/:threadId")
+  async updateThread(
+    @Param("threadId") threadId: string,
+    @Body() body: UpdateAgentThreadDto,
+    @CurrentUser() user: AuthTokenClaims
+  ) {
+    return this.agentState.updateThread(threadId, body, user.sub);
   }
 
   @Get("threads/:threadId/messages")

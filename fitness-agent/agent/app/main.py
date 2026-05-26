@@ -19,6 +19,7 @@ from .models import (
     PostMessageRequest,
     ProposalDecisionResponse,
     RecommendationFeedbackRequest,
+    UpdateThreadRequest,
 )
 from .session_store import SessionStore
 from .tool_gateway import ToolGateway
@@ -116,6 +117,21 @@ async def llm_healthcheck() -> dict[str, object]:
 async def create_thread(payload: CreateThreadRequest, authorization: str | None = Header(default=None)) -> CreateThreadResponse:
     thread = await session_store.create_thread(payload.title, require_authorization_header(authorization))
     return CreateThreadResponse(thread_id=thread.id)
+
+
+@app.get("/agent/threads")
+async def list_threads(authorization: str | None = Header(default=None)):
+    return await session_store.list_threads(require_authorization_header(authorization))
+
+
+@app.patch("/agent/threads/{thread_id}")
+async def update_thread(thread_id: str, payload: UpdateThreadRequest, authorization: str | None = Header(default=None)):
+    return await session_store.update_thread(
+        thread_id,
+        title=payload.title,
+        summary=payload.summary,
+        authorization=require_authorization_header(authorization),
+    )
 
 
 @app.get("/agent/threads/{thread_id}/messages")
