@@ -15,6 +15,17 @@ logger = logging.getLogger("health_agent.tools")
 
 
 class ToolGateway:
+    PROFILE_LABELS: dict[str, dict[str, str]] = {
+        "gender": {"male": "男", "female": "女", "other": "其他"},
+        "activityLevel": {"low": "偏低", "medium": "中等", "moderate": "适中", "high": "较高"},
+        "trainingExperience": {"novice": "新手", "intermediate": "进阶", "advanced": "高级"},
+        "equipmentAccess": {
+            "commercial_gym": "商业健身房",
+            "home_gym": "家庭器械",
+            "bodyweight_only": "徒手训练",
+        },
+    }
+
     def __init__(self) -> None:
         self._tools: dict[str, ToolHandler] = {
             "get_user_profile": self.get_user_profile,
@@ -37,6 +48,59 @@ class ToolGateway:
     @staticmethod
     def _backend_headers(authorization: str | None) -> dict[str, str]:
         return {"Authorization": authorization} if authorization else {}
+
+    @classmethod
+    def _profile_label(cls, field: str, value: Any) -> str:
+        if value is None:
+            return ""
+        text = str(value).strip()
+        return cls.PROFILE_LABELS.get(field, {}).get(text, text)
+
+    @classmethod
+    def _build_profile_context(cls, profile_data: dict[str, Any], manual_contexts: list[dict[str, Any]]) -> dict[str, Any]:
+        profile = profile_data.get("profile")
+        if not isinstance(profile, dict):
+            profile = {}
+
+        facts: dict[str, Any] = {}
+        labeled: list[str] = []
+
+        def add_fact(key: str, label: str, value: Any, unit: str = "", label_map: str | None = None) -> None:
+            if value is None or value == "":
+                return
+            display = cls._profile_label(label_map or key, value) if label_map else value
+            facts[key] = value
+            labeled.append(f"{label}: {display}{unit}")
+
+        add_fact("age", "年龄", profile.get("age"), "岁")
+        add_fact("gender", "性别", profile.get("gender"), label_map="gender")
+        add_fact("heightCm", "身高", profile.get("heightCm"), "cm")
+        add_fact("currentWeightKg", "当前体重", profile.get("currentWeightKg"), "kg")
+        add_fact("targetWeightKg", "目标体重", profile.get("targetWeightKg"), "kg")
+        add_fact("activityLevel", "活动水平", profile.get("activityLevel"), label_map="activityLevel")
+        add_fact("trainingExperience", "训练经验", profile.get("trainingExperience"), label_map="trainingExperience")
+        add_fact("trainingDaysPerWeek", "每周训练次数", profile.get("trainingDaysPerWeek"), "次")
+        add_fact("equipmentAccess", "器械条件", profile.get("equipmentAccess"), label_map="equipmentAccess")
+        add_fact("limitations", "限制说明", profile.get("limitations"))
+
+        height = profile.get("heightCm")
+        weight = profile.get("currentWeightKg")
+        if isinstance(height, (int, float)) and height > 0 and isinstance(weight, (int, float)) and weight > 0:
+            facts["bmi"] = round(weight / ((height / 100) ** 2), 1)
+            labeled.append(f"BMI: {facts['bmi']}")
+
+        manual_summaries = [
+            str(item.get("content") or item.get("summary") or "").strip()
+            for item in manual_contexts
+            if str(item.get("content") or item.get("summary") or "").strip()
+        ]
+
+        return {
+            "facts": facts,
+            "summary_zh": "；".join(labeled) if labeled else "暂无已填写的结构化个人档案。",
+            "manual_summaries": manual_summaries,
+            "usage_note": "这些字段来自用户个人档案，应优先用于回答身高、训练经验、器械条件、目标体重等资料问题；近期体重日志只作为体重变化记录参考。",
+        }
 
     @staticmethod
     def _backend_failure(action: str, exc: Exception) -> ToolResponse:
@@ -102,10 +166,28 @@ class ToolGateway:
                     headers=self._backend_headers(authorization),
                 )
                 response.raise_for_status()
+                profile_data = response.json()
+
+                manual_contexts: list[dict[str, Any]] = []
+                try:
+                    manual_response = await client.get(
+                        f"{settings.backend_base_url}/manual-context",
+                        headers=self._backend_headers(authorization),
+                        params={"sourcePage": "profile"},
+                    )
+                    manual_response.raise_for_status()
+                    manual_payload = manual_response.json()
+                    if isinstance(manual_payload, list):
+                        manual_contexts = [item for item in manual_payload if isinstance(item, dict)]
+                except httpx.HTTPError as exc:
+                    logger.warning("[TOOLS] Unable to load manual profile contexts: %s", exc)
+
+                profile_data["manual_profile_contexts"] = manual_contexts
+                profile_data["profile_context"] = self._build_profile_context(profile_data, manual_contexts)
                 logger.info("[TOOLS] Backend user profile loaded successfully from PostgreSQL-backed API.")
                 return ToolResponse(
                     ok=True,
-                    data=response.json(),
+                    data=profile_data,
                     human_readable="Loaded user profile from backend.",
                     source="backend",
                 )
