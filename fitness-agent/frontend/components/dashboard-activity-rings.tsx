@@ -223,7 +223,9 @@ export function DashboardActivityRings({ fallbackRings = [] }: { fallbackRings?:
         </section>
       )}
 
-      <div className="dashboard-metric-editor">
+      <details className="dashboard-metric-editor">
+        <summary className="dashboard-editor-summary">管理活动指标</summary>
+
         <div className="manual-context-head">
           <div className="section-copy">
             <span className="section-label">活动指标</span>
@@ -394,7 +396,7 @@ export function DashboardActivityRings({ fallbackRings = [] }: { fallbackRings?:
 
         {message ? <p className="manual-context-status">{message}</p> : null}
         {error ? <p className="manual-context-error">{error}</p> : null}
-      </div>
+      </details>
     </section>
   );
 }

@@ -135,6 +135,11 @@ async def update_thread(thread_id: str, payload: UpdateThreadRequest, authorizat
     )
 
 
+@app.delete("/agent/threads/{thread_id}")
+async def delete_thread(thread_id: str, authorization: str | None = Header(default=None)):
+    return await session_store.delete_thread(thread_id, require_authorization_header(authorization))
+
+
 @app.get("/agent/threads/{thread_id}/messages")
 async def list_messages(thread_id: str, authorization: str | None = Header(default=None)):
     return await session_store.list_messages(thread_id, require_authorization_header(authorization))

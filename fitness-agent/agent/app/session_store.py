@@ -62,6 +62,15 @@ class SessionStore:
             response.raise_for_status()
             return response.json()
 
+    async def delete_thread(self, thread_id: str, authorization: str | None = None) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.delete(
+                f"{settings.backend_base_url}/agent/state/threads/{thread_id}",
+                headers=self._headers(authorization),
+            )
+            response.raise_for_status()
+            return response.json()
+
     async def append_message(
         self,
         thread_id: str,

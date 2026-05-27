@@ -1,5 +1,4 @@
 import { getBodyMetrics, getDailyCheckins, getDietLogs, getWorkoutLogs } from "@/lib/api";
-import { ManualContextPanel } from "@/components/manual-context-panel";
 import { PageErrorState } from "@/components/page-error-state";
 import { requireServerAuthToken } from "@/lib/server-auth";
 
@@ -95,14 +94,6 @@ export default async function LogsPage() {
         </div>
         <span className="mini-chip">来自数据库的真实日志</span>
       </div>
-
-      <ManualContextPanel
-        sourcePage="logs"
-        title="补充记录信息"
-        description="这里适合记录页面字段之外的状态，比如酸痛、压力、特殊饮食、训练后反馈。保存后会作为上下文提供给 agent。"
-        defaultCategory="log_context"
-        placeholder="例如：昨天练腿后大腿前侧酸痛明显，今天下楼梯不舒服；昨晚只睡 5 小时。"
-      />
 
       <section className="spotlight-grid">
         <div className="form-panel">

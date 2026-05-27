@@ -1042,6 +1042,12 @@ export async function listThreads(): Promise<AgentThreadSummary[]> {
   return result.map(mapAgentThread);
 }
 
+export async function deleteThread(threadId: string): Promise<{ ok: boolean; id: string }> {
+  return requestJson<{ ok: boolean; id: string }>(`${agentBaseUrl}/agent/threads/${threadId}`, {
+    method: "DELETE"
+  });
+}
+
 export async function getThreadMessages(threadId: string): Promise<AgentMessage[]> {
   const result = await requestJson<RawAgentMessage[]>(`${agentBaseUrl}/agent/threads/${threadId}/messages`);
   return result.map(mapAgentMessage);

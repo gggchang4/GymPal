@@ -1,6 +1,5 @@
 import { DashboardActivityRings } from "@/components/dashboard-activity-rings";
 import { DashboardDietPlateManager } from "@/components/dashboard-diet-plate-manager";
-import { ManualContextPanel } from "@/components/manual-context-panel";
 import {
   getBodyMetrics,
   getTodayDietRecommendation,
@@ -59,14 +58,6 @@ export default async function DashboardPage() {
           <h2>今日总览</h2>
         </div>
       </div>
-
-      <ManualContextPanel
-        sourcePage="dashboard"
-        title="补充仪表盘信息"
-        description="这里可以手动添加今天状态、临时目标、恢复情况等信息。保存后会写入数据库，并提供给模型和智能教练读取。"
-        defaultCategory="dashboard_context"
-        placeholder="例如：今天睡眠只有 5 小时，训练强度需要降低；这周优先保持动作质量。"
-      />
 
       <DashboardActivityRings />
 
