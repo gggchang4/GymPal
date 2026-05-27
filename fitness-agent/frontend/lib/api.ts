@@ -36,7 +36,12 @@ import type {
   WorkoutLog,
   WorkoutPlanDay
 } from "@/lib/types";
-import type { ExerciseCatalogItem } from "@/lib/exercise-catalog";
+import officialExerciseCatalog from "@/lib/official-exercise-catalog.json";
+import {
+  mapOfficialExercise,
+  type ExerciseCatalogItem,
+  type OfficialExerciseCatalogSourceItem
+} from "@/lib/exercise-catalog";
 import { clearAuthSession, readAuthAccessToken } from "@/lib/auth";
 
 const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://127.0.0.1:3001";
@@ -777,6 +782,48 @@ export async function getMe(authToken?: string): Promise<UserSnapshot> {
   return mapUserSnapshot(user);
 }
 
+export async function updateProfile(payload: Partial<HealthProfile>, authToken?: string): Promise<HealthProfile> {
+  return requestJson<HealthProfile>(
+    `${backendBaseUrl}/me/profile`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    },
+    { authToken }
+  );
+}
+
+export async function createBodyMetric(
+  payload: Pick<BodyMetricLog, "weightKg" | "bodyFatPct" | "waistCm">,
+  authToken?: string
+): Promise<BodyMetricLog> {
+  return requestJson<BodyMetricLog>(
+    `${backendBaseUrl}/logs/body-metrics`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    },
+    { authToken }
+  );
+}
+
+export async function createWorkoutLog(
+  payload: Omit<WorkoutLog, "id" | "recordedAt">,
+  authToken?: string
+): Promise<WorkoutLog> {
+  return requestJson<WorkoutLog>(
+    `${backendBaseUrl}/logs/workouts`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    },
+    { authToken }
+  );
+}
+
 export async function getBodyMetrics(authToken?: string): Promise<BodyMetricLog[]> {
   return requestJson<BodyMetricLog[]>(`${backendBaseUrl}/logs/body-metrics`, undefined, { authToken });
 }
@@ -1020,8 +1067,7 @@ export async function getExercises(): Promise<ExerciseItem[]> {
 }
 
 export async function getExerciseCatalog(): Promise<ExerciseCatalogItem[]> {
-  const items = await requestJson<RawDatabaseExercise[]>(`${backendBaseUrl}/exercises`);
-  return items.map(mapDatabaseExercise);
+  return (officialExerciseCatalog as OfficialExerciseCatalogSourceItem[]).slice(0, 40).map(mapOfficialExercise);
 }
 
 export async function createThread(): Promise<CreateThreadResponse> {

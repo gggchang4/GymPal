@@ -470,9 +470,9 @@ export function DietRecommendationModal({
         </div>
 
         <div className="diet-modal-footer">
-          <span className="muted">当前替换仅保留在前端会话中，后续接入持久化后可直接同步到记录模块。</span>
-          <Link className="button" href={appRoutes.logs}>
-            记录今日饮食
+          <span className="muted">当前替换仅保留在前端会话中，后续接入持久化后可同步到个人档案。</span>
+          <Link className="button" href={appRoutes.profile}>
+            查看档案
           </Link>
         </div>
       </div>

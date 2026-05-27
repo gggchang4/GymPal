@@ -11,7 +11,6 @@ export const appRoutes = {
   dashboard: "/dashboard" as Route,
   exercises: "/exercises" as Route,
   login: "/login" as Route,
-  logs: "/logs" as Route,
   planCurrent: "/plans/current" as Route,
   profile: "/profile" as Route,
   register: "/register" as Route
@@ -24,7 +23,6 @@ export const primaryNavItems: readonly NavItem[] = [
   { href: appRoutes.dashboard, label: "仪表盘" },
   { href: appRoutes.planCurrent, label: "计划" },
   { href: appRoutes.profile, label: "档案" },
-  { href: appRoutes.logs, label: "记录" },
   { href: appRoutes.exercises, label: "动作库" }
 ] as const;
 

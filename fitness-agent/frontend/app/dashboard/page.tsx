@@ -2,6 +2,7 @@ import { DashboardActivityRings } from "@/components/dashboard-activity-rings";
 import { DashboardDietPlateManager } from "@/components/dashboard-diet-plate-manager";
 import {
   getBodyMetrics,
+  getMe,
   getTodayDietRecommendation,
   getWorkoutLogs
 } from "@/lib/api";
@@ -18,11 +19,19 @@ async function resolveOptional<T>(loader: Promise<T>): Promise<T | null> {
   }
 }
 
-function buildTrendValues(metrics: BodyMetricLog[], workouts: WorkoutLog[]) {
+function buildTrendValues(metrics: BodyMetricLog[], workouts: WorkoutLog[], currentProfileWeight?: number) {
   const weightValues = [...metrics]
     .slice(0, 7)
     .reverse()
     .map((item) => item.weightKg);
+
+  if (typeof currentProfileWeight === "number" && Number.isFinite(currentProfileWeight) && currentProfileWeight > 0) {
+    if (weightValues.length === 0) {
+      weightValues.push(currentProfileWeight);
+    } else {
+      weightValues[weightValues.length - 1] = currentProfileWeight;
+    }
+  }
 
   if (weightValues.length > 0) {
     const min = Math.min(...weightValues);
@@ -39,16 +48,19 @@ function buildTrendValues(metrics: BodyMetricLog[], workouts: WorkoutLog[]) {
 
 export default async function DashboardPage() {
   const authToken = requireServerAuthToken();
-  const [recommendation, metricsResult, workoutsResult] = await Promise.all([
+  const [recommendation, metricsResult, workoutsResult, meResult] = await Promise.all([
     resolveOptional(getTodayDietRecommendation(authToken)),
     resolveOptional(getBodyMetrics(authToken)),
-    resolveOptional(getWorkoutLogs(authToken))
+    resolveOptional(getWorkoutLogs(authToken)),
+    resolveOptional(getMe(authToken))
   ]);
 
   const metrics = metricsResult ?? [];
   const workouts = workoutsResult ?? [];
-  const trendValues = buildTrendValues(metrics, workouts);
-  const trendSource = metrics.length > 0 ? "最近体重变化" : workouts.length > 0 ? "最近训练时长" : "暂无趋势数据";
+  const currentProfileWeight = meResult?.profile?.currentWeightKg;
+  const hasWeightTrend = metrics.length > 0 || (typeof currentProfileWeight === "number" && currentProfileWeight > 0);
+  const trendValues = buildTrendValues(metrics, workouts, currentProfileWeight);
+  const trendSource = hasWeightTrend ? "最近体重变化" : workouts.length > 0 ? "最近训练时长" : "暂无趋势数据";
 
   return (
     <div className="page dashboard-stack">

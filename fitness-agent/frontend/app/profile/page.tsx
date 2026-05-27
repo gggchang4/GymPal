@@ -1,5 +1,7 @@
 import Image from "next/image";
 import { PageErrorState } from "@/components/page-error-state";
+import { ProfileEditor } from "@/components/profile-editor";
+import { ProfileWorkoutLogger } from "@/components/profile-workout-logger";
 import { getBodyMetrics, getCurrentPlan, getMe, getWorkoutLogs } from "@/lib/api";
 import { requireServerAuthToken } from "@/lib/server-auth";
 
@@ -101,10 +103,13 @@ export default async function ProfilePage() {
 
   const profile = me.profile;
   const latestMetric = metrics[0];
-  const currentWeight = latestMetric?.weightKg ?? profile?.currentWeightKg ?? 0;
+  const currentWeight = profile?.currentWeightKg ?? latestMetric?.weightKg ?? 0;
   const targetWeight = profile?.targetWeightKg ?? currentWeight;
   const heightCm = profile?.heightCm ?? 0;
   const bmi = heightCm > 0 ? currentWeight / ((heightCm / 100) * (heightCm / 100)) : 0;
+  const bodyDimensions = latestMetric?.waistCm
+    ? `胸 未记录 · 腰 ${latestMetric.waistCm} cm · 臀 未记录`
+    : "胸 未记录 · 腰 未记录 · 臀 未记录";
   const weightTrend = [...metrics].slice(0, 8).reverse();
   const weightPoints =
     weightTrend.length > 0 ? weightTrend.map((item) => item.weightKg) : [currentWeight || 0, currentWeight || 0];
@@ -118,13 +123,13 @@ export default async function ProfilePage() {
   }).length;
 
   const trainingTarget = profile?.trainingDaysPerWeek ?? 4;
-  const latestWorkout = workouts[0];
   const memberRows = [
     ["邮箱", me.email],
     ["身高", heightCm > 0 ? `${heightCm} cm` : "未记录"],
     ["当前体重", currentWeight > 0 ? `${currentWeight} kg` : "未记录"],
     ["目标体重", targetWeight > 0 ? `${targetWeight} kg` : "未记录"],
     ["BMI", bmi > 0 ? bmi.toFixed(1) : "未记录"],
+    ["三维数据", bodyDimensions],
     ["训练经验", formatLabel(profile?.trainingExperience)],
     ["器械条件", formatLabel(profile?.equipmentAccess)]
   ] as const;
@@ -138,7 +143,7 @@ export default async function ProfilePage() {
     {
       label: "近 7 日训练频次",
       value: `${weeklyWorkoutCount} / ${trainingTarget}`,
-      note: "基于真实 WorkoutLog 计算，不再使用静态卡片数据"
+      note: undefined
     },
     {
       label: "当前计划天数",
@@ -152,13 +157,6 @@ export default async function ProfilePage() {
     { label: "身体记录", sessions: Math.min(metrics.length, 7), target: 7 },
     { label: "计划安排", sessions: plan.length, target: Math.max(trainingTarget, 1) }
   ] as const;
-
-  const recentNotes = [
-    profile?.limitations ? `限制说明：${profile.limitations}` : null,
-    latestWorkout?.painFeedback ? `训练反馈：${latestWorkout.painFeedback}` : null,
-    plan[0]?.recoveryTip ? `计划提示：${plan[0].recoveryTip}` : null,
-    latestWorkout?.exerciseNote ? `最近训练备注：${latestWorkout.exerciseNote}` : null
-  ].filter((note): note is string => Boolean(note));
 
   return (
     <div className="page">
@@ -185,9 +183,6 @@ export default async function ProfilePage() {
               <div className="profile-member-copy">
                 <span className="section-label">Member</span>
                 <h3>{me.name}</h3>
-                <p className="profile-member-note">
-                  邮箱 {me.email}。这个档案页会把用户信息、健康档案、身体记录、训练日志和当前计划汇总到同一处。
-                </p>
               </div>
             </div>
 
@@ -211,10 +206,9 @@ export default async function ProfilePage() {
               ))}
             </div>
 
-            <div className="profile-member-tags">
-              <span className="profile-ledger-tag">{formatLabel(profile?.activityLevel)}</span>
-              <span className="profile-ledger-tag">每周 {trainingTarget} 次</span>
-              <span className="profile-ledger-tag">{formatLabel(profile?.gender)}</span>
+            <div className="profile-action-row">
+              <ProfileEditor email={me.email} initialProfile={profile} latestWeightKg={latestMetric?.weightKg ?? null} />
+              <ProfileWorkoutLogger />
             </div>
           </section>
         </aside>
@@ -226,7 +220,7 @@ export default async function ProfilePage() {
                 <span className="section-label">近期</span>
                 <strong>{item.value}</strong>
                 <p>{item.label}</p>
-                <small>{item.note}</small>
+                {item.note ? <small>{item.note}</small> : null}
               </article>
             ))}
           </section>
@@ -237,7 +231,6 @@ export default async function ProfilePage() {
                 <span className="section-label">体重</span>
                 <h3>近期体重变化</h3>
               </div>
-              <p className="muted">使用数据库中的真实体重记录生成趋势线，更适合观察中期节奏，而不是单日波动。</p>
             </div>
 
             <div className="profile-trend-panel">
@@ -259,30 +252,11 @@ export default async function ProfilePage() {
                     ? `跟踪周期内变化 ${(weightPoints.at(-1)! - weightPoints[0]).toFixed(1)} kg。`
                     : "继续补充身体记录后，这里的趋势会更有参考价值。"}
                 </p>
-
-                <div className="profile-mini-metrics">
-                  <div>
-                    <span className="profile-stat-label">最新腰围</span>
-                    <strong>{latestMetric?.waistCm !== undefined ? `${latestMetric.waistCm} cm` : "未记录"}</strong>
-                  </div>
-                  <div>
-                    <span className="profile-stat-label">当前 BMI</span>
-                    <strong>{bmi > 0 ? bmi.toFixed(1) : "未记录"}</strong>
-                  </div>
-                </div>
               </div>
             </div>
           </section>
 
-          <section className="profile-data-section">
-            <div className="profile-data-head">
-              <div>
-                <span className="section-label">训练</span>
-                <h3>训练频次记录</h3>
-              </div>
-              <p className="muted">把近一周训练次数与目标频次并排展示，更容易看出执行是否稳定。</p>
-            </div>
-
+          <section className="profile-data-section" aria-label="训练执行进度">
             <div className="profile-frequency-list">
               {trainingFrequency.map((item) => (
                 <div className="profile-frequency-row" key={item.label}>
@@ -295,26 +269,6 @@ export default async function ProfilePage() {
                   <div className="profile-frequency-rail" aria-hidden="true">
                     <span style={{ width: `${Math.min((item.sessions / Math.max(item.target, 1)) * 100, 100)}%` }} />
                   </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="profile-data-section">
-            <div className="profile-data-head">
-              <div>
-                <span className="section-label">观察</span>
-                <h3>近期观察</h3>
-              </div>
-            </div>
-
-            <div className="profile-note-stream">
-              {(recentNotes.length > 0
-                ? recentNotes
-                : ["继续补充训练与恢复记录，系统会生成更完整的阶段观察。"]).map((note, index) => (
-                <div className="profile-note-row" key={`${index}-${note}`}>
-                  <span className="profile-rule-index">{String(index + 1).padStart(2, "0")}</span>
-                  <p>{note}</p>
                 </div>
               ))}
             </div>
