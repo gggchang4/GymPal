@@ -3518,18 +3518,30 @@ select:focus {
 .profile-trend-chart {
   display: grid;
   gap: 10px;
+  min-width: 0;
+}
+
+.profile-sparkline-wrap {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
 }
 
 .profile-trend-labels {
-  display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
-  gap: 8px;
+  position: relative;
+  height: 22px;
+  overflow: visible;
 }
 
 .profile-trend-labels span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
   color: rgba(20, 20, 20, 0.52);
   font-size: 11px;
+  line-height: 1;
   text-align: center;
+  white-space: nowrap;
 }
 
 .profile-trend-summary {
