@@ -21,6 +21,8 @@ import type {
   DietRecommendationSnapshot,
   ExerciseItem,
   HealthProfile,
+  ManualContextEntry,
+  ManualContextPayload,
   MemorySummarySnapshot,
   ProposalDecisionResponse,
   PostMessageResponse,
@@ -329,6 +331,20 @@ function buildHeaders(headers?: HeadersInit, authToken?: string) {
   }
 
   return mergedHeaders;
+}
+
+function recordFrontendFlow(event: string, payload: Record<string, unknown>) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  console.info(`[FLOW][frontend][${event}]`, payload);
+  void fetch("/api/flow-log", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ event, payload }),
+    keepalive: true
+  }).catch(() => undefined);
 }
 
 function isAuthFailure(status: number, detail: string) {
@@ -801,6 +817,52 @@ export async function getWorkspaceSummary(authToken?: string): Promise<Workspace
   return mapWorkspaceSummary(snapshot);
 }
 
+export async function listManualContexts(sourcePage?: string, authToken?: string): Promise<ManualContextEntry[]> {
+  const query = sourcePage ? `?sourcePage=${encodeURIComponent(sourcePage)}` : "";
+  return requestJson<ManualContextEntry[]>(`${backendBaseUrl}/manual-context${query}`, undefined, { authToken });
+}
+
+export async function createManualContext(
+  payload: ManualContextPayload,
+  authToken?: string
+): Promise<ManualContextEntry> {
+  return requestJson<ManualContextEntry>(
+    `${backendBaseUrl}/manual-context`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    },
+    { authToken }
+  );
+}
+
+export async function updateManualContext(
+  id: string,
+  payload: Partial<ManualContextPayload>,
+  authToken?: string
+): Promise<ManualContextEntry> {
+  return requestJson<ManualContextEntry>(
+    `${backendBaseUrl}/manual-context/${id}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    },
+    { authToken }
+  );
+}
+
+export async function deleteManualContext(id: string, authToken?: string): Promise<{ ok: boolean; id: string }> {
+  return requestJson<{ ok: boolean; id: string }>(
+    `${backendBaseUrl}/manual-context/${id}`,
+    {
+      method: "DELETE"
+    },
+    { authToken }
+  );
+}
+
 export async function getAgentWorkItems(authToken?: string): Promise<AgentWorkItemSnapshot[]> {
   const items = await requestJson<RawAgentWorkItem[]>(`${backendBaseUrl}/agent/work-items`, undefined, { authToken });
   return items.map(mapAgentWorkItem);
@@ -963,11 +1025,14 @@ export async function getExerciseCatalog(): Promise<ExerciseCatalogItem[]> {
 }
 
 export async function createThread(): Promise<CreateThreadResponse> {
+  recordFrontendFlow("chat.thread.create.request", {});
   const result = await requestJson<{ thread_id: string }>(`${agentBaseUrl}/agent/threads`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({})
   });
+
+  recordFrontendFlow("chat.thread.create.response", { threadId: result.thread_id });
 
   return { threadId: result.thread_id };
 }
@@ -983,13 +1048,53 @@ export async function getThreadMessages(threadId: string): Promise<AgentMessage[
 }
 
 export async function postMessage(threadId: string, text: string): Promise<PostMessageResponse> {
+  recordFrontendFlow("chat.message.submit", {
+    threadId,
+    text,
+    textLength: text.length
+  });
+
+  recordFrontendFlow("chat.message.agent.request", {
+    threadId,
+    url: `${agentBaseUrl}/agent/threads/${threadId}/messages`,
+    body: { text },
+    textLength: text.length
+  });
+
   const result = await requestJson<RawPostMessageResponse>(`${agentBaseUrl}/agent/threads/${threadId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text })
   });
 
-  return mapPostMessageResponse(result);
+  recordFrontendFlow("chat.message.agent.raw_response", {
+    threadId,
+    id: result.id,
+    content: result.content,
+    reasoningSummary: result.reasoning_summary,
+    cards: result.cards,
+    runId: result.run_id,
+    toolEvents: result.tool_events,
+    nextActions: result.next_actions,
+    riskLevel: result.risk_level,
+    degradedMode: result.degraded_mode,
+    degradedReason: result.degraded_reason,
+    intent: result.intent,
+    intentConfidence: result.intent_confidence,
+    pendingProposalCount: result.pending_proposal_count
+  });
+
+  const mapped = mapPostMessageResponse(result);
+  recordFrontendFlow("chat.message.response", {
+    threadId,
+    assistantText: mapped.content,
+    riskLevel: mapped.riskLevel,
+    cardCount: mapped.cards.length,
+    toolEventCount: mapped.toolEvents.length,
+    degradedMode: mapped.degradedMode
+  });
+
+  return mapped;
 }
 
 export async function approveProposal(proposalId: string): Promise<ProposalDecisionResponse> {

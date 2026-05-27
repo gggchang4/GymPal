@@ -226,6 +226,22 @@ function createService() {
     getMemorySummary: async () => ({ activeMemories: [] }),
     addDietLog: async (payload: Record<string, unknown>) => ({ id: "diet-log-1", ...payload }),
     addBodyMetric: async (payload: Record<string, unknown>) => ({ id: "body-metric-1", ...payload }),
+    generatePlan: async (userId: string, payload: unknown) => ({ id: "plan-generated-1", userId, payload }),
+    createCurrentPlanDay: async (payload: Record<string, unknown>, userId: string) => ({
+      id: "day-created-1",
+      userId,
+      ...payload
+    }),
+    updateCurrentPlanDay: async (dayId: string, payload: Record<string, unknown>, userId: string) => ({
+      id: dayId,
+      userId,
+      ...payload
+    }),
+    deleteCurrentPlanDay: async (dayId: string, userId: string) => ({
+      id: dayId,
+      userId,
+      deleted: true
+    }),
     getCurrentPlanSnapshot: async () => ({
       plan: {
         id: "plan-1",
@@ -333,6 +349,80 @@ test("action executor preserves body metric recordedAt", async () => {
   const recordedAt = result.recordedAt;
   assert.ok(recordedAt instanceof Date);
   assert.equal(recordedAt.toISOString(), "2099-04-19T04:00:00.000Z");
+});
+
+test("action executor creates, updates, and deletes current plan days", async () => {
+  const { actionExecutor } = createService();
+
+  const created = (await actionExecutor.executeSingle(
+    "create_plan_day",
+    {
+      dayLabel: "周三",
+      focus: "背部训练",
+      duration: "60 分钟",
+      exercises: ["引体向上", "杠铃划船"],
+      recoveryTip: "练后拉伸。"
+    },
+    "user-1"
+  )) as Record<string, unknown>;
+
+  assert.equal(created.id, "day-created-1");
+  assert.equal(created.userId, "user-1");
+  assert.equal(created.dayLabel, "周三");
+  assert.deepEqual(created.exercises, ["引体向上", "杠铃划船"]);
+
+  const updated = (await actionExecutor.executeSingle(
+    "update_plan_day",
+    {
+      dayId: "day-1",
+      focus: "肩部训练",
+      exercises: ["哑铃推举", "侧平举"],
+      isCompleted: true
+    },
+    "user-1"
+  )) as Record<string, unknown>;
+
+  assert.equal(updated.id, "day-1");
+  assert.equal(updated.focus, "肩部训练");
+  assert.equal(updated.isCompleted, true);
+  assert.deepEqual(updated.exercises, ["哑铃推举", "侧平举"]);
+
+  const deleted = (await actionExecutor.executeSingle("delete_plan_day", { dayId: "day-1" }, "user-1")) as Record<string, unknown>;
+
+  assert.deepEqual(deleted, { id: "day-1", userId: "user-1", deleted: true });
+});
+
+test("action executor generates a full plan from agent day payloads", async () => {
+  const { actionExecutor } = createService();
+
+  const result = (await actionExecutor.executeSingle(
+    "generate_plan",
+    {
+      title: "这周训练计划",
+      goal: "muscle_gain",
+      weekOf: "2099-04-20",
+      days: [
+        {
+          dayLabel: "周三",
+          focus: "背部训练",
+          duration: "60-75 分钟",
+          exercises: ["引体向上 4x8-10", "杠铃划船 4x8-10"],
+          recoveryTip: "练前热身，练后拉伸。",
+          sortOrder: 0
+        }
+      ]
+    },
+    "user-1"
+  )) as Record<string, unknown>;
+
+  const payload = result.payload as Record<string, unknown>;
+  const days = payload.days as Record<string, unknown>[];
+
+  assert.equal(result.id, "plan-generated-1");
+  assert.equal(payload.goal, "muscle_gain");
+  assert.equal(days[0].dayLabel, "周三");
+  assert.equal(days[0].focus, "背部训练");
+  assert.deepEqual(days[0].exercises, ["引体向上 4x8-10", "杠铃划船 4x8-10"]);
 });
 
 test("confirmProposal resumes execution when the proposal is already approved", async () => {

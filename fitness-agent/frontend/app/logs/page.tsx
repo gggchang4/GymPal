@@ -1,4 +1,5 @@
 import { getBodyMetrics, getDailyCheckins, getDietLogs, getWorkoutLogs } from "@/lib/api";
+import { ManualContextPanel } from "@/components/manual-context-panel";
 import { PageErrorState } from "@/components/page-error-state";
 import { requireServerAuthToken } from "@/lib/server-auth";
 
@@ -73,7 +74,6 @@ export default async function LogsPage() {
   }
 
   const latestMetric = metrics[0];
-  const latestCheckin = checkins[0];
   const latestDiet = dietLogs[0];
   const latestWorkout = workouts[0];
   const weightHistory = [...metrics].slice(0, 7).reverse();
@@ -95,6 +95,14 @@ export default async function LogsPage() {
         </div>
         <span className="mini-chip">来自数据库的真实日志</span>
       </div>
+
+      <ManualContextPanel
+        sourcePage="logs"
+        title="补充记录信息"
+        description="这里适合记录页面字段之外的状态，比如酸痛、压力、特殊饮食、训练后反馈。保存后会作为上下文提供给 agent。"
+        defaultCategory="log_context"
+        placeholder="例如：昨天练腿后大腿前侧酸痛明显，今天下楼梯不舒服；昨晚只睡 5 小时。"
+      />
 
       <section className="spotlight-grid">
         <div className="form-panel">
@@ -134,44 +142,6 @@ export default async function LogsPage() {
           </div>
         </div>
 
-        <aside className="form-panel">
-          <div className="section-copy">
-            <span className="section-label">状态</span>
-            <h2>今日状态</h2>
-            <p className="muted">睡眠、步数、饮水和恢复状态都来自数据库中的 `DailyCheckin`。</p>
-          </div>
-
-          <div className="form-grid two">
-            <label className="field">
-              <span className="form-label">睡眠</span>
-              <input value={latestCheckin ? `${latestCheckin.sleepHours} h` : "暂无数据"} readOnly />
-            </label>
-
-            <label className="field">
-              <span className="form-label">步数</span>
-              <input value={latestCheckin ? latestCheckin.steps.toLocaleString("zh-CN") : "暂无数据"} readOnly />
-            </label>
-
-            <label className="field">
-              <span className="form-label">饮水</span>
-              <input value={latestCheckin ? `${latestCheckin.waterMl} ml` : "暂无数据"} readOnly />
-            </label>
-
-            <label className="field">
-              <span className="form-label">精力</span>
-              <input value={formatLevel(latestCheckin?.energyLevel)} readOnly />
-            </label>
-          </div>
-
-          <div className="action-row">
-            <button className="button" type="button">
-              最近更新：{formatDate(latestCheckin?.recordedAt)}
-            </button>
-            <span className="field-hint">
-              疲劳：{formatLevel(latestCheckin?.fatigueLevel)} · 饥饿：{formatLevel(latestCheckin?.hungerLevel)}
-            </span>
-          </div>
-        </aside>
       </section>
 
       <section className="log-layout">

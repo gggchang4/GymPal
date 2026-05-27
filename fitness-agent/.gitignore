@@ -37,3 +37,4 @@ frontend/node_modules/
 agent/.venv/
 agent/*.egg-info/
 *.log
+image-*.png

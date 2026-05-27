@@ -9,6 +9,7 @@ from typing import Any
 from openai import OpenAI
 
 from .config import settings
+from .flow_log import write_flow_log
 
 
 logger = logging.getLogger("health_agent.llm")
@@ -92,6 +93,16 @@ class OpenAICompatibleLLMClient:
             settings.llm_model_id,
             len(user_prompt),
         )
+        write_flow_log(
+            "llm",
+            "request.chat",
+            {
+                "model_id": settings.llm_model_id,
+                "base_url": settings.llm_base_url,
+                "system_prompt": system_prompt,
+                "user_prompt": user_prompt,
+            },
+        )
         try:
             response = self._client.chat.completions.create(
                 model=settings.llm_model_id,
@@ -107,12 +118,124 @@ class OpenAICompatibleLLMClient:
             raise
 
         output = response.choices[0].message.content or ""
+        write_flow_log(
+            "llm",
+            "response.chat",
+            {
+                "model_id": settings.llm_model_id,
+                "base_url": settings.llm_base_url,
+                "output": output,
+                "output_chars": len(output),
+            },
+        )
         logger.info(
             "[LLM] Response received from model=%s output_chars=%s",
             settings.llm_model_id,
             len(output),
         )
         return output
+
+    def generate_with_metadata(self, system_prompt: str, user_prompt: str) -> StructuredLLMResult:
+        started = time.perf_counter()
+        if not self._enabled or self._client is None:
+            logger.warning("[LLM] Chat request skipped because no API key/client is configured.")
+            return StructuredLLMResult(
+                ok=False,
+                data={},
+                model_id=settings.llm_model_id,
+                base_url=settings.llm_base_url,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                error_code="llm_disabled",
+                error_message="LLM_API_KEY is not configured.",
+                fallback_used=True,
+            )
+
+        logger.info(
+            "[LLM] Sending chat completion request to %s with model=%s user_chars=%s",
+            settings.llm_base_url,
+            settings.llm_model_id,
+            len(user_prompt),
+        )
+        write_flow_log(
+            "llm",
+            "request.chat",
+            {
+                "model_id": settings.llm_model_id,
+                "base_url": settings.llm_base_url,
+                "system_prompt": system_prompt,
+                "user_prompt": user_prompt,
+            },
+        )
+        try:
+            response = self._client.chat.completions.create(
+                model=settings.llm_model_id,
+                temperature=settings.llm_temperature,
+                max_tokens=settings.llm_max_tokens,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+        except Exception as exc:
+            error_code = self._classify_error(exc)
+            logger.exception("[LLM] Chat request failed before a response was returned.")
+            write_flow_log(
+                "llm",
+                "response.error",
+                {
+                    "model_id": settings.llm_model_id,
+                    "base_url": settings.llm_base_url,
+                    "error_code": error_code,
+                    "error_message": str(exc),
+                },
+            )
+            return StructuredLLMResult(
+                ok=False,
+                data={},
+                model_id=settings.llm_model_id,
+                base_url=settings.llm_base_url,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                error_code=error_code,
+                error_message=str(exc),
+                fallback_used=True,
+            )
+
+        output = response.choices[0].message.content or ""
+        write_flow_log(
+            "llm",
+            "response.chat",
+            {
+                "model_id": settings.llm_model_id,
+                "base_url": settings.llm_base_url,
+                "output": output,
+                "output_chars": len(output),
+                "latency_ms": int((time.perf_counter() - started) * 1000),
+            },
+        )
+        logger.info(
+            "[LLM] Chat response received from model=%s output_chars=%s",
+            settings.llm_model_id,
+            len(output),
+        )
+        if not output.strip():
+            return StructuredLLMResult(
+                ok=False,
+                data={},
+                model_id=settings.llm_model_id,
+                base_url=settings.llm_base_url,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                error_code="empty_response",
+                error_message="The model returned an empty response.",
+                fallback_used=True,
+            )
+        return StructuredLLMResult(
+            ok=True,
+            data={"content": output},
+            model_id=settings.llm_model_id,
+            base_url=settings.llm_base_url,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            fallback_used=False,
+        )
 
     def generate_structured(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         result = self.generate_structured_with_metadata(system_prompt, user_prompt)
@@ -143,6 +266,16 @@ class OpenAICompatibleLLMClient:
             settings.llm_model_id,
             len(user_prompt),
         )
+        write_flow_log(
+            "llm",
+            "request.structured",
+            {
+                "model_id": settings.llm_model_id,
+                "base_url": settings.llm_base_url,
+                "system_prompt": system_prompt,
+                "user_prompt": user_prompt,
+            },
+        )
         try:
             response = self._client.chat.completions.create(
                 model=settings.llm_model_id,
@@ -157,6 +290,16 @@ class OpenAICompatibleLLMClient:
         except Exception as exc:
             error_code = self._classify_error(exc)
             logger.exception("[LLM] Structured request failed before a response was returned.")
+            write_flow_log(
+                "llm",
+                "response.error",
+                {
+                    "model_id": settings.llm_model_id,
+                    "base_url": settings.llm_base_url,
+                    "error_code": error_code,
+                    "error_message": str(exc),
+                },
+            )
             return StructuredLLMResult(
                 ok=False,
                 data={},
@@ -168,6 +311,16 @@ class OpenAICompatibleLLMClient:
                 fallback_used=True,
             )
         text = response.choices[0].message.content or "{}"
+        write_flow_log(
+            "llm",
+            "response.structured.raw",
+            {
+                "model_id": settings.llm_model_id,
+                "base_url": settings.llm_base_url,
+                "output": text,
+                "output_chars": len(text),
+            },
+        )
         logger.info(
             "[LLM] Structured response received from model=%s output_chars=%s",
             settings.llm_model_id,
@@ -189,6 +342,17 @@ class OpenAICompatibleLLMClient:
         except Exception as exc:
             error_code = self._classify_error(exc)
             logger.exception("[LLM] Structured response could not be parsed as JSON.")
+            write_flow_log(
+                "llm",
+                "response.parse_error",
+                {
+                    "model_id": settings.llm_model_id,
+                    "base_url": settings.llm_base_url,
+                    "error_code": error_code,
+                    "error_message": str(exc),
+                    "raw_output": text,
+                },
+            )
             return StructuredLLMResult(
                 ok=False,
                 data={},
@@ -211,6 +375,17 @@ class OpenAICompatibleLLMClient:
                 error_message="The model returned JSON that was not an object.",
                 fallback_used=True,
             )
+
+        write_flow_log(
+            "llm",
+            "response.structured.parsed",
+            {
+                "model_id": settings.llm_model_id,
+                "base_url": settings.llm_base_url,
+                "parsed": parsed,
+                "latency_ms": int((time.perf_counter() - started) * 1000),
+            },
+        )
 
         return StructuredLLMResult(
             ok=True,

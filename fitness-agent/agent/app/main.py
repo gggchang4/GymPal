@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 
 from .agents import HealthAgentRuntime
 from .config import settings
+from .flow_log import write_flow_log
 from .llm import OpenAICompatibleLLMClient
 from .models import (
     CreateThreadRequest,
@@ -34,7 +35,7 @@ logger = logging.getLogger("health_agent.main")
 app = FastAPI(title=settings.app_name)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -160,7 +161,46 @@ async def post_message(
     payload: PostMessageRequest,
     authorization: str | None = Header(default=None),
 ):
-    return await runtime.process_message(thread_id, payload, require_authorization_header(authorization))
+    normalized_authorization = require_authorization_header(authorization)
+    write_flow_log(
+        "agent",
+        "chat.message.received",
+        {
+            "thread_id": thread_id,
+            "text": payload.text,
+            "text_length": len(payload.text),
+            "user_id": extract_user_id_from_authorization(normalized_authorization),
+        },
+    )
+    try:
+        response = await runtime.process_message(thread_id, payload, normalized_authorization)
+    except Exception as exc:
+        write_flow_log(
+            "agent",
+            "chat.message.error",
+            {
+                "thread_id": thread_id,
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+            },
+        )
+        raise
+
+    write_flow_log(
+        "agent",
+        "chat.message.response",
+        {
+            "thread_id": thread_id,
+            "assistant_content": response.content,
+            "reasoning_summary": response.reasoning_summary,
+            "risk_level": response.risk_level,
+            "card_count": len(response.cards),
+            "tool_event_count": len(response.tool_events),
+            "degraded_mode": response.degraded_mode,
+            "pending_proposal_count": response.pending_proposal_count,
+        },
+    )
+    return response
 
 
 @app.post("/agent/proposals/{proposal_id}/approve", response_model=ProposalDecisionResponse)

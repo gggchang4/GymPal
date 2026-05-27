@@ -1681,6 +1681,167 @@ select:focus {
   gap: 8px;
 }
 
+.manual-context-panel {
+  display: grid;
+  gap: 18px;
+  padding: 20px 0 24px;
+  border-top: 1px solid rgba(0, 0, 0, 0.16);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.dashboard-activity-manager,
+.dashboard-metric-editor,
+.dashboard-metric-form,
+.dashboard-default-metrics,
+.dashboard-diet-manager,
+.dashboard-diet-editor,
+.dashboard-diet-form,
+.dashboard-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.dashboard-stack {
+  gap: 28px;
+}
+
+.dashboard-metric-editor {
+  padding-top: 18px;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.dashboard-diet-editor {
+  padding-top: 18px;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.dashboard-editor-summary {
+  width: fit-content;
+  min-height: 42px;
+  padding: 0 18px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--ink);
+  font-weight: 700;
+  line-height: 42px;
+  cursor: pointer;
+}
+
+.dashboard-diet-editor[open] .dashboard-editor-summary {
+  margin-bottom: 14px;
+}
+
+.dashboard-diet-empty-note {
+  margin: -8px 0 0;
+  color: var(--muted);
+  font-size: 0.94rem;
+}
+
+.dashboard-metric-form {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 110px 72px auto;
+  align-items: end;
+}
+
+.dashboard-diet-form {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: end;
+}
+
+.dashboard-diet-form.compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.dashboard-metric-form.compact {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 110px 72px;
+}
+
+.dashboard-metric-form .span-2 {
+  grid-column: span 2;
+}
+
+.dashboard-metric-form input[type="color"] {
+  min-height: 48px;
+  padding: 8px 0;
+}
+
+.dashboard-default-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.manual-context-head,
+.manual-context-inline {
+  display: grid;
+  gap: 14px;
+  align-items: end;
+}
+
+.manual-context-head {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.manual-context-form,
+.manual-context-edit,
+.manual-context-list {
+  display: grid;
+  gap: 14px;
+}
+
+.manual-context-inline {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+
+.manual-context-item {
+  display: grid;
+  gap: 14px;
+  padding: 16px 0 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.manual-context-item-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.manual-context-item-copy strong,
+.manual-context-empty strong {
+  font-size: 1.08rem;
+}
+
+.manual-context-item-copy p {
+  margin: 0;
+}
+
+.manual-context-item-copy small {
+  color: rgba(20, 20, 20, 0.56);
+}
+
+.manual-context-empty {
+  display: grid;
+  gap: 6px;
+  padding: 14px 0 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.manual-context-status,
+.manual-context-error {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.manual-context-status {
+  color: #256b45;
+}
+
+.manual-context-error {
+  color: #b32d27;
+}
+
+.ghost-button.danger {
+  color: #b32d27;
+  border-color: rgba(179, 45, 39, 0.24);
+}
+
 .meal-row strong,
 .profile-stat strong {
   font-size: 1.18rem;
@@ -4181,6 +4342,13 @@ select:focus {
   .profile-member-highlight,
   .profile-mini-metrics,
   .profile-recent-grid,
+  .manual-context-head,
+  .manual-context-inline,
+  .dashboard-metric-form,
+  .dashboard-metric-form.compact,
+  .dashboard-diet-form,
+  .dashboard-diet-form.compact,
+  .dashboard-default-metrics,
   .dashboard-summary-row,
   .dashboard-coaching-status,
   .coach-workspace-strip,
@@ -4247,6 +4415,10 @@ select:focus {
   .exercise-result-grid,
   .exercise-search-grid {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-metric-form .span-2 {
+    grid-column: span 1;
   }
 
   .profile-calorie-bars {

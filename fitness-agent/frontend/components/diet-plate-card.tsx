@@ -401,7 +401,7 @@ export function DietPlateCard({ recommendation }: { recommendation: DietRecommen
             <div className="diet-plate-center">
               <span className="metric-label">今日摄入</span>
               <strong>{snapshot.totalCalorie}</strong>
-              <p>kcal</p>
+              <p>千卡</p>
             </div>
           </div>
 
@@ -409,12 +409,12 @@ export function DietPlateCard({ recommendation }: { recommendation: DietRecommen
             <div className="diet-kpi-grid">
               <div className="diet-kpi-card">
                 <span className="metric-label">目标热量</span>
-                <strong>{snapshot.targetCalorie} kcal</strong>
+                <strong>{snapshot.targetCalorie} 千卡</strong>
                 <small>先稳住结构，再去微调热量。</small>
               </div>
               <div className="diet-kpi-card">
                 <span className="metric-label">{calorieGap >= 0 ? "热量缺口" : "热量盈余"}</span>
-                <strong>{Math.abs(calorieGap)} kcal</strong>
+                <strong>{Math.abs(calorieGap)} 千卡</strong>
                 <small>{snapshot.fitTips ?? "优先把蛋白质和蔬菜执行稳定。"}</small>
               </div>
             </div>
@@ -452,7 +452,7 @@ export function DietPlateCard({ recommendation }: { recommendation: DietRecommen
                   }}
                 >
                   <span>{mealLabelByType[meal.mealType]}</span>
-                  <strong>{meal.totalCalorie} kcal</strong>
+                  <strong>{meal.totalCalorie} 千卡</strong>
                   <small>{meal.foods.map((food) => food.name).slice(0, 2).join(" · ")}</small>
                 </button>
               ))}

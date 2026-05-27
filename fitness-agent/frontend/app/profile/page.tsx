@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { ManualContextPanel } from "@/components/manual-context-panel";
 import { PageErrorState } from "@/components/page-error-state";
 import { getBodyMetrics, getCurrentPlan, getMe, getWorkoutLogs } from "@/lib/api";
 import { requireServerAuthToken } from "@/lib/server-auth";
@@ -169,6 +170,14 @@ export default async function ProfilePage() {
         </div>
         <span className="mini-chip">每周 {trainingTarget} 练 · 已接入数据库</span>
       </div>
+
+      <ManualContextPanel
+        sourcePage="profile"
+        title="补充档案信息"
+        description="手动维护训练偏好、身体限制、器械条件和长期目标。保存后会进入数据库，agent 在回答和生成计划时可以读取。"
+        defaultCategory="profile_context"
+        placeholder="例如：我更喜欢晚上训练；肩膀旧伤，推举动作需要保守；家里只有哑铃和弹力带。"
+      />
 
       <div className="profile-layout">
         <aside className="profile-sidebar">

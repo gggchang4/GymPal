@@ -163,6 +163,27 @@ export interface MemorySummaryOptions {
   includeExpired?: boolean;
 }
 
+export interface ManualContextPayload {
+  sourcePage: string;
+  title: string;
+  content: string;
+  category?: string;
+  tags?: string[];
+  value?: Record<string, unknown>;
+}
+
+export interface ManualContextRecord {
+  id: string;
+  sourcePage: string;
+  title: string;
+  content: string;
+  category: string;
+  tags: string[];
+  value: Prisma.JsonValue;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface RecommendationFeedbackPayload {
   reviewSnapshotId?: string;
   proposalGroupId?: string;
@@ -320,6 +341,30 @@ function mapRecommendationFeedback(feedback: {
     feedbackType: feedback.feedbackType,
     note: feedback.note,
     createdAt: feedback.createdAt.toISOString()
+  };
+}
+
+function mapManualContext(memory: {
+  id: string;
+  sourceId: string | null;
+  title: string;
+  summary: string;
+  category: string;
+  relevanceTags: string[];
+  value: Prisma.JsonValue;
+  createdAt: Date;
+  updatedAt: Date;
+}): ManualContextRecord {
+  return {
+    id: memory.id,
+    sourcePage: memory.sourceId ?? "general",
+    title: memory.title,
+    content: memory.summary,
+    category: memory.category,
+    tags: memory.relevanceTags,
+    value: memory.value,
+    createdAt: memory.createdAt.toISOString(),
+    updatedAt: memory.updatedAt.toISOString()
   };
 }
 
@@ -906,6 +951,91 @@ export class AppStoreService {
       orderBy: { createdAt: "desc" },
       take
     });
+  }
+
+  async listManualContexts(userId: string, sourcePage?: string): Promise<ManualContextRecord[]> {
+    const user = await this.getUser(userId);
+    const normalizedSourcePage = sourcePage?.trim();
+    const memories = await this.prisma.userCoachingMemory.findMany({
+      where: {
+        userId: user.id,
+        sourceType: "frontend_manual",
+        status: "active",
+        ...(normalizedSourcePage ? { sourceId: normalizedSourcePage } : {})
+      },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }]
+    });
+
+    return memories.map(mapManualContext);
+  }
+
+  async createManualContext(userId: string, payload: ManualContextPayload): Promise<ManualContextRecord> {
+    const sourcePage = normalizePlanString(payload.sourcePage, "general");
+    const category = normalizeMemoryCategory(payload.category, "manual_context");
+    const tags = Array.from(new Set(["manual_context", `page:${sourcePage}`, category, ...sanitizeStringArray(payload.tags)]));
+    const memory = await this.createCoachingMemory(userId, {
+      memoryType: "manual_context",
+      category,
+      title: normalizePlanString(payload.title, "手动补充信息"),
+      summary: normalizePlanString(payload.content, "用户在前端页面手动补充了一条信息。"),
+      value: payload.value ?? {
+        sourcePage,
+        content: payload.content
+      },
+      confidence: 95,
+      relevanceTags: tags,
+      sourceType: "frontend_manual",
+      sourceId: sourcePage,
+      reason: `用户在 ${sourcePage} 页面手动新增信息。`
+    });
+
+    return mapManualContext(memory);
+  }
+
+  async updateManualContext(
+    userId: string,
+    memoryId: string,
+    payload: Partial<ManualContextPayload>
+  ): Promise<ManualContextRecord> {
+    const sourcePage = payload.sourcePage ? normalizePlanString(payload.sourcePage, "general") : undefined;
+    const category = payload.category ? normalizeMemoryCategory(payload.category, "manual_context") : undefined;
+    const relevanceTags =
+      payload.tags === undefined && sourcePage === undefined && category === undefined
+        ? undefined
+        : Array.from(
+            new Set([
+              "manual_context",
+              ...(sourcePage ? [`page:${sourcePage}`] : []),
+              ...(category ? [category] : []),
+              ...sanitizeStringArray(payload.tags)
+            ])
+          );
+
+    const memory = await this.updateCoachingMemory(userId, memoryId, {
+      memoryType: "manual_context",
+      category,
+      title: payload.title,
+      summary: payload.content,
+      value:
+        payload.value ??
+        (payload.content === undefined && sourcePage === undefined
+          ? undefined
+          : {
+              ...(sourcePage ? { sourcePage } : {}),
+              ...(payload.content === undefined ? {} : { content: payload.content })
+            }),
+      confidence: 95,
+      relevanceTags,
+      sourceType: "frontend_manual",
+      sourceId: sourcePage,
+      reason: "用户在前端页面手动更新信息。"
+    });
+
+    return mapManualContext(memory);
+  }
+
+  async deleteManualContext(userId: string, memoryId: string) {
+    return this.archiveCoachingMemory(userId, memoryId, "用户在前端页面手动删除信息。");
   }
 
   async getLatestDietRecommendation(userId?: string) {

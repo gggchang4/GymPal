@@ -122,6 +122,20 @@ class FakeLLM:
             fallback_used=not self.ok,
         )
 
+    def generate_with_metadata(self, system_prompt: str, user_prompt: str) -> StructuredLLMResult:
+        self.prompts.append(user_prompt)
+        content = str(self.data.get("content") or "测试回复")
+        return StructuredLLMResult(
+            ok=self.ok,
+            data={"content": content},
+            model_id="test-model",
+            base_url="test-url",
+            latency_ms=1,
+            error_code=None if self.ok else "test_error",
+            error_message=None if self.ok else "failed",
+            fallback_used=not self.ok,
+        )
+
 
 class BadJsonMessage:
     content = "not json"
@@ -227,7 +241,7 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIsNone(degraded_reason)
-        self.assertTrue(metadata and metadata.ok)
+        self.assertIsNone(metadata)
         self.assertEqual(intent["intent"], "body_metric_log")
         self.assertEqual(intent["write_domain"], "body_metric")
         self.assertEqual(intent["source"], "keyword_override")
@@ -376,7 +390,7 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         planner, metadata, degraded_reason = await runtime._plan_next_steps(request, {"recent_messages": []}, intent, None)
 
         self.assertIsNone(degraded_reason)
-        self.assertTrue(metadata and metadata.ok)
+        self.assertIsNone(metadata)
         self.assertEqual(planner["action"], "answer")
         self.assertFalse(planner["requires_proposal"])
         self.assertIsNone(planner["write_domain"])
@@ -636,8 +650,8 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIsNone(runtime._contextual_plan_intent(request, context, fallback))
-        self.assertTrue(metadata and metadata.ok)
-        self.assertTrue(planner_metadata and planner_metadata.ok)
+        self.assertIsNone(metadata)
+        self.assertIsNone(planner_metadata)
         self.assertIsNone(degraded_reason)
         self.assertIsNone(planner_degraded_reason)
         self.assertEqual(intent["intent"], "health_answer")
@@ -754,7 +768,7 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         dialogue = runtime._decide_dialogue_turn(request, {"recent_messages": []}, intent, planner)
 
         self.assertIsNone(degraded_reason)
-        self.assertTrue(metadata and metadata.ok)
+        self.assertIsNone(metadata)
         self.assertEqual(planner["action"], "answer")
         self.assertFalse(planner["requires_proposal"])
         self.assertIsNone(planner["write_domain"])
@@ -1029,6 +1043,205 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(proposals[0]["payload"]["goal"], "muscle_gain")
         self.assertTrue(proposals[0]["payload"].get("days"))
 
+    def test_database_action_trigger_keeps_plain_chat_read_only(self) -> None:
+        runtime = make_runtime(FakeLLM())
+
+        for text in ["帮我安排一下", "这个计划合理吗？", "需要！", "为什么这么安排？"]:
+            with self.subTest(text=text):
+                trigger = runtime._database_action_trigger(text)
+                self.assertEqual(trigger["mode"], "chat")
+                self.assertIsNone(trigger["domain"])
+
+    def test_database_action_trigger_classifies_plan_crud(self) -> None:
+        runtime = make_runtime(FakeLLM())
+
+        examples = {
+            "新增周六练胸": "create",
+            "周三改成练肩": "update",
+            "删除周五训练": "delete",
+            "将这个写入计划当中": "commit_previous",
+        }
+
+        for text, operation in examples.items():
+            with self.subTest(text=text):
+                trigger = runtime._database_action_trigger(text)
+                self.assertEqual(trigger["mode"], "candidate_action")
+                self.assertEqual(trigger["domain"], "plan")
+                self.assertEqual(trigger["operation"], operation)
+
+    async def test_vague_arrange_request_does_not_enter_write_flow(self) -> None:
+        runtime = make_runtime(FakeLLM(enabled=False))
+        request = PostMessageRequest(text="帮我安排一下")
+
+        intent, metadata, degraded_reason = await runtime._classify_intent(request, {"recent_messages": []})
+        planner, planner_metadata, planner_degraded_reason = await runtime._plan_next_steps(
+            request,
+            {"recent_messages": []},
+            intent,
+            degraded_reason,
+        )
+
+        self.assertIsNone(metadata)
+        self.assertIsNone(planner_metadata)
+        self.assertIsNone(intent.get("write_domain"))
+        self.assertFalse(planner["requires_proposal"])
+        self.assertNotIn("create_action_proposal", [tool["name"] for tool in planner["tools"]])
+        self.assertIn(planner_degraded_reason, {None, "llm_disabled"})
+
+    def test_plan_crud_triggers_create_update_and_delete_proposals(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        current_plan = {
+            "plan": {
+                "id": "plan-1",
+                "title": "Current plan",
+                "version": 2,
+                "updatedAt": "2026-05-26T08:00:00.000Z",
+            },
+            "days": [
+                {"id": "day-3", "dayLabel": "周三", "focus": "背部训练", "duration": "60 分钟", "updatedAt": "2026-05-26T08:00:00.000Z"},
+                {"id": "day-5", "dayLabel": "周五", "focus": "胸部训练", "duration": "60 分钟", "updatedAt": "2026-05-26T08:00:00.000Z"},
+            ],
+        }
+
+        created = runtime._plan_proposals("新增周六练胸 60分钟", {"current_plan": current_plan})
+        updated = runtime._plan_proposals("周三改成练肩", {"current_plan": current_plan})
+        deleted = runtime._plan_proposals("删除周五训练", {"current_plan": current_plan})
+
+        self.assertEqual(created[0]["actionType"], "create_plan_day")
+        self.assertEqual(created[0]["payload"]["dayLabel"], "周六")
+        self.assertEqual(updated[0]["actionType"], "update_plan_day")
+        self.assertEqual(updated[0]["payload"]["dayId"], "day-3")
+        self.assertEqual(deleted[0]["actionType"], "delete_plan_day")
+        self.assertEqual(deleted[0]["payload"]["dayId"], "day-5")
+
+    def test_extracts_weekly_plan_days_from_assistant_markdown(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        days = runtime._extract_weekly_plan_days_from_text(
+            """
+            **周三 · 练背**
+            1. 引体向上 4x8-10
+            2. 杠铃划船 4x8-10
+
+            **周四 · 练肩**
+            * 哑铃推举 4x8-10
+            * 侧平举 4x12-15
+
+            **周五 · 练腿**
+            1. 杠铃深蹲 4x6-8
+
+            **周六 · 练胸**
+            1. 平板杠铃卧推 4x6-8
+            """
+        )
+
+        self.assertEqual([day["dayLabel"] for day in days], ["周三", "周四", "周五", "周六"])
+        self.assertEqual(days[0]["focus"], "背部训练")
+        self.assertEqual(days[1]["exercises"][1], "侧平举 4x12-15")
+
+    def test_write_previous_assistant_plan_creates_generate_plan_proposal(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        current_plan = {
+            "plan": {
+                "id": "plan-1",
+                "goal": "muscle_gain",
+                "version": 3,
+                "weekOf": "2026-05-25",
+                "updatedAt": "2026-05-26T08:00:00.000Z",
+            },
+            "days": [],
+        }
+        conversation_context = {
+            "recent_messages": [
+                {
+                    "role": "assistant",
+                    "content": """
+                    **周三 · 练背**
+                    1. 引体向上 4x8-10
+                    2. 杠铃划船 4x8-10
+                    **周四 · 练肩**
+                    1. 哑铃推举 4x8-10
+                    2. 侧平举 4x12-15
+                    **周五 · 练腿**
+                    1. 杠铃深蹲 4x6-8
+                    **周六 · 练胸**
+                    1. 平板杠铃卧推 4x6-8
+                    """,
+                }
+            ]
+        }
+
+        proposals = runtime._plan_proposals(
+            "将这个写入计划当中",
+            {"current_plan": current_plan, "conversation_context": conversation_context},
+        )
+
+        self.assertEqual(len(proposals), 1)
+        proposal = proposals[0]
+        self.assertEqual(proposal["actionType"], "generate_plan")
+        self.assertEqual(proposal["payload"]["goal"], "muscle_gain")
+        self.assertEqual(proposal["payload"]["weekOf"], "2026-05-25")
+        self.assertEqual(len(proposal["payload"]["days"]), 4)
+        self.assertEqual(proposal["basePlanId"], "plan-1")
+        self.assertEqual(proposal["basePlanVersion"], 3)
+
+    async def test_virtual_proposal_tool_integrates_previous_plan_markdown(self) -> None:
+        store = FakeStore()
+        runtime = HealthAgentRuntime(store, FakeTools(), TraceLogger(), FakeLLM())  # type: ignore[arg-type]
+        conversation_context = {
+            "recent_messages": [
+                {
+                    "role": "assistant",
+                    "content": """
+                    **周三 · 练背**
+                    1. 引体向上 4x8-10
+                    2. 杠铃划船 4x8-10
+                    **周四 · 练肩**
+                    1. 哑铃推举 4x8-10
+                    **周五 · 练腿**
+                    1. 杠铃深蹲 4x6-8
+                    **周六 · 练胸**
+                    1. 平板卧推 4x6-8
+                    """,
+                }
+            ]
+        }
+
+        observations, tool_events, proposals, warnings = await runtime._execute_planner_tools(
+            "thread-1",
+            "run-1",
+            PostMessageRequest(text="将这个写入计划当中"),
+            {
+                "tools": [{"name": "create_action_proposal", "arguments": {"write_domain": "plan"}, "purpose": "Create plan proposal."}],
+                "write_domain": "plan",
+            },
+            None,
+            conversation_context,
+        )
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(len(proposals), 1)
+        self.assertEqual(proposals[0]["actionType"], "generate_plan")
+        self.assertEqual(len(proposals[0]["payload"]["days"]), 4)
+        self.assertTrue(any(event.tool_name == "create_action_proposal" for event in tool_events))
+        self.assertTrue(any(item["tool"] == "create_action_proposal" for item in observations))
+        self.assertTrue(store.tool_logs)
+
+    def test_generated_plan_validation_rejects_malformed_days(self) -> None:
+        runtime = make_runtime(FakeLLM())
+        proposal = runtime._draft_proposal(
+            action_type="generate_plan",
+            entity_type="workout_plan",
+            title="坏计划",
+            summary="缺少有效动作。",
+            payload={"goal": "muscle_gain", "days": [{"dayLabel": "周三", "focus": "背部训练", "duration": "60 分钟", "exercises": []}]},
+            preview={"操作": "测试"},
+        )
+
+        valid, warnings = runtime._validate_proposals([proposal])
+
+        self.assertEqual(valid, [])
+        self.assertTrue(warnings)
+
     def test_delete_all_plan_creates_delete_proposals_for_each_day(self) -> None:
         runtime = make_runtime(FakeLLM())
         current_plan = {
@@ -1187,7 +1400,7 @@ class AgentRuntimeContractTests(unittest.IsolatedAsyncioTestCase):
             degraded_reason=None,
         )
 
-        self.assertEqual(degraded_reason, "llm_disabled")
+        self.assertIsNone(degraded_reason)
         self.assertIn("待确认卡片", content)
         self.assertIn("确认后", content)
         self.assertNotIn("修改数据", content)
