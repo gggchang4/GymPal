@@ -13,8 +13,16 @@ dependencies = [
   "httpx>=0.28,<1.0",
   "openai>=1.68,<2.0",
   "pydantic>=2.10,<3.0",
-  "python-dotenv>=1.0,<2.0"
+  "python-dotenv>=1.0,<2.0",
+  "coverage[toml]>=7.6,<8.0"
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[tool.coverage.run]
+source = ["app"]
+
+[tool.coverage.report]
+fail_under = 95
+show_missing = true

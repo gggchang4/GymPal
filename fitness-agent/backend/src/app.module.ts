@@ -17,6 +17,7 @@ import { DietRecommendationController } from "./controllers/diet-recommendation.
 import { ExercisesController } from "./controllers/exercises.controller";
 import { HealthController } from "./controllers/health.controller";
 import { LogsController } from "./controllers/logs.controller";
+import { ManualContextController } from "./controllers/manual-context.controller";
 import { MeController } from "./controllers/me.controller";
 import { PlansController } from "./controllers/plans.controller";
 import { AgentStateService } from "./services/agent-state.service";
@@ -43,6 +44,7 @@ import { AgentActionExecutorService } from "./services/agent-action-executor.ser
     DashboardController,
     DietRecommendationController,
     LogsController,
+    ManualContextController,
     PlansController,
     ExercisesController
   ],

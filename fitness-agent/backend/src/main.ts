@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
+import { FlowLogInterceptor } from "./common/flow-log.interceptor";
 
 function loadBackendEnv() {
   const candidatePaths = [
@@ -42,6 +43,7 @@ async function bootstrap() {
   loadBackendEnv();
   const app = await NestFactory.create(AppModule);
   app.enableCors({ origin: true, credentials: true });
+  app.useGlobalInterceptors(new FlowLogInterceptor());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

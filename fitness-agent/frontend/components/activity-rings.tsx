@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-interface ActivityRingItem {
+export interface ActivityRingItem {
   slug: string;
   label: string;
   value: number;

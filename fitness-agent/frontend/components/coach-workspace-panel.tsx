@@ -29,7 +29,7 @@ type BusyAction = {
 };
 
 function routeForNavigation(route: string): AppRoute {
-  if (route === "logs") return appRoutes.logs;
+  if (route === "logs") return appRoutes.profile;
   if (route === "plans") return appRoutes.planCurrent;
   if (route === "dashboard") return appRoutes.dashboard;
   return appRoutes.chat;

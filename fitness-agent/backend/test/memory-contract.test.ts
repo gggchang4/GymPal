@@ -189,6 +189,58 @@ databaseTest("personalization memory confidence falls back when proposal payload
   }
 });
 
+databaseTest("manual context CRUD writes agent-readable frontend memories", async () => {
+  const runId = randomUUID();
+  const { prisma, appStore } = createServices();
+  await prisma.$connect();
+
+  try {
+    await cleanupTestUsers(prisma, runId);
+    const user = await createUser(appStore, runId, "manual-context");
+
+    const created = await appStore.createManualContext(user.id, {
+      sourcePage: "profile",
+      title: "Shoulder limit",
+      content: "User wants overhead pressing to stay conservative.",
+      category: "profile_context",
+      tags: ["shoulder", "training"]
+    });
+
+    assert.equal(created.sourcePage, "profile");
+    assert.equal(created.category, "profile_context");
+
+    let pageItems = await appStore.listManualContexts(user.id, "profile");
+    assert.equal(pageItems.length, 1);
+    assert.equal(pageItems[0].content, "User wants overhead pressing to stay conservative.");
+
+    let summary = await appStore.getMemorySummary(user.id);
+    assert.equal(summary.activeMemories.length, 1);
+    assert.equal(summary.activeMemories[0].sourceType, "frontend_manual");
+
+    const updated = await appStore.updateManualContext(user.id, created.id, {
+      sourcePage: "profile",
+      title: "Shoulder and equipment",
+      content: "User prefers dumbbells and conservative overhead pressing.",
+      category: "profile_context",
+      tags: ["shoulder", "dumbbells"]
+    });
+    assert.equal(updated.title, "Shoulder and equipment");
+
+    pageItems = await appStore.listManualContexts(user.id, "profile");
+    assert.equal(pageItems[0].content, "User prefers dumbbells and conservative overhead pressing.");
+
+    await appStore.deleteManualContext(user.id, created.id);
+    pageItems = await appStore.listManualContexts(user.id, "profile");
+    assert.equal(pageItems.length, 0);
+
+    summary = await appStore.getMemorySummary(user.id);
+    assert.equal(summary.activeMemories.length, 0);
+  } finally {
+    await cleanupTestUsers(prisma, runId);
+    await prisma.$disconnect();
+  }
+});
+
 databaseTest("personalization memories are isolated by account and can be archived by owner only", async () => {
   const runId = randomUUID();
   const { prisma, appStore, agentState } = createServices();

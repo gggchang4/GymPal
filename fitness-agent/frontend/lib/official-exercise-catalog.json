@@ -1,0 +1,1028 @@
+[
+  {
+    "id": "goblet-squat",
+    "name": "高脚杯深蹲",
+    "targetMuscles": [
+      "股四头肌",
+      "臀部",
+      "核心"
+    ],
+    "equipment": "哑铃 / 壶铃",
+    "level": "新手",
+    "steps": [
+      "双手托住重量贴近胸前，双脚略宽于髋。",
+      "收紧躯干，臀部向后向下坐。",
+      "脚掌中部发力站起，膝盖跟随脚尖方向。"
+    ],
+    "commonMistakes": [
+      "膝盖向内扣",
+      "胸口过早下沉"
+    ],
+    "contraindicates": [
+      "膝盖不适时减少深度或改为箱式深蹲"
+    ],
+    "recoveryNotes": [
+      "恢复较差时降低负重，优先保证动作质量"
+    ]
+  },
+  {
+    "id": "bodyweight-squat",
+    "name": "徒手深蹲",
+    "targetMuscles": [
+      "股四头肌",
+      "臀部",
+      "核心"
+    ],
+    "equipment": "徒手",
+    "level": "新手",
+    "steps": [
+      "双脚与肩同宽，脚尖微微外展。",
+      "臀部向后坐，同时保持背部自然挺直。",
+      "站起时收紧臀部，不要锁死膝盖。"
+    ],
+    "commonMistakes": [
+      "脚跟离地",
+      "弯腰塌背"
+    ],
+    "contraindicates": [
+      "膝盖疼痛时缩短动作幅度"
+    ],
+    "recoveryNotes": [
+      "适合作为热身或低强度训练动作"
+    ]
+  },
+  {
+    "id": "box-squat",
+    "name": "箱式深蹲",
+    "targetMuscles": [
+      "股四头肌",
+      "臀部"
+    ],
+    "equipment": "训练箱 / 长凳",
+    "level": "新手",
+    "steps": [
+      "站在箱子前方，保持脚掌稳定。",
+      "臀部向后坐到箱面，轻触后站起。",
+      "全程保持膝盖与脚尖同向。"
+    ],
+    "commonMistakes": [
+      "坐下后完全放松",
+      "站起时身体前扑"
+    ],
+    "contraindicates": [
+      "髋或膝疼痛时选择更高箱面"
+    ],
+    "recoveryNotes": [
+      "可用于学习深蹲路径和控制深度"
+    ]
+  },
+  {
+    "id": "reverse-lunge",
+    "name": "反向弓步",
+    "targetMuscles": [
+      "股四头肌",
+      "臀部",
+      "腘绳肌"
+    ],
+    "equipment": "徒手",
+    "level": "新手",
+    "steps": [
+      "站立收紧核心，一侧脚向后迈步。",
+      "前腿稳定下蹲，后膝接近地面。",
+      "前脚发力回到站立，左右交替。"
+    ],
+    "commonMistakes": [
+      "前膝左右晃动",
+      "步幅过小导致膝盖压力过大"
+    ],
+    "contraindicates": [
+      "平衡差时扶墙或使用支撑"
+    ],
+    "recoveryNotes": [
+      "比前弓步更容易控制膝盖压力"
+    ]
+  },
+  {
+    "id": "walking-lunge",
+    "name": "行走弓步",
+    "targetMuscles": [
+      "股四头肌",
+      "臀部",
+      "核心"
+    ],
+    "equipment": "徒手",
+    "level": "进阶",
+    "steps": [
+      "向前迈步并降低身体。",
+      "前脚发力站起，后脚向前迈下一步。",
+      "保持躯干直立和步伐稳定。"
+    ],
+    "commonMistakes": [
+      "步伐过窄",
+      "身体左右晃动"
+    ],
+    "contraindicates": [
+      "膝盖不适时改为反向弓步"
+    ],
+    "recoveryNotes": [
+      "训练量较高，避免在腿部疲劳严重时大量使用"
+    ]
+  },
+  {
+    "id": "romanian-deadlift",
+    "name": "罗马尼亚硬拉",
+    "targetMuscles": [
+      "腘绳肌",
+      "臀部",
+      "下背"
+    ],
+    "equipment": "杠铃 / 哑铃",
+    "level": "新手进阶",
+    "steps": [
+      "双脚与髋同宽，重量贴近大腿。",
+      "髋部向后折叠，保持脊柱中立。",
+      "感到大腿后侧拉伸后，臀部发力站起。"
+    ],
+    "commonMistakes": [
+      "下背弯曲",
+      "把动作做成深蹲"
+    ],
+    "contraindicates": [
+      "下背不适时降低重量或缩短幅度"
+    ],
+    "recoveryNotes": [
+      "后链刺激明显，训练后注意腿后侧恢复"
+    ]
+  },
+  {
+    "id": "hip-thrust",
+    "name": "臀推",
+    "targetMuscles": [
+      "臀部",
+      "腘绳肌",
+      "核心"
+    ],
+    "equipment": "杠铃 / 长凳",
+    "level": "新手进阶",
+    "steps": [
+      "上背靠在长凳，重量放在髋部。",
+      "脚跟发力抬起髋部至躯干接近水平。",
+      "顶端收紧臀部后控制下降。"
+    ],
+    "commonMistakes": [
+      "腰部过度反弓",
+      "脚放得过远或过近"
+    ],
+    "contraindicates": [
+      "腰部不适时减轻重量并缩小幅度"
+    ],
+    "recoveryNotes": [
+      "可作为臀部主项或深蹲后的辅助动作"
+    ]
+  },
+  {
+    "id": "leg-press",
+    "name": "腿举",
+    "targetMuscles": [
+      "股四头肌",
+      "臀部",
+      "腘绳肌"
+    ],
+    "equipment": "器械",
+    "level": "新手",
+    "steps": [
+      "背部贴紧靠垫，双脚踩稳踏板。",
+      "控制下放至舒适深度。",
+      "脚掌均匀发力推起，膝盖不要锁死。"
+    ],
+    "commonMistakes": [
+      "膝盖内扣",
+      "骨盆卷起离开靠垫"
+    ],
+    "contraindicates": [
+      "膝盖或腰不适时减少深度和重量"
+    ],
+    "recoveryNotes": [
+      "适合在技术疲劳时替代自由深蹲"
+    ]
+  },
+  {
+    "id": "calf-raise",
+    "name": "提踵",
+    "targetMuscles": [
+      "小腿"
+    ],
+    "equipment": "徒手 / 器械",
+    "level": "新手",
+    "steps": [
+      "双脚踩稳，脚跟自然下沉。",
+      "脚掌前部发力抬起脚跟。",
+      "顶端停顿后慢慢下降。"
+    ],
+    "commonMistakes": [
+      "弹震借力",
+      "脚踝向外翻"
+    ],
+    "contraindicates": [
+      "跟腱不适时减少幅度"
+    ],
+    "recoveryNotes": [
+      "适合少量多次加入下肢训练"
+    ]
+  },
+  {
+    "id": "bench-press",
+    "name": "杠铃卧推",
+    "targetMuscles": [
+      "胸部",
+      "肱三头肌",
+      "肩部"
+    ],
+    "equipment": "杠铃 / 长凳",
+    "level": "进阶",
+    "steps": [
+      "肩胛收紧，双脚踩稳地面。",
+      "杠铃下降至胸部附近。",
+      "向上推起，保持手腕和前臂稳定。"
+    ],
+    "commonMistakes": [
+      "肩膀耸起",
+      "杠铃弹胸"
+    ],
+    "contraindicates": [
+      "肩部疼痛时改用哑铃或俯卧撑变式"
+    ],
+    "recoveryNotes": [
+      "大重量训练后给胸肩肘足够恢复时间"
+    ]
+  },
+  {
+    "id": "dumbbell-chest-press",
+    "name": "哑铃卧推",
+    "targetMuscles": [
+      "胸部",
+      "肱三头肌",
+      "肩部"
+    ],
+    "equipment": "哑铃 / 长凳",
+    "level": "新手进阶",
+    "steps": [
+      "躺在长凳上，哑铃位于胸侧。",
+      "向上推起并保持肩胛稳定。",
+      "控制下放，不要让手肘过度外展。"
+    ],
+    "commonMistakes": [
+      "下放过深",
+      "手腕后折"
+    ],
+    "contraindicates": [
+      "肩前侧不适时减小幅度"
+    ],
+    "recoveryNotes": [
+      "比杠铃更容易调整肩部角度"
+    ]
+  },
+  {
+    "id": "incline-dumbbell-press",
+    "name": "上斜哑铃卧推",
+    "targetMuscles": [
+      "上胸",
+      "肩部",
+      "肱三头肌"
+    ],
+    "equipment": "哑铃 / 上斜凳",
+    "level": "新手进阶",
+    "steps": [
+      "上斜凳角度保持中等。",
+      "哑铃从胸上方推起。",
+      "控制下放到胸上部两侧。"
+    ],
+    "commonMistakes": [
+      "凳子角度过高",
+      "肩膀代偿过多"
+    ],
+    "contraindicates": [
+      "肩部夹挤感明显时降低角度"
+    ],
+    "recoveryNotes": [
+      "适合作为胸部训练第二主项"
+    ]
+  },
+  {
+    "id": "push-up",
+    "name": "俯卧撑",
+    "targetMuscles": [
+      "胸部",
+      "肱三头肌",
+      "核心"
+    ],
+    "equipment": "徒手",
+    "level": "新手",
+    "steps": [
+      "双手略宽于肩，身体保持直线。",
+      "屈肘下降，胸部接近地面。",
+      "推起时保持核心和臀部收紧。"
+    ],
+    "commonMistakes": [
+      "塌腰",
+      "手肘过度外展"
+    ],
+    "contraindicates": [
+      "手腕不适时使用把手或改墙面俯卧撑"
+    ],
+    "recoveryNotes": [
+      "可用斜板或跪姿调节难度"
+    ]
+  },
+  {
+    "id": "wall-push-up",
+    "name": "墙面俯卧撑",
+    "targetMuscles": [
+      "胸部",
+      "肱三头肌",
+      "肩部"
+    ],
+    "equipment": "徒手",
+    "level": "新手",
+    "steps": [
+      "面对墙站立，双手扶墙与胸同高。",
+      "屈肘靠近墙面，身体保持直线。",
+      "慢慢推回起始位置。"
+    ],
+    "commonMistakes": [
+      "耸肩",
+      "身体折叠"
+    ],
+    "contraindicates": [
+      "肩或腕不适时缩短幅度"
+    ],
+    "recoveryNotes": [
+      "适合恢复期或俯卧撑入门"
+    ]
+  },
+  {
+    "id": "dip",
+    "name": "双杠臂屈伸",
+    "targetMuscles": [
+      "肱三头肌",
+      "胸部",
+      "肩部"
+    ],
+    "equipment": "双杠",
+    "level": "高级",
+    "steps": [
+      "双手撑住双杠，肩胛下沉。",
+      "控制身体下降至舒适深度。",
+      "肱三头肌和胸部发力撑起。"
+    ],
+    "commonMistakes": [
+      "下降过深",
+      "肩膀前顶"
+    ],
+    "contraindicates": [
+      "肩前侧不适时避免该动作"
+    ],
+    "recoveryNotes": [
+      "强度较高，优先保证肩部无痛"
+    ]
+  },
+  {
+    "id": "lat-pulldown",
+    "name": "高位下拉",
+    "targetMuscles": [
+      "背阔肌",
+      "肱二头肌"
+    ],
+    "equipment": "绳索器械",
+    "level": "新手进阶",
+    "steps": [
+      "坐稳后肩胛下沉。",
+      "把握把拉向上胸。",
+      "控制回放，不要耸肩。"
+    ],
+    "commonMistakes": [
+      "拉到颈后",
+      "身体后仰借力过多"
+    ],
+    "contraindicates": [
+      "肩部刺激明显时改用中立握"
+    ],
+    "recoveryNotes": [
+      "适合作为背部主拉动作"
+    ]
+  },
+  {
+    "id": "seated-cable-row",
+    "name": "坐姿绳索划船",
+    "targetMuscles": [
+      "背部",
+      "菱形肌",
+      "肱二头肌"
+    ],
+    "equipment": "绳索器械",
+    "level": "新手",
+    "steps": [
+      "坐稳，脊柱保持中立。",
+      "先收肩胛，再把手柄拉向躯干。",
+      "控制手柄回到起始位置。"
+    ],
+    "commonMistakes": [
+      "下背来回摆动",
+      "耸肩拉动"
+    ],
+    "contraindicates": [
+      "下背不适时保持轻重量"
+    ],
+    "recoveryNotes": [
+      "适合补充水平拉训练量"
+    ]
+  },
+  {
+    "id": "one-arm-dumbbell-row",
+    "name": "单臂哑铃划船",
+    "targetMuscles": [
+      "背阔肌",
+      "菱形肌",
+      "肱二头肌"
+    ],
+    "equipment": "哑铃 / 长凳",
+    "level": "新手进阶",
+    "steps": [
+      "一手一膝支撑在长凳上。",
+      "哑铃向髋侧拉起。",
+      "顶端收紧背部后控制下放。"
+    ],
+    "commonMistakes": [
+      "身体旋转过多",
+      "用手臂硬拉"
+    ],
+    "contraindicates": [
+      "腰不适时选择胸托划船"
+    ],
+    "recoveryNotes": [
+      "左右侧分别训练，有助于发现不平衡"
+    ]
+  },
+  {
+    "id": "pull-up",
+    "name": "引体向上",
+    "targetMuscles": [
+      "背阔肌",
+      "肱二头肌",
+      "核心"
+    ],
+    "equipment": "引体杆",
+    "level": "高级",
+    "steps": [
+      "握住横杆，身体稳定悬垂。",
+      "肩胛先下沉，再拉起身体。",
+      "下放时保持控制。"
+    ],
+    "commonMistakes": [
+      "摆动借力",
+      "只用手臂拉"
+    ],
+    "contraindicates": [
+      "肩肘疼痛时使用辅助或改下拉"
+    ],
+    "recoveryNotes": [
+      "强度较高，可用弹力带降低难度"
+    ]
+  },
+  {
+    "id": "inverted-row",
+    "name": "反向划船",
+    "targetMuscles": [
+      "背部",
+      "肱二头肌",
+      "核心"
+    ],
+    "equipment": "杠铃架 / 吊环",
+    "level": "新手进阶",
+    "steps": [
+      "身体呈直线悬在杠下。",
+      "胸部拉向杠，肩胛向后收。",
+      "慢慢下放回起始位置。"
+    ],
+    "commonMistakes": [
+      "臀部下沉",
+      "脖子前伸"
+    ],
+    "contraindicates": [
+      "肩部不适时调高杠位降低难度"
+    ],
+    "recoveryNotes": [
+      "适合建立水平拉基础"
+    ]
+  },
+  {
+    "id": "face-pull",
+    "name": "面拉",
+    "targetMuscles": [
+      "后三角肌",
+      "上背",
+      "肩袖"
+    ],
+    "equipment": "绳索器械 / 弹力带",
+    "level": "新手",
+    "steps": [
+      "绳索高度约在面部位置。",
+      "向脸部两侧拉开，手肘抬起。",
+      "顶端停顿，控制回放。"
+    ],
+    "commonMistakes": [
+      "腰部后仰",
+      "手腕折叠"
+    ],
+    "contraindicates": [
+      "肩痛时减轻阻力并缩短幅度"
+    ],
+    "recoveryNotes": [
+      "适合推举或卧推后的肩部平衡训练"
+    ]
+  },
+  {
+    "id": "overhead-press",
+    "name": "站姿推举",
+    "targetMuscles": [
+      "肩部",
+      "肱三头肌",
+      "核心"
+    ],
+    "equipment": "杠铃 / 哑铃",
+    "level": "进阶",
+    "steps": [
+      "重量位于肩前，收紧核心。",
+      "垂直向上推起，头部自然穿过。",
+      "控制下放回肩前。"
+    ],
+    "commonMistakes": [
+      "腰部过度反弓",
+      "杠铃路径前飘"
+    ],
+    "contraindicates": [
+      "肩夹挤或腰痛时改坐姿哑铃推举"
+    ],
+    "recoveryNotes": [
+      "避免在肩部疲劳严重时冲大重量"
+    ]
+  },
+  {
+    "id": "dumbbell-shoulder-press",
+    "name": "哑铃肩推",
+    "targetMuscles": [
+      "肩部",
+      "肱三头肌"
+    ],
+    "equipment": "哑铃",
+    "level": "新手进阶",
+    "steps": [
+      "哑铃位于肩侧，手腕保持中立。",
+      "向上推起至接近伸直。",
+      "控制下放，不要耸肩。"
+    ],
+    "commonMistakes": [
+      "肘部过度外展",
+      "腰部代偿"
+    ],
+    "contraindicates": [
+      "肩部不适时缩短下放幅度"
+    ],
+    "recoveryNotes": [
+      "可作为肩部主项或辅助推举"
+    ]
+  },
+  {
+    "id": "lateral-raise",
+    "name": "哑铃侧平举",
+    "targetMuscles": [
+      "中束三角肌"
+    ],
+    "equipment": "哑铃",
+    "level": "新手",
+    "steps": [
+      "身体直立，哑铃在身体两侧。",
+      "手肘微屈向两侧抬起。",
+      "抬到肩高附近后控制下放。"
+    ],
+    "commonMistakes": [
+      "耸肩",
+      "甩动借力"
+    ],
+    "contraindicates": [
+      "肩痛时减少重量和幅度"
+    ],
+    "recoveryNotes": [
+      "小重量高控制更适合该动作"
+    ]
+  },
+  {
+    "id": "rear-delt-fly",
+    "name": "俯身反向飞鸟",
+    "targetMuscles": [
+      "后三角肌",
+      "上背"
+    ],
+    "equipment": "哑铃",
+    "level": "新手进阶",
+    "steps": [
+      "髋部折叠，背部保持稳定。",
+      "双臂向两侧打开。",
+      "顶端收紧上背后控制下降。"
+    ],
+    "commonMistakes": [
+      "身体上下晃动",
+      "斜方肌代偿过多"
+    ],
+    "contraindicates": [
+      "下背不适时改胸托版本"
+    ],
+    "recoveryNotes": [
+      "适合平衡前侧推举训练"
+    ]
+  },
+  {
+    "id": "biceps-curl",
+    "name": "哑铃弯举",
+    "targetMuscles": [
+      "肱二头肌"
+    ],
+    "equipment": "哑铃",
+    "level": "新手",
+    "steps": [
+      "手臂自然下垂，掌心向前。",
+      "保持上臂稳定，把重量弯举到肩前。",
+      "慢慢下放到完全控制的位置。"
+    ],
+    "commonMistakes": [
+      "身体后仰借力",
+      "手腕弯折"
+    ],
+    "contraindicates": [
+      "肘部不适时减轻重量"
+    ],
+    "recoveryNotes": [
+      "可坐姿完成以减少借力"
+    ]
+  },
+  {
+    "id": "hammer-curl",
+    "name": "锤式弯举",
+    "targetMuscles": [
+      "肱二头肌",
+      "肱肌",
+      "前臂"
+    ],
+    "equipment": "哑铃",
+    "level": "新手",
+    "steps": [
+      "掌心相对握住哑铃。",
+      "上臂固定，把哑铃弯举到肩前。",
+      "控制下放，保持手腕中立。"
+    ],
+    "commonMistakes": [
+      "肩膀前摆",
+      "动作过快"
+    ],
+    "contraindicates": [
+      "前臂或肘部疼痛时减少训练量"
+    ],
+    "recoveryNotes": [
+      "适合补充手臂和握力刺激"
+    ]
+  },
+  {
+    "id": "triceps-pushdown",
+    "name": "绳索下压",
+    "targetMuscles": [
+      "肱三头肌"
+    ],
+    "equipment": "绳索器械",
+    "level": "新手",
+    "steps": [
+      "手肘夹近身体两侧。",
+      "向下伸直手臂并收紧肱三头肌。",
+      "控制回到手肘约 90 度的位置。"
+    ],
+    "commonMistakes": [
+      "身体前后摆动",
+      "手肘乱跑"
+    ],
+    "contraindicates": [
+      "肘部不适时减轻重量"
+    ],
+    "recoveryNotes": [
+      "适合作为推类训练后的孤立动作"
+    ]
+  },
+  {
+    "id": "overhead-triceps-extension",
+    "name": "过顶臂屈伸",
+    "targetMuscles": [
+      "肱三头肌"
+    ],
+    "equipment": "哑铃 / 绳索",
+    "level": "新手进阶",
+    "steps": [
+      "重量位于头后，手肘朝前。",
+      "伸直手臂把重量推到头顶。",
+      "控制下放，保持肘部稳定。"
+    ],
+    "commonMistakes": [
+      "肘部外张过多",
+      "腰部反弓"
+    ],
+    "contraindicates": [
+      "肩或肘不适时改绳索下压"
+    ],
+    "recoveryNotes": [
+      "长头刺激较强，避免过度拉伸"
+    ]
+  },
+  {
+    "id": "plank",
+    "name": "平板支撑",
+    "targetMuscles": [
+      "核心",
+      "肩部",
+      "臀部"
+    ],
+    "equipment": "徒手",
+    "level": "新手",
+    "steps": [
+      "肘部位于肩下，双脚向后伸直。",
+      "收紧腹部和臀部，身体保持直线。",
+      "保持均匀呼吸，不要塌腰。"
+    ],
+    "commonMistakes": [
+      "臀部过高",
+      "腰部下沉"
+    ],
+    "contraindicates": [
+      "腰痛时缩短时间或改跪姿"
+    ],
+    "recoveryNotes": [
+      "以稳定控制为主，不必盲目延长时间"
+    ]
+  },
+  {
+    "id": "side-plank",
+    "name": "侧平板支撑",
+    "targetMuscles": [
+      "核心",
+      "腹斜肌",
+      "肩部"
+    ],
+    "equipment": "徒手",
+    "level": "新手进阶",
+    "steps": [
+      "侧卧，肘部支撑在肩下。",
+      "抬起髋部，使身体成一直线。",
+      "保持骨盆稳定后换侧。"
+    ],
+    "commonMistakes": [
+      "肩膀耸起",
+      "髋部向后掉"
+    ],
+    "contraindicates": [
+      "肩不适时缩短时间或改膝支撑"
+    ],
+    "recoveryNotes": [
+      "左右侧分别训练，观察稳定差异"
+    ]
+  },
+  {
+    "id": "dead-bug",
+    "name": "死虫",
+    "targetMuscles": [
+      "核心",
+      "髋屈肌"
+    ],
+    "equipment": "徒手",
+    "level": "新手",
+    "steps": [
+      "仰卧，手臂和膝盖抬起。",
+      "保持下背贴近地面。",
+      "对侧手脚慢慢伸展再收回。"
+    ],
+    "commonMistakes": [
+      "下背拱起",
+      "动作过快"
+    ],
+    "contraindicates": [
+      "腰不适时缩小伸展幅度"
+    ],
+    "recoveryNotes": [
+      "适合作为核心激活和热身"
+    ]
+  },
+  {
+    "id": "bird-dog",
+    "name": "鸟狗式",
+    "targetMuscles": [
+      "核心",
+      "下背",
+      "臀部"
+    ],
+    "equipment": "徒手",
+    "level": "新手",
+    "steps": [
+      "四点跪姿，双手在肩下。",
+      "对侧手脚同时伸直。",
+      "保持骨盆稳定后回到起始位置。"
+    ],
+    "commonMistakes": [
+      "腰部旋转",
+      "抬腿过高"
+    ],
+    "contraindicates": [
+      "手腕不适时用前臂支撑"
+    ],
+    "recoveryNotes": [
+      "适合恢复日和核心稳定训练"
+    ]
+  },
+  {
+    "id": "mountain-climber",
+    "name": "登山跑",
+    "targetMuscles": [
+      "核心",
+      "肩部",
+      "心肺"
+    ],
+    "equipment": "徒手",
+    "level": "进阶",
+    "steps": [
+      "俯撑姿势保持身体直线。",
+      "交替把膝盖向胸前收。",
+      "保持肩部稳定和呼吸节奏。"
+    ],
+    "commonMistakes": [
+      "臀部抬太高",
+      "脚步杂乱失控"
+    ],
+    "contraindicates": [
+      "手腕或肩不适时降低速度"
+    ],
+    "recoveryNotes": [
+      "作为短时间体能训练更合适"
+    ]
+  },
+  {
+    "id": "glute-bridge",
+    "name": "臀桥",
+    "targetMuscles": [
+      "臀部",
+      "腘绳肌",
+      "核心"
+    ],
+    "equipment": "徒手",
+    "level": "新手",
+    "steps": [
+      "仰卧屈膝，脚跟靠近臀部。",
+      "脚跟发力抬起髋部。",
+      "顶端收紧臀部后慢慢下降。"
+    ],
+    "commonMistakes": [
+      "腰部代偿",
+      "膝盖向外或向内晃动"
+    ],
+    "contraindicates": [
+      "腰痛时降低幅度"
+    ],
+    "recoveryNotes": [
+      "适合臀部激活或恢复日训练"
+    ]
+  },
+  {
+    "id": "kettlebell-swing",
+    "name": "壶铃摆动",
+    "targetMuscles": [
+      "臀部",
+      "腘绳肌",
+      "核心",
+      "心肺"
+    ],
+    "equipment": "壶铃",
+    "level": "进阶",
+    "steps": [
+      "以髋铰链启动，壶铃在两腿间摆动。",
+      "臀部爆发伸展把壶铃带到胸前高度。",
+      "让壶铃自然回摆，保持背部稳定。"
+    ],
+    "commonMistakes": [
+      "用手臂抬起",
+      "做成深蹲"
+    ],
+    "contraindicates": [
+      "下背不适或髋铰链不熟练时避免"
+    ],
+    "recoveryNotes": [
+      "神经和心肺负担较高，控制总量"
+    ]
+  },
+  {
+    "id": "battle-rope-waves",
+    "name": "战绳波浪",
+    "targetMuscles": [
+      "肩部",
+      "核心",
+      "心肺"
+    ],
+    "equipment": "战绳",
+    "level": "进阶",
+    "steps": [
+      "双脚站稳，双手握住绳端。",
+      "交替上下摆动制造连续波浪。",
+      "保持核心收紧和节奏稳定。"
+    ],
+    "commonMistakes": [
+      "耸肩",
+      "身体后仰"
+    ],
+    "contraindicates": [
+      "肩或肘不适时降低强度"
+    ],
+    "recoveryNotes": [
+      "适合短间歇，不宜做到动作失控"
+    ]
+  },
+  {
+    "id": "jump-rope",
+    "name": "跳绳",
+    "targetMuscles": [
+      "心肺",
+      "小腿",
+      "协调"
+    ],
+    "equipment": "跳绳",
+    "level": "新手进阶",
+    "steps": [
+      "手腕带动绳子，身体保持直立。",
+      "用前脚掌轻弹离地。",
+      "保持小幅度、稳定节奏。"
+    ],
+    "commonMistakes": [
+      "跳得过高",
+      "手臂大幅甩动"
+    ],
+    "contraindicates": [
+      "跟腱或膝盖不适时减少冲击"
+    ],
+    "recoveryNotes": [
+      "从短组开始逐渐增加总时间"
+    ]
+  },
+  {
+    "id": "incline-walk",
+    "name": "坡度快走",
+    "targetMuscles": [
+      "心肺",
+      "小腿",
+      "臀部"
+    ],
+    "equipment": "跑步机",
+    "level": "全部",
+    "steps": [
+      "设置可持续的坡度和速度。",
+      "保持能说短句的强度。",
+      "不要长时间抓扶手借力。"
+    ],
+    "commonMistakes": [
+      "坡度过高导致扶手借力",
+      "恢复日走得过猛"
+    ],
+    "contraindicates": [
+      "踝或膝不适时降低坡度"
+    ],
+    "recoveryNotes": [
+      "适合减脂期或恢复日低冲击有氧"
+    ]
+  },
+  {
+    "id": "step-up",
+    "name": "台阶登阶",
+    "targetMuscles": [
+      "股四头肌",
+      "臀部",
+      "小腿"
+    ],
+    "equipment": "训练箱 / 台阶",
+    "level": "新手",
+    "steps": [
+      "一脚踩上稳定台阶。",
+      "踩台阶的脚发力站起。",
+      "控制下降后换侧。"
+    ],
+    "commonMistakes": [
+      "后脚蹬地借力过多",
+      "膝盖内扣"
+    ],
+    "contraindicates": [
+      "膝盖不适时降低台阶高度"
+    ],
+    "recoveryNotes": [
+      "适合单腿力量和日常功能训练"
+    ]
+  }
+]

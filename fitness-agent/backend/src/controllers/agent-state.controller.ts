@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post } from "@nestjs/common";
 import { CurrentUser } from "../auth/auth.decorators";
 import type { AuthTokenClaims } from "../auth/auth-token.service";
 import {
@@ -46,6 +46,11 @@ export class AgentStateController {
     @CurrentUser() user: AuthTokenClaims
   ) {
     return this.agentState.updateThread(threadId, body, user.sub);
+  }
+
+  @Delete("threads/:threadId")
+  async deleteThread(@Param("threadId") threadId: string, @CurrentUser() user: AuthTokenClaims) {
+    return this.agentState.deleteThread(threadId, user.sub);
   }
 
   @Get("threads/:threadId/messages")

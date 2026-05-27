@@ -167,6 +167,27 @@ export interface MemorySummarySnapshot {
   safetyConstraints: string[];
 }
 
+export interface ManualContextEntry {
+  id: string;
+  sourcePage: string;
+  title: string;
+  content: string;
+  category: string;
+  tags: string[];
+  value: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ManualContextPayload {
+  sourcePage: string;
+  title: string;
+  content: string;
+  category?: string;
+  tags?: string[];
+  value?: Record<string, unknown>;
+}
+
 export interface CoachingOutcomeSnapshot {
   id: string;
   reviewSnapshotId?: string | null;

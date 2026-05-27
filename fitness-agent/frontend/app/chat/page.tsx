@@ -8,6 +8,7 @@ import {
   approveProposal,
   approveProposalGroup,
   createThread,
+  deleteThread,
   getThreadMessages,
   getThreadProposals,
   listThreads,
@@ -157,6 +158,7 @@ export default function ChatPage() {
   const [lastAgentMeta, setLastAgentMeta] = useState<ReturnType<typeof buildAgentMeta> | null>(null);
   const [pendingProposals, setPendingProposals] = useState<AgentActionProposal[]>([]);
   const [intentHint, setIntentHint] = useState("");
+  const [deletingThreadId, setDeletingThreadId] = useState<string | null>(null);
 
   const mountedRef = useRef(true);
   const activeThreadRef = useRef("");
@@ -409,13 +411,54 @@ export default function ChatPage() {
   }
 
   async function handleNewThread() {
-    if (busy || pendingProposalId) {
+    if (busy || pendingProposalId || deletingThreadId) {
       return;
     }
 
     setText("");
     setIntentHint("");
     await createAndActivateThread();
+  }
+
+  async function handleDeleteThread(targetThreadId: string) {
+    if (busy || pendingProposalId || deletingThreadId) {
+      return;
+    }
+
+    const targetThread = threads.find((thread) => thread.id === targetThreadId);
+    const ok = window.confirm(`删除对话“${threadTitle(targetThread)}”？这会清空这条对话记录。`);
+    if (!ok) {
+      return;
+    }
+
+    setDeletingThreadId(targetThreadId);
+    setStatus("正在删除对话");
+
+    try {
+      await deleteThread(targetThreadId);
+      const remainingThreads = threads.filter((thread) => thread.id !== targetThreadId);
+      setThreads(remainingThreads);
+
+      if (targetThreadId !== activeThreadRef.current) {
+        setStatus("对话已删除");
+        void refreshThreadList();
+        return;
+      }
+
+      const nextThreadId = remainingThreads[0]?.id;
+      if (nextThreadId) {
+        await activateThread(nextThreadId);
+      } else {
+        await createAndActivateThread();
+      }
+      setStatus("对话已删除");
+    } catch (error) {
+      setStatus(error instanceof Error ? `删除失败：${error.message}` : "删除失败");
+    } finally {
+      if (mountedRef.current) {
+        setDeletingThreadId(null);
+      }
+    }
   }
 
   async function handleProposalDecision(proposalId: string, decision: "approve" | "reject") {
@@ -579,7 +622,7 @@ export default function ChatPage() {
               type="button"
               className="button chat-new-button"
               onClick={handleNewThread}
-              disabled={busy || Boolean(pendingProposalId) || hasAuthToken !== true}
+              disabled={busy || Boolean(pendingProposalId) || Boolean(deletingThreadId) || hasAuthToken !== true}
             >
               新聊天
             </button>
@@ -588,18 +631,32 @@ export default function ChatPage() {
           <div className="chat-thread-list">
             {threadsLoading && threads.length === 0 ? <span className="mini-chip">正在加载</span> : null}
             {threads.map((thread) => (
-              <button
+              <div
                 key={thread.id}
-                type="button"
                 className={`chat-thread-item ${thread.id === threadId ? "active" : ""}`}
-                onClick={() => void handleThreadSelect(thread.id)}
-                disabled={busy || Boolean(pendingProposalId)}
                 aria-current={thread.id === threadId ? "true" : undefined}
               >
-                <span className="chat-thread-title">{threadTitle(thread)}</span>
-                <span className="chat-thread-preview">{threadPreview(thread)}</span>
-                <span className="chat-thread-time">{formatThreadTime(thread.lastMessageAt ?? thread.updatedAt)}</span>
-              </button>
+                <button
+                  type="button"
+                  className="chat-thread-select"
+                  onClick={() => void handleThreadSelect(thread.id)}
+                  disabled={busy || Boolean(pendingProposalId) || Boolean(deletingThreadId)}
+                >
+                  <span className="chat-thread-title">{threadTitle(thread)}</span>
+                  <span className="chat-thread-preview">{threadPreview(thread)}</span>
+                  <span className="chat-thread-time">{formatThreadTime(thread.lastMessageAt ?? thread.updatedAt)}</span>
+                </button>
+                <button
+                  type="button"
+                  className="chat-thread-delete"
+                  aria-label={`删除对话 ${threadTitle(thread)}`}
+                  title="删除对话"
+                  onClick={() => void handleDeleteThread(thread.id)}
+                  disabled={busy || Boolean(pendingProposalId) || Boolean(deletingThreadId) || hasAuthToken !== true}
+                >
+                  {deletingThreadId === thread.id ? "..." : "删除"}
+                </button>
+              </div>
             ))}
           </div>
         </aside>
@@ -719,12 +776,24 @@ export default function ChatPage() {
               value={text}
               onChange={(event) => setText(event.target.value)}
               onKeyDown={(event) => {
-                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                if (event.key !== "Enter") {
+                  return;
+                }
+
+                if (event.ctrlKey || event.metaKey) {
+                  return;
+                }
+
+                if (event.shiftKey || event.altKey || event.nativeEvent.isComposing) {
+                  return;
+                }
+
+                if (!busy && !pendingProposalId && hasAuthToken === true && text.trim()) {
                   event.preventDefault();
                   void onSubmit();
                 }
               }}
-              placeholder="给 GymPal 发送消息，按 Ctrl/Cmd + Enter 快速发送"
+              placeholder="给 GymPal 发送消息，按 Enter 发送，Ctrl/Cmd + Enter 换行"
             />
 
             <div className="chat-composer-row compact">

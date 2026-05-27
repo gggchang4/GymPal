@@ -24,7 +24,7 @@ export default async function ExercisesPage() {
           <span className="section-label">动作库</span>
           <h2>动作库</h2>
         </div>
-        <span className="mini-chip">先筛选，再看细节</span>
+        <span className="mini-chip">官方动作库 · {exerciseCatalog.length} 个动作</span>
       </div>
 
       <ExerciseLibrarySearch catalog={exerciseCatalog} todayFocus={todayFocus} />

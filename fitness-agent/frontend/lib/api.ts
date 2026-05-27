@@ -21,6 +21,8 @@ import type {
   DietRecommendationSnapshot,
   ExerciseItem,
   HealthProfile,
+  ManualContextEntry,
+  ManualContextPayload,
   MemorySummarySnapshot,
   ProposalDecisionResponse,
   PostMessageResponse,
@@ -34,7 +36,12 @@ import type {
   WorkoutLog,
   WorkoutPlanDay
 } from "@/lib/types";
-import type { ExerciseCatalogItem } from "@/lib/exercise-catalog";
+import officialExerciseCatalog from "@/lib/official-exercise-catalog.json";
+import {
+  mapOfficialExercise,
+  type ExerciseCatalogItem,
+  type OfficialExerciseCatalogSourceItem
+} from "@/lib/exercise-catalog";
 import { clearAuthSession, readAuthAccessToken } from "@/lib/auth";
 
 const backendBaseUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://127.0.0.1:3001";
@@ -329,6 +336,20 @@ function buildHeaders(headers?: HeadersInit, authToken?: string) {
   }
 
   return mergedHeaders;
+}
+
+function recordFrontendFlow(event: string, payload: Record<string, unknown>) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  console.info(`[FLOW][frontend][${event}]`, payload);
+  void fetch("/api/flow-log", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ event, payload }),
+    keepalive: true
+  }).catch(() => undefined);
 }
 
 function isAuthFailure(status: number, detail: string) {
@@ -761,6 +782,48 @@ export async function getMe(authToken?: string): Promise<UserSnapshot> {
   return mapUserSnapshot(user);
 }
 
+export async function updateProfile(payload: Partial<HealthProfile>, authToken?: string): Promise<HealthProfile> {
+  return requestJson<HealthProfile>(
+    `${backendBaseUrl}/me/profile`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    },
+    { authToken }
+  );
+}
+
+export async function createBodyMetric(
+  payload: Pick<BodyMetricLog, "weightKg" | "bodyFatPct" | "waistCm">,
+  authToken?: string
+): Promise<BodyMetricLog> {
+  return requestJson<BodyMetricLog>(
+    `${backendBaseUrl}/logs/body-metrics`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    },
+    { authToken }
+  );
+}
+
+export async function createWorkoutLog(
+  payload: Omit<WorkoutLog, "id" | "recordedAt">,
+  authToken?: string
+): Promise<WorkoutLog> {
+  return requestJson<WorkoutLog>(
+    `${backendBaseUrl}/logs/workouts`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    },
+    { authToken }
+  );
+}
+
 export async function getBodyMetrics(authToken?: string): Promise<BodyMetricLog[]> {
   return requestJson<BodyMetricLog[]>(`${backendBaseUrl}/logs/body-metrics`, undefined, { authToken });
 }
@@ -799,6 +862,52 @@ export async function getWorkspaceSummary(authToken?: string): Promise<Workspace
     { authToken }
   );
   return mapWorkspaceSummary(snapshot);
+}
+
+export async function listManualContexts(sourcePage?: string, authToken?: string): Promise<ManualContextEntry[]> {
+  const query = sourcePage ? `?sourcePage=${encodeURIComponent(sourcePage)}` : "";
+  return requestJson<ManualContextEntry[]>(`${backendBaseUrl}/manual-context${query}`, undefined, { authToken });
+}
+
+export async function createManualContext(
+  payload: ManualContextPayload,
+  authToken?: string
+): Promise<ManualContextEntry> {
+  return requestJson<ManualContextEntry>(
+    `${backendBaseUrl}/manual-context`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    },
+    { authToken }
+  );
+}
+
+export async function updateManualContext(
+  id: string,
+  payload: Partial<ManualContextPayload>,
+  authToken?: string
+): Promise<ManualContextEntry> {
+  return requestJson<ManualContextEntry>(
+    `${backendBaseUrl}/manual-context/${id}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    },
+    { authToken }
+  );
+}
+
+export async function deleteManualContext(id: string, authToken?: string): Promise<{ ok: boolean; id: string }> {
+  return requestJson<{ ok: boolean; id: string }>(
+    `${backendBaseUrl}/manual-context/${id}`,
+    {
+      method: "DELETE"
+    },
+    { authToken }
+  );
 }
 
 export async function getAgentWorkItems(authToken?: string): Promise<AgentWorkItemSnapshot[]> {
@@ -958,16 +1067,18 @@ export async function getExercises(): Promise<ExerciseItem[]> {
 }
 
 export async function getExerciseCatalog(): Promise<ExerciseCatalogItem[]> {
-  const items = await requestJson<RawDatabaseExercise[]>(`${backendBaseUrl}/exercises`);
-  return items.map(mapDatabaseExercise);
+  return (officialExerciseCatalog as OfficialExerciseCatalogSourceItem[]).slice(0, 40).map(mapOfficialExercise);
 }
 
 export async function createThread(): Promise<CreateThreadResponse> {
+  recordFrontendFlow("chat.thread.create.request", {});
   const result = await requestJson<{ thread_id: string }>(`${agentBaseUrl}/agent/threads`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({})
   });
+
+  recordFrontendFlow("chat.thread.create.response", { threadId: result.thread_id });
 
   return { threadId: result.thread_id };
 }
@@ -977,19 +1088,65 @@ export async function listThreads(): Promise<AgentThreadSummary[]> {
   return result.map(mapAgentThread);
 }
 
+export async function deleteThread(threadId: string): Promise<{ ok: boolean; id: string }> {
+  return requestJson<{ ok: boolean; id: string }>(`${agentBaseUrl}/agent/threads/${threadId}`, {
+    method: "DELETE"
+  });
+}
+
 export async function getThreadMessages(threadId: string): Promise<AgentMessage[]> {
   const result = await requestJson<RawAgentMessage[]>(`${agentBaseUrl}/agent/threads/${threadId}/messages`);
   return result.map(mapAgentMessage);
 }
 
 export async function postMessage(threadId: string, text: string): Promise<PostMessageResponse> {
+  recordFrontendFlow("chat.message.submit", {
+    threadId,
+    text,
+    textLength: text.length
+  });
+
+  recordFrontendFlow("chat.message.agent.request", {
+    threadId,
+    url: `${agentBaseUrl}/agent/threads/${threadId}/messages`,
+    body: { text },
+    textLength: text.length
+  });
+
   const result = await requestJson<RawPostMessageResponse>(`${agentBaseUrl}/agent/threads/${threadId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text })
   });
 
-  return mapPostMessageResponse(result);
+  recordFrontendFlow("chat.message.agent.raw_response", {
+    threadId,
+    id: result.id,
+    content: result.content,
+    reasoningSummary: result.reasoning_summary,
+    cards: result.cards,
+    runId: result.run_id,
+    toolEvents: result.tool_events,
+    nextActions: result.next_actions,
+    riskLevel: result.risk_level,
+    degradedMode: result.degraded_mode,
+    degradedReason: result.degraded_reason,
+    intent: result.intent,
+    intentConfidence: result.intent_confidence,
+    pendingProposalCount: result.pending_proposal_count
+  });
+
+  const mapped = mapPostMessageResponse(result);
+  recordFrontendFlow("chat.message.response", {
+    threadId,
+    assistantText: mapped.content,
+    riskLevel: mapped.riskLevel,
+    cardCount: mapped.cards.length,
+    toolEventCount: mapped.toolEvents.length,
+    degradedMode: mapped.degradedMode
+  });
+
+  return mapped;
 }
 
 export async function approveProposal(proposalId: string): Promise<ProposalDecisionResponse> {

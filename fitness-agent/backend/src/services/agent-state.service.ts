@@ -593,6 +593,16 @@ export class AgentStateService {
     return this.mapThread(updated);
   }
 
+  async deleteThread(threadId: string, userId?: string) {
+    const { thread } = await this.getThreadForActor(threadId, userId);
+    await this.prisma.agentThread.delete({ where: { id: thread.id } });
+
+    return {
+      ok: true,
+      id: thread.id
+    };
+  }
+
   async listMessages(threadId: string, userId?: string) {
     const { thread } = await this.getThreadForActor(threadId, userId);
     const messages = await this.prisma.agentMessage.findMany({
