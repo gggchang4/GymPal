@@ -98,6 +98,7 @@ export function ActivityRings({
                     style={{
                       transitionDelay: `${index * 120}ms`
                     }}
+                    onMouseEnter={() => handleRingEnter(ring.slug)}
                   />
                   <circle
                     className="ring-hover-target"

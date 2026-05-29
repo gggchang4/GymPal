@@ -404,6 +404,7 @@ class HealthAgentRuntime:
         "memory_save": "memory",
     }
     PLANNER_TOOL_WHITELIST = {
+        "get_user_profile",
         "get_coach_summary",
         "load_current_plan",
         "get_memory_summary",
@@ -425,6 +426,7 @@ class HealthAgentRuntime:
         "diet_log",
     }
     PLANNER_TOOL_ARGUMENT_ALLOWLIST = {
+        "get_user_profile": set(),
         "get_coach_summary": set(),
         "load_current_plan": set(),
         "get_workspace_summary": set(),
@@ -744,6 +746,7 @@ class HealthAgentRuntime:
     def _fallback_intent_from_keywords(self, text: str) -> dict[str, Any]:
         trigger = self._database_action_trigger(text)
         write_domain = str(trigger.get("domain") or "") or self._detect_write_domain(text)
+        agent_intent = "user_data_query" if self._is_profile_data_query(text) else None
         if self._is_explicit_meal_plan_request(text):
             intent = "meal_plan"
             write_domain = "meal_plan"
@@ -785,6 +788,7 @@ class HealthAgentRuntime:
             "should_clarify": False,
             "clarifying_question": "",
             "write_domain": write_domain or self.WRITE_INTENT_TO_DOMAIN.get(intent),
+            "agent_intent": agent_intent,
             "source": "keyword_fallback",
         }
 
@@ -826,6 +830,31 @@ class HealthAgentRuntime:
     def _contains_marker(text: str, markers: tuple[str, ...]) -> bool:
         lowered = text.lower()
         return any(marker in text or marker in lowered for marker in markers)
+
+    def _is_profile_data_query(self, text: str) -> bool:
+        personal_markers = ("我的", "我现在", "我目前", "本人", "档案", "资料", "profile", "my ")
+        profile_markers = (
+            "身高",
+            "年龄",
+            "体重",
+            "目标体重",
+            "训练经验",
+            "器械",
+            "器械条件",
+            "活动水平",
+            "每周训练",
+            "训练次数",
+            "性别",
+            "bmi",
+            "限制",
+            "伤病",
+            "height",
+            "age",
+            "weight",
+            "equipment",
+            "experience",
+        )
+        return self._contains_marker(text, personal_markers) and self._contains_marker(text, profile_markers)
 
     @staticmethod
     def _has_digit(text: str) -> bool:
@@ -2264,6 +2293,7 @@ class HealthAgentRuntime:
         elif agent_intent == "user_data_query":
             tools.extend(
                 [
+                    {"name": "get_user_profile", "arguments": {}, "purpose": "Read structured user profile facts such as height, age, training experience, equipment, and target weight."},
                     {"name": "get_coach_summary", "arguments": {}, "purpose": "Read recent training, recovery, and nutrition context."},
                     {"name": "get_memory_summary", "arguments": {}, "purpose": "Read relevant coaching preferences."},
                 ]
@@ -2480,7 +2510,7 @@ class HealthAgentRuntime:
         tool_events: list[ToolEvent] = []
         proposal_drafts: list[dict[str, Any]] = []
         validation_warnings: list[str] = []
-        auth_tools = {"get_coach_summary", "load_current_plan", "get_memory_summary", "get_workspace_summary"}
+        auth_tools = {"get_user_profile", "get_coach_summary", "load_current_plan", "get_memory_summary", "get_workspace_summary"}
 
         pending_tools = list(planner.get("tools") or [])[:4]
         for iteration in range(2):

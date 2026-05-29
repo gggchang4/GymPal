@@ -1746,6 +1746,60 @@ select:focus {
   gap: 14px;
 }
 
+.dashboard-activity-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+  padding: 16px 0 4px;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.dashboard-activity-actions .action-row {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+}
+
+.activity-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(16, 16, 18, 0.36);
+  backdrop-filter: blur(10px);
+}
+
+.activity-modal {
+  width: min(100%, 620px);
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 22px;
+  background: rgba(250, 250, 248, 0.96);
+  box-shadow: 0 24px 70px rgba(20, 20, 24, 0.2);
+}
+
+.dashboard-fixed-metric-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 760px) {
+  .dashboard-activity-actions,
+  .dashboard-fixed-metric-form {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-modal {
+    padding: 18px;
+    border-radius: 18px;
+  }
+}
+
 .dashboard-stack {
   gap: 28px;
 }
@@ -3464,18 +3518,30 @@ select:focus {
 .profile-trend-chart {
   display: grid;
   gap: 10px;
+  min-width: 0;
+}
+
+.profile-sparkline-wrap {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
 }
 
 .profile-trend-labels {
-  display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
-  gap: 8px;
+  position: relative;
+  height: 22px;
+  overflow: visible;
 }
 
 .profile-trend-labels span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
   color: rgba(20, 20, 20, 0.52);
   font-size: 11px;
+  line-height: 1;
   text-align: center;
+  white-space: nowrap;
 }
 
 .profile-trend-summary {

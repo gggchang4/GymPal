@@ -40,46 +40,75 @@ function formatLabel(value?: string) {
   return valueLabelMap[value] ?? value.replace(/_/g, " ");
 }
 
-function buildSparklinePath(points: number[], width: number, height: number) {
+function getSparklinePoint(
+  point: number,
+  index: number,
+  points: number[],
+  width: number,
+  height: number,
+  paddingX: number,
+  paddingTop: number,
+  paddingBottom: number
+) {
   const min = Math.min(...points);
   const max = Math.max(...points);
   const range = max - min || 1;
+  const plotWidth = width - paddingX * 2;
+  const plotHeight = height - paddingTop - paddingBottom;
+  const x = paddingX + (index / Math.max(points.length - 1, 1)) * plotWidth;
+  const y = paddingTop + (1 - (point - min) / range) * plotHeight;
 
+  return { x, y };
+}
+
+function buildSparklinePath(points: number[], width: number, height: number, paddingX: number, paddingTop: number, paddingBottom: number) {
   return points
     .map((point, index) => {
-      const x = (index / Math.max(points.length - 1, 1)) * width;
-      const y = height - ((point - min) / range) * height;
+      const { x, y } = getSparklinePoint(point, index, points, width, height, paddingX, paddingTop, paddingBottom);
       return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
     })
     .join(" ");
 }
 
-function WeightSparkline({ points }: { points: number[] }) {
+function WeightSparkline({ points, labels }: { points: number[]; labels: string[] }) {
   const width = 420;
-  const height = 120;
-  const path = buildSparklinePath(points, width, height);
-  const min = Math.min(...points);
-  const max = Math.max(...points);
-  const range = max - min || 1;
+  const height = 156;
+  const paddingX = 18;
+  const paddingTop = 16;
+  const paddingBottom = 24;
+  const path = buildSparklinePath(points, width, height, paddingX, paddingTop, paddingBottom);
 
   return (
-    <svg viewBox={`0 0 ${width} ${height + 12}`} className="profile-sparkline" aria-hidden="true">
-      <path d={path} className="profile-sparkline-path" />
-      {points.map((point, index) => {
-        const cx = (index / Math.max(points.length - 1, 1)) * width;
-        const cy = height - ((point - min) / range) * height;
+    <div className="profile-sparkline-wrap">
+      <svg viewBox={`0 0 ${width} ${height}`} className="profile-sparkline" aria-hidden="true">
+        <path d={path} className="profile-sparkline-path" />
+        {points.map((point, index) => {
+          const { x, y } = getSparklinePoint(point, index, points, width, height, paddingX, paddingTop, paddingBottom);
 
-        return (
-          <circle
-            key={`${point}-${index}`}
-            cx={cx}
-            cy={cy}
-            r={index === points.length - 1 ? 4.5 : 3}
-            className="profile-sparkline-dot"
-          />
-        );
-      })}
-    </svg>
+          return (
+            <circle
+              key={`${point}-${index}`}
+              cx={x}
+              cy={y}
+              r={index === points.length - 1 ? 4.5 : 3.5}
+              className="profile-sparkline-dot"
+            />
+          );
+        })}
+      </svg>
+      <div className="profile-trend-labels" aria-hidden="true">
+        {points.map((point, index) => {
+          const { x } = getSparklinePoint(point, index, points, width, height, paddingX, paddingTop, paddingBottom);
+          const label = labels[index] ?? "";
+
+          return (
+            <span key={`${label}-${point}-${index}`} style={{ left: `${(x / width) * 100}%` }}>
+              {label}
+            </span>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -113,6 +142,8 @@ export default async function ProfilePage() {
   const weightTrend = [...metrics].slice(0, 8).reverse();
   const weightPoints =
     weightTrend.length > 0 ? weightTrend.map((item) => item.weightKg) : [currentWeight || 0, currentWeight || 0];
+  const weightLabels =
+    weightTrend.length > 0 ? weightTrend.map((item) => formatDate(item.recordedAt)) : ["", ""];
 
   const weeklyWorkoutCount = workouts.filter((workout) => {
     if (!workout.recordedAt) {
@@ -235,12 +266,7 @@ export default async function ProfilePage() {
 
             <div className="profile-trend-panel">
               <div className="profile-trend-chart">
-                <WeightSparkline points={weightPoints} />
-                <div className="profile-trend-labels" aria-hidden="true">
-                  {weightTrend.map((item) => (
-                    <span key={`${item.recordedAt}-${item.weightKg}`}>{formatDate(item.recordedAt)}</span>
-                  ))}
-                </div>
+                <WeightSparkline points={weightPoints} labels={weightLabels} />
               </div>
 
               <div className="profile-trend-summary">
